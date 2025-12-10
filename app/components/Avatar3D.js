@@ -3,18 +3,31 @@
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Float } from "@react-three/drei";
 
-function Character() {
-  // 這裡先用一顆「會浮起來的球」當作角色
-  // 未來可以換成真正的 3D 模型
+// 根據不同款式，改變顏色與一點點大小差異
+const avatarStyles = {
+  sky: {
+    color: "#0ea5e9" // 天空藍：溫柔、專業
+  },
+  mint: {
+    color: "#22c55e" // 薄荷綠：清爽、偏清潔感
+  },
+  purple: {
+    color: "#a855f7" // 紫色：科技感、神秘一點
+  }
+};
+
+function Character({ variant = "sky" }) {
+  const style = avatarStyles[variant] || avatarStyles.sky;
+
   return (
     <mesh castShadow receiveShadow>
       <sphereGeometry args={[1, 32, 32]} />
-      <meshStandardMaterial color="#0ea5e9" />
+      <meshStandardMaterial color={style.color} />
     </mesh>
   );
 }
 
-export default function Avatar3D() {
+export default function Avatar3D({ variant = "sky" }) {
   return (
     <div className="w-full h-40 md:h-56">
       <Canvas camera={{ position: [0, 0, 4], fov: 45 }}>
@@ -27,7 +40,7 @@ export default function Avatar3D() {
           floatIntensity={0.7}
           floatingRange={[0.1, 0.4]}
         >
-          <Character />
+          <Character variant={variant} />
         </Float>
         <OrbitControls enableZoom={false} />
       </Canvas>
