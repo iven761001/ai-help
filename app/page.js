@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 
+const [currentEmotion, setCurrentEmotion] = useState("idle");
+
 const Avatar3D = dynamic(() => import("./components/Avatar3D"), {
   ssr: false
 });
@@ -44,6 +46,7 @@ export default function HomePage() {
     e.preventDefault();
     if (!email) return;
     setPhase("create");
+    setCurrentEmotion("happy");
   };
 
   // 創角完成：選球＋聲線＋暱稱 → 建立 user → 進聊天室
@@ -98,6 +101,7 @@ export default function HomePage() {
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setLoading(true);
+    setCurrentEmotion("thinking");
 
     try {
       const res = await fetch("/api/chat", {
@@ -111,15 +115,21 @@ export default function HomePage() {
           voice: user.voice
         })
       });
+const data = await res.json();
 
-      const data = await res.json();
-      const reply = {
-        role: "assistant",
-        content:
-          data.reply || "不好意思，我剛剛有點當機，再問我一次可以嗎？"
-      };
+const reply = {
+  role: "assistant",
+  content:
+    data.reply || "不好意思，我剛剛有點當機，再問我一次可以嗎？"
+};
 
-      setMessages((prev) => [...prev, reply]);
+setMessages((prev) => [...prev, reply]);
+
+if (data.emotion) {
+  setCurrentEmotion(data.emotion);  // ★ 根據 AI 傳回的 emotion 改變球的表情
+} else {
+  setCurrentEmotion("idle");
+}
     } catch (err) {
       console.error(err);
       setMessages((prev) => [
@@ -316,8 +326,7 @@ export default function HomePage() {
         {/* 左側：AI 角色區 */}
         <div className="md:w-1/3 bg-sky-50 p-4 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-sky-100">
           <div className="w-full mb-3 flex items-center justify-center">
-            <Avatar3D variant={user.avatar || "sky"} />
-          </div>
+            <Avatar3D variant={user.avatar || "sky"} emotion={currentEmotion} />
           <h2 className="text-lg font-semibold text-slate-800">
             {user.nickname}
           </h2>
