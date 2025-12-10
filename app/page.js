@@ -389,8 +389,8 @@ export default function HomePage() {
           style={{
             left: floatingPos.x,
             top: floatingPos.y,
-            width: 140,
-            height: 140,
+            width: 350,
+            height: 350,
             touchAction: "none"
           }}
         >
