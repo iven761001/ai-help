@@ -202,7 +202,7 @@ export default function HomePage() {
   // Phase 2：創角畫面（選球 + 語氣 + 暱稱）
   if (phase === "create") {
     return (
-      <main className="min-h-screen flex items-center justify-center px-4 py-6">
+      <main className="min-h-screen flex items-start justify-center px-4 py-6">
         <div className="w-full max-w-3xl bg-white rounded-2xl shadow-lg p-6 md:p-8 space-y-6">
           <h1 className="text-xl md:text-2xl font-bold text-slate-800 text-center">
             客製你的專屬 AI 小管家
@@ -273,7 +273,7 @@ export default function HomePage() {
                       className={classNames(
                         "px-3 py-2 rounded-full text-xs md:text-sm border transition",
                         selectedVoice === opt.id
-                          ? "bg-sky-500 border-sky-500 text-white"
+                          ? "bg-sky-500 border-sky-500 text白"
                           : "bg-slate-50 border-slate-200 text-slate-700"
                       )}
                     >
@@ -326,7 +326,7 @@ export default function HomePage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center px-2 py-4">
+    <main className="min-h-screen flex items-start justify-center px-2 py-4">
       <div className="w-full max-w-4xl bg-white rounded-2xl shadow-lg flex flex-col md:flex-row overflow-hidden">
         {/* 左側：AI 角色區 */}
         <div className="md:w-1/3 bg-sky-50 p-4 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-sky-100">
