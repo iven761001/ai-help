@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 
+// 3D 球元件（在 app/components/Avatar3D.js）
 const Avatar3D = dynamic(() => import("./components/Avatar3D"), {
   ssr: false
 });
@@ -26,7 +27,7 @@ export default function HomePage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // 球球情緒
+  // 球球情緒（對應 Avatar3D 的動作）
   const [currentEmotion, setCurrentEmotion] = useState("idle");
 
   // 浮動球的位置（畫面座標）
@@ -37,7 +38,7 @@ export default function HomePage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    // 讀使用者
+    // 使用者資料
     const saved = window.localStorage.getItem("ai-helper-user");
     if (saved) {
       const parsed = JSON.parse(saved);
@@ -47,23 +48,26 @@ export default function HomePage() {
       setPhase("bindEmail");
     }
 
-    // 設定球初始位置在畫面左下角附近
+    // 預設把球放在畫面左下角附近
     const h = window.innerHeight || 800;
-    setFloatingPos({ x: 16, y: h - 220 });
+    setFloatingPos({ x: 16, y: h - 200 });
   }, []);
 
-  // 拖拉事件：滑鼠 / 手指移動時更新位置
+  // 拖拉：滑鼠 / 觸控移動時更新位置
   useEffect(() => {
     if (!dragging) return;
 
     function handleMove(e) {
-      // 支援滑鼠與觸控
+      // 避免手機整個畫面被一起捲動
+      if (e.cancelable) e.preventDefault();
+
       const clientX = e.touches ? e.touches[0].clientX : e.clientX;
       const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
-      setFloatingPos((prev) => {
-        const next = { x: clientX - 70, y: clientY - 70 }; // 70 ≒ 球半徑
-        return next;
+      // 讓球中心在手指 / 滑鼠位置附近
+      setFloatingPos({
+        x: clientX - 70,
+        y: clientY - 70
       });
     }
 
@@ -252,7 +256,7 @@ export default function HomePage() {
   if (phase === "create") {
     return (
       <main className="min-h-screen flex items-start justify-center px-4 py-6">
-        <div className="w-full max-w-3xl bg-white rounded-2xl shadow-lg p-6 md:p-8 space-y-6">
+        <div className="w-full max-w-3xl bg白 rounded-2xl shadow-lg p-6 md:p-8 space-y-6">
           <h1 className="text-xl md:text-2xl font-bold text-slate-800 text-center">
             客製你的專屬 AI 小管家
           </h1>
@@ -261,7 +265,7 @@ export default function HomePage() {
           </p>
 
           <div className="grid md:grid-cols-2 gap-6 md:gap-8">
-            {/* 左邊：3D 預覽（這裡還是固定在版面內，不用拖拉） */}
+            {/* 左邊：3D 預覽（創角階段先固定在版面內就好） */}
             <div className="flex flex-col items-center">
               <div className="w-full max-w-xs">
                 <Avatar3D variant={selectedAvatar} emotion={currentEmotion} />
@@ -376,7 +380,7 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen flex items-start justify-center px-2 py-4 relative">
-      {/* 浮動球：只在聊天階段顯示，可以拖拉 */}
+      {/* ✅ 浮動球：只在聊天階段顯示，可以拖到整個畫面任何位置 */}
       {phase === "chat" && (
         <div
           onMouseDown={startDragging}
@@ -390,15 +394,15 @@ export default function HomePage() {
             touchAction: "none"
           }}
         >
-          <div className="w-full h-full rounded-full bg-sky-100/70 shadow-lg backdrop-blur-sm border border-sky-200 flex items-center justify-center">
+          <div className="w-full h-full rounded-full bg-sky-100/80 shadow-lg backdrop-blur-sm border border-sky-200 flex items-center justify-center">
             <Avatar3D variant={user.avatar || "sky"} emotion={currentEmotion} />
           </div>
         </div>
       )}
 
-      {/* 主卡片：純聊天資訊 + 設定說明，不再把球卡在版面裡 */}
+      {/* 主卡片：聊天區 + 文字資訊（球本體不在這裡） */}
       <div className="w-full max-w-4xl bg-white rounded-2xl shadow-lg flex flex-col md:flex-row overflow-hidden">
-        {/* 左側：AI 角色資訊文字區（沒有球本體） */}
+        {/* 左側：AI 角色資訊文字區 */}
         <div className="md:w-1/3 bg-sky-50 p-4 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-sky-100">
           <h2 className="text-lg font-semibold text-slate-800">
             {user.nickname}
@@ -413,7 +417,8 @@ export default function HomePage() {
             語氣設定：{voiceLabel(user.voice || "warm")}
           </p>
           <p className="mt-3 text-[11px] text-slate-400 text-center">
-            螢幕上那顆會動的球，就是 {user.nickname}，可以用手指或滑鼠拖到你順眼的位置。
+            螢幕上那顆會動的球，就是 {user.nickname}，
+            可以用手指或滑鼠拖到你順眼的位置。
           </p>
         </div>
 
