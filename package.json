@@ -8,9 +8,12 @@
     "start": "next start"
   },
   "dependencies": {
-    "next": "14.2.3",
-    "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "openai": "4.57.0"
-  }
+  "next": "14.2.3",
+  "react": "18.2.0",
+  "react-dom": "18.2.0",
+  "openai": "4.57.0",
+  "three": "^0.161.0",
+  "@react-three/fiber": "^8.16.0",
+  "@react-three/drei": "^9.114.0"
+}
 }
