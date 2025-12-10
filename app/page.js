@@ -29,9 +29,15 @@ export default function HomePage() {
   // 球球情緒
   const [currentEmotion, setCurrentEmotion] = useState("idle");
 
-  // 讀取 localStorage：如果有紀錄，就直接進聊天室
+  // 浮動球的位置（畫面座標）
+  const [floatingPos, setFloatingPos] = useState({ x: 16, y: 120 });
+  const [dragging, setDragging] = useState(false);
+
+  // 初始化：讀取 localStorage、設定球初始位置
   useEffect(() => {
     if (typeof window === "undefined") return;
+
+    // 讀使用者
     const saved = window.localStorage.getItem("ai-helper-user");
     if (saved) {
       const parsed = JSON.parse(saved);
@@ -40,7 +46,50 @@ export default function HomePage() {
     } else {
       setPhase("bindEmail");
     }
+
+    // 設定球初始位置在畫面左下角附近
+    const h = window.innerHeight || 800;
+    setFloatingPos({ x: 16, y: h - 220 });
   }, []);
+
+  // 拖拉事件：滑鼠 / 手指移動時更新位置
+  useEffect(() => {
+    if (!dragging) return;
+
+    function handleMove(e) {
+      // 支援滑鼠與觸控
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+      setFloatingPos((prev) => {
+        const next = { x: clientX - 70, y: clientY - 70 }; // 70 ≒ 球半徑
+        return next;
+      });
+    }
+
+    function handleUp() {
+      setDragging(false);
+    }
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("touchmove", handleMove, { passive: false });
+    window.addEventListener("touchend", handleUp);
+    window.addEventListener("touchcancel", handleUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      window.removeEventListener("touchmove", handleMove);
+      window.removeEventListener("touchend", handleUp);
+      window.removeEventListener("touchcancel", handleUp);
+    };
+  }, [dragging]);
+
+  const startDragging = (e) => {
+    e.preventDefault();
+    setDragging(true);
+  };
 
   // 送出 Email → 進入創角畫面
   const handleEmailSubmit = (e) => {
@@ -212,7 +261,7 @@ export default function HomePage() {
           </p>
 
           <div className="grid md:grid-cols-2 gap-6 md:gap-8">
-            {/* 左邊：3D 預覽 */}
+            {/* 左邊：3D 預覽（這裡還是固定在版面內，不用拖拉） */}
             <div className="flex flex-col items-center">
               <div className="w-full max-w-xs">
                 <Avatar3D variant={selectedAvatar} emotion={currentEmotion} />
@@ -273,7 +322,7 @@ export default function HomePage() {
                       className={classNames(
                         "px-3 py-2 rounded-full text-xs md:text-sm border transition",
                         selectedVoice === opt.id
-                          ? "bg-sky-500 border-sky-500 text白"
+                          ? "bg-sky-500 border-sky-500 text-white"
                           : "bg-slate-50 border-slate-200 text-slate-700"
                       )}
                     >
@@ -326,13 +375,31 @@ export default function HomePage() {
   }
 
   return (
-    <main className="min-h-screen flex items-start justify-center px-2 py-4">
-      <div className="w-full max-w-4xl bg-white rounded-2xl shadow-lg flex flex-col md:flex-row overflow-hidden">
-        {/* 左側：AI 角色區 */}
-        <div className="md:w-1/3 bg-sky-50 p-4 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-sky-100">
-          <div className="w-full mb-3 flex items-center justify-center">
+    <main className="min-h-screen flex items-start justify-center px-2 py-4 relative">
+      {/* 浮動球：只在聊天階段顯示，可以拖拉 */}
+      {phase === "chat" && (
+        <div
+          onMouseDown={startDragging}
+          onTouchStart={startDragging}
+          className="fixed z-30 cursor-grab active:cursor-grabbing"
+          style={{
+            left: floatingPos.x,
+            top: floatingPos.y,
+            width: 140,
+            height: 140,
+            touchAction: "none"
+          }}
+        >
+          <div className="w-full h-full rounded-full bg-sky-100/70 shadow-lg backdrop-blur-sm border border-sky-200 flex items-center justify-center">
             <Avatar3D variant={user.avatar || "sky"} emotion={currentEmotion} />
           </div>
+        </div>
+      )}
+
+      {/* 主卡片：純聊天資訊 + 設定說明，不再把球卡在版面裡 */}
+      <div className="w-full max-w-4xl bg-white rounded-2xl shadow-lg flex flex-col md:flex-row overflow-hidden">
+        {/* 左側：AI 角色資訊文字區（沒有球本體） */}
+        <div className="md:w-1/3 bg-sky-50 p-4 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-sky-100">
           <h2 className="text-lg font-semibold text-slate-800">
             {user.nickname}
           </h2>
@@ -344,6 +411,9 @@ export default function HomePage() {
           </p>
           <p className="mt-1 text-[11px] text-slate-400 text-center">
             語氣設定：{voiceLabel(user.voice || "warm")}
+          </p>
+          <p className="mt-3 text-[11px] text-slate-400 text-center">
+            螢幕上那顆會動的球，就是 {user.nickname}，可以用手指或滑鼠拖到你順眼的位置。
           </p>
         </div>
 
