@@ -51,6 +51,7 @@ export async function POST(req) {
       avatarDesc = "紫色核心球：性格略帶科技感，會多一點原理說明與小知識。";
     }
 
+    // 交代 AI 的角色 + 讓它回傳 JSON 形式（reply + emotion）
     const systemPrompt = `
 你是「南膜工坊」的專屬鍍膜＆清潔 AI 小管家，名字依客戶設定的暱稱顯示，目前暱稱是「${safeNickname}」。
 
@@ -84,3 +85,87 @@ export async function POST(req) {
 - 客戶選擇的聲線：${voiceStyle}
 
 ⚠ 非常重要：你「只允許」輸出一段 JSON 字串，不要加任何多餘說明文字。
+JSON 格式必須完全符合：
+{
+  "reply": "這裡放要給客人的回答內容，使用繁體中文。",
+  "emotion": "happy"
+}
+
+emotion 必須是以下其中一個字串，用來對應虛擬角色的動作：
+- "idle"：一般待機、平穩講解
+- "thinking"：在思考、分析複雜情況
+- "happy"：幫上忙、替客戶解決問題或有好消息時
+- "warning"：提醒客戶可能有風險、要小心使用清潔劑時
+- "sorry"：無法回答、資料不足或建議交給專業人員處理時
+
+請根據你的回答內容，選一個最適合的 emotion。
+`.trim();
+
+    const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: `客戶的問題如下：\n${message}`
+          }
+        ]
+      })
+    });
+
+    if (!openaiRes.ok) {
+      const errText = await openaiRes.text();
+      console.error("❌ OpenAI API 回應錯誤：", openaiRes.status, errText);
+      return new Response(
+        JSON.stringify({
+          reply: "後台 AI 服務暫時有點問題，等等再試試看，或聯絡技師詢問。",
+          emotion: "sorry"
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const data = await openaiRes.json();
+    const raw = data?.choices?.[0]?.message?.content ?? "";
+
+    let replyText = raw;
+    let emotion = "idle";
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed.reply === "string") {
+        replyText = parsed.reply;
+      }
+      if (
+        typeof parsed.emotion === "string" &&
+        ["idle", "thinking", "happy", "warning", "sorry"].includes(
+          parsed.emotion
+        )
+      ) {
+        emotion = parsed.emotion;
+      }
+    } catch (e) {
+      console.error("解析 AI JSON 回應失敗，改用原文字：", raw);
+    }
+
+    return new Response(JSON.stringify({ reply: replyText, emotion }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  } catch (error) {
+    console.error("❌ Chat API 例外錯誤：", error);
+    return new Response(
+      JSON.stringify({
+        reply: "伺服器這邊剛剛有點小狀況，等等再試一次看看喔～",
+        emotion: "sorry"
+      }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+}
