@@ -133,7 +133,7 @@ export default function HomePage() {
       } else {
         setCurrentEmotion("idle");
       }
-    } catch (err) {
+     catch (err) {
       console.error(err);
       setMessages((prev) => [
         ...prev,
