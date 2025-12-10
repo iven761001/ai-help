@@ -1,10 +1,14 @@
 "use client";
-
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 
 function classNames(...arr) {
   return arr.filter(Boolean).join(" ");
 }
+
+const Avatar3D = dynamic(() => import("./components/Avatar3D"), {
+  ssr: false
+});
 
 export default function HomePage() {
   const [user, setUser] = useState(null);
@@ -149,9 +153,9 @@ export default function HomePage() {
       <div className="w-full max-w-4xl bg-white rounded-2xl shadow-lg flex flex-col md:flex-row overflow-hidden">
         {/* 左側：AI 角色區 */}
         <div className="md:w-1/3 bg-sky-50 p-4 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-sky-100">
-          <div className="w-32 h-32 rounded-full bg-sky-200 flex items-center justify-center text-4xl mb-3">
-            🛁
-          </div>
+          <div className="w-full mb-3 flex items-center justify-center">
+  <Avatar3D />
+</div>
           <h2 className="text-lg font-semibold text-slate-800">
             {user.nickname}
           </h2>
