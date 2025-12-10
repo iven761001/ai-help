@@ -1,18 +1,27 @@
-import OpenAI from "openai";
-
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+// app/api/chat/route.js
 
 export async function POST(req) {
   try {
     const body = await req.json();
-    const { message, nickname, email } = body;
+    const { message, nickname, email } = body || {};
 
     if (!message) {
       return new Response(
         JSON.stringify({ error: "缺少 message 內容" }),
-        { status: 400 }
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+
+    // 如果沒讀到金鑰，直接回傳錯誤，方便測試
+    if (!apiKey) {
+      console.error("❌ OPENAI_API_KEY 沒有設定或讀不到");
+      return new Response(
+        JSON.stringify({
+          reply: "系統尚未設定 OpenAI 金鑰，請通知技師協助處理。"
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
       );
     }
 
@@ -23,7 +32,7 @@ export async function POST(req) {
 你是「南膜工坊」的專屬鍍膜＆清潔 AI 小管家，名字依客戶設定的暱稱顯示，目前暱稱是「${safeNickname}」。
 
 說話風格：
-- 使用台灣口語、溫柔、有禮貌，但不要太官僚
+- 使用台灣口語、溫柔、有禮貌，但不要太官腔
 - 回覆盡量具體，條列步驟，方便客人實作
 - 可以稍微有點親切幽默，但不要太屁孩
 
@@ -38,11 +47,6 @@ export async function POST(req) {
 - 不要隨便叫對方使用強酸、強鹼，除非非常常見、安全且使用方式清楚。
 - 如果問題已經超出一般家用範圍（嚴重發霉、結構損壞、電器/插座附近滲水），要提醒客人聯絡原技師或專業人員到現場判斷。
 
-口吻範例：
--「我幫你整理幾個簡單步驟～」
--「這個清潔劑建議先不要跟別的混用，安全比較重要。」
--「如果方便的話，也可以再請原本的技師現場看一下狀況。」
-
 你目前知道的資訊：
 - 客戶設定的 AI 暱稱：${safeNickname}
 - 客戶綁定的 email：${safeEmail}
@@ -50,19 +54,40 @@ export async function POST(req) {
 當你回覆時，可以偶爾自我介紹：「我是${safeNickname}」增加親切感，但不用每一句都講。
 `.trim();
 
-    const completion = await client.chat.completions.create({
-      model: "gpt-4.1-mini",
-      messages: [
-        { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: `客戶的問題如下：\n${message}`
-        }
-      ]
+    // 直接用 fetch 呼叫 OpenAI Chat Completions API
+    const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: `客戶的問題如下：\n${message}`
+          }
+        ]
+      })
     });
 
+    if (!openaiRes.ok) {
+      const errText = await openaiRes.text();
+      console.error("❌ OpenAI API 回應錯誤：", openaiRes.status, errText);
+      return new Response(
+        JSON.stringify({
+          reply: "後台 AI 服務暫時有點問題，等等再試試看，或聯絡技師詢問。"
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const data = await openaiRes.json();
+
     const reply =
-      completion.choices?.[0]?.message?.content ||
+      data?.choices?.[0]?.message?.content ||
       "我這邊有點當掉，再問我一次看看好嗎～";
 
     return new Response(JSON.stringify({ reply }), {
@@ -70,10 +95,12 @@ export async function POST(req) {
       headers: { "Content-Type": "application/json" }
     });
   } catch (error) {
-    console.error("Chat API error:", error);
+    console.error("❌ Chat API 例外錯誤：", error);
     return new Response(
-      JSON.stringify({ error: "伺服器發生錯誤，等等再試一次喔。" }),
-      { status: 500 }
+      JSON.stringify({
+        reply: "伺服器這邊剛剛有點小狀況，等等再試一次看看喔～"
+      }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
 }
