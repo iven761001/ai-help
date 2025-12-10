@@ -38,7 +38,6 @@ export default function HomePage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    // 使用者資料
     const saved = window.localStorage.getItem("ai-helper-user");
     if (saved) {
       const parsed = JSON.parse(saved);
@@ -53,22 +52,31 @@ export default function HomePage() {
     setFloatingPos({ x: 16, y: h - 200 });
   }, []);
 
-  // 拖拉：滑鼠 / 觸控移動時更新位置
+  // 拖拉：滑鼠 / 觸控移動時更新位置（範圍＝整個畫面）
   useEffect(() => {
     if (!dragging) return;
 
     function handleMove(e) {
-      // 避免手機整個畫面被一起捲動
       if (e.cancelable) e.preventDefault();
 
       const clientX = e.touches ? e.touches[0].clientX : e.clientX;
       const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
-      // 讓球中心在手指 / 滑鼠位置附近
-      setFloatingPos({
-        x: clientX - 70,
-        y: clientY - 70
-      });
+      const width = window.innerWidth || 400;
+      const height = window.innerHeight || 800;
+
+      let x = clientX - 70; // 70 ≒ 球半徑
+      let y = clientY - 70;
+
+      // 限制在整個視窗內，不會超出去
+      const maxX = width - 140;
+      const maxY = height - 140;
+      if (x < 0) x = 0;
+      if (y < 0) y = 0;
+      if (x > maxX) x = maxX;
+      if (y > maxY) y = maxY;
+
+      setFloatingPos({ x, y });
     }
 
     function handleUp() {
@@ -184,7 +192,7 @@ export default function HomePage() {
       setMessages((prev) => [...prev, reply]);
 
       if (data.emotion) {
-        setCurrentEmotion(data.emotion); // 根據 AI 傳回的 emotion 改變球的表情
+        setCurrentEmotion(data.emotion);
       } else {
         setCurrentEmotion("idle");
       }
@@ -256,7 +264,7 @@ export default function HomePage() {
   if (phase === "create") {
     return (
       <main className="min-h-screen flex items-start justify-center px-4 py-6">
-        <div className="w-full max-w-3xl bg白 rounded-2xl shadow-lg p-6 md:p-8 space-y-6">
+        <div className="w-full max-w-3xl bg-white rounded-2xl shadow-lg p-6 md:p-8 space-y-6">
           <h1 className="text-xl md:text-2xl font-bold text-slate-800 text-center">
             客製你的專屬 AI 小管家
           </h1>
@@ -389,8 +397,8 @@ export default function HomePage() {
           style={{
             left: floatingPos.x,
             top: floatingPos.y,
-            width: 350,
-            height: 350,
+            width: 140,
+            height: 140,
             touchAction: "none"
           }}
         >
