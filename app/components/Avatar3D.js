@@ -1,56 +1,60 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
 import { Canvas } from "@react-three/fiber";
-import { Sphere, MeshDistortMaterial, AmbientLight, PointLight } from "@react-three/drei";
-import { motion } from "framer-motion";
+import { Sphere, MeshDistortMaterial, OrbitControls } from "@react-three/drei";
 
-export default function Avatar3D({ variant = "sky", emotion = "idle", position, onDrag }) {
+function Ball({ color, emotion }) {
+  // 依照情緒調整球的變形與速度
+  let distort = 0.15;
+  let speed = 1;
 
-  const colorMap = {
-    sky: "#3ba6ff",
-    mint: "#36d695",
-    purple: "#7b2ff7"
-  };
+  if (emotion === "happy") {
+    distort = 0.35;
+    speed = 2;
+  } else if (emotion === "thinking") {
+    distort = 0.25;
+    speed = 1.5;
+  } else if (emotion === "sorry") {
+    distort = 0.2;
+    speed = 0.8;
+  }
 
   return (
-    <motion.div
-      drag
-      dragMomentum={false}
-      onDrag={(e, info) => {
-        onDrag && onDrag(info.point);
-      }}
-      style={{
-        position: "fixed",
-        top: position.top,
-        left: position.left,
-        width: 140,
-        height: 140,
-        zIndex: 9999,        // ★ 永遠浮在最上層
-        cursor: "grab",
-        touchAction: "none"
-      }}
-    >
+    <Sphere args={[1, 64, 64]}>
+      <MeshDistortMaterial
+        color={color}
+        distort={distort}
+        speed={speed}
+        roughness={0.2}
+      />
+    </Sphere>
+  );
+}
+
+export default function Avatar3D({ variant = "sky", emotion = "idle" }) {
+  // 球球顏色依照選的款式
+  const colorMap = {
+    sky: "#38bdf8",    // 天空藍
+    mint: "#22c55e",   // 薄荷綠
+    purple: "#a855f7"  // 紫色
+  };
+
+  const color = colorMap[variant] || colorMap.sky;
+
+  return (
+    <div className="w-full h-full">
       <Canvas
         camera={{ position: [0, 0, 3] }}
-        style={{
-          width: "100%",
-          height: "100%",
-          background: "transparent"    // ★ 沒有背景色
-        }}
+        style={{ width: "100%", height: "100%", background: "transparent" }}
       >
-        <AmbientLight intensity={0.7} />
-        <PointLight position={[10, 10, 10]} />
+        <ambientLight intensity={0.7} />
+        <directionalLight position={[5, 5, 5]} intensity={1} />
 
-        <Sphere args={[1, 64, 64]}>
-          <MeshDistortMaterial
-            color={colorMap[variant]}
-            distort={emotion === "happy" ? 0.5 : emotion === "thinking" ? 0.2 : 0}
-            speed={emotion === "happy" ? 2 : 1}
-            roughness={0.2}
-          />
-        </Sphere>
+        <Ball color={color} emotion={emotion} />
+
+        {/* 可以轉轉看球，不允許縮放 */}
+        <OrbitControls enableZoom={false} />
       </Canvas>
-    </motion.div>
+    </div>
   );
 }
