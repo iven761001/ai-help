@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 
-// 3D 球元件（在 app/components/Avatar3D.js）
 const Avatar3D = dynamic(() => import("./components/Avatar3D"), {
   ssr: false
 });
@@ -19,7 +18,6 @@ export default function HomePage() {
   const [email, setEmail] = useState("");
   const [nicknameInput, setNicknameInput] = useState("");
 
-  // 創角用狀態
   const [selectedAvatar, setSelectedAvatar] = useState("sky");
   const [selectedVoice, setSelectedVoice] = useState("warm"); // warm / calm / energetic
 
@@ -27,17 +25,10 @@ export default function HomePage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // 球球情緒（對應 Avatar3D 的動作）
   const [currentEmotion, setCurrentEmotion] = useState("idle");
 
-  // 浮動球的位置（畫面座標）
-  const [floatingPos, setFloatingPos] = useState({ x: 16, y: 120 });
-  const [dragging, setDragging] = useState(false);
-
-  // 初始化：讀取 localStorage、設定球初始位置
   useEffect(() => {
     if (typeof window === "undefined") return;
-
     const saved = window.localStorage.getItem("ai-helper-user");
     if (saved) {
       const parsed = JSON.parse(saved);
@@ -46,64 +37,8 @@ export default function HomePage() {
     } else {
       setPhase("bindEmail");
     }
-
-    // 預設把球放在畫面左下角附近
-    const h = window.innerHeight || 800;
-    setFloatingPos({ x: 16, y: h - 200 });
   }, []);
 
-  // 拖拉：滑鼠 / 觸控移動時更新位置（範圍＝整個畫面）
-  useEffect(() => {
-    if (!dragging) return;
-
-    function handleMove(e) {
-      if (e.cancelable) e.preventDefault();
-
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-
-      const width = window.innerWidth || 400;
-      const height = window.innerHeight || 800;
-
-      let x = clientX - 70; // 70 ≒ 球半徑
-      let y = clientY - 70;
-
-      // 限制在整個視窗內，不會超出去
-      const maxX = width - 140;
-      const maxY = height - 140;
-      if (x < 0) x = 0;
-      if (y < 0) y = 0;
-      if (x > maxX) x = maxX;
-      if (y > maxY) y = maxY;
-
-      setFloatingPos({ x, y });
-    }
-
-    function handleUp() {
-      setDragging(false);
-    }
-
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("mouseup", handleUp);
-    window.addEventListener("touchmove", handleMove, { passive: false });
-    window.addEventListener("touchend", handleUp);
-    window.addEventListener("touchcancel", handleUp);
-
-    return () => {
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
-      window.removeEventListener("touchmove", handleMove);
-      window.removeEventListener("touchend", handleUp);
-      window.removeEventListener("touchcancel", handleUp);
-    };
-  }, [dragging]);
-
-  const startDragging = (e) => {
-    e.preventDefault();
-    setDragging(true);
-  };
-
-  // 送出 Email → 進入創角畫面
   const handleEmailSubmit = (e) => {
     e.preventDefault();
     if (!email) return;
@@ -111,7 +46,6 @@ export default function HomePage() {
     setCurrentEmotion("happy");
   };
 
-  // 創角完成：選球＋聲線＋暱稱 → 建立 user → 進聊天室
   const handleCreateCharacter = (e) => {
     e.preventDefault();
     if (!nicknameInput || !email) return;
@@ -128,7 +62,6 @@ export default function HomePage() {
       window.localStorage.setItem("ai-helper-user", JSON.stringify(profile));
     }
 
-    // 給一段開場白
     let voiceHint = "";
     if (selectedVoice === "warm") {
       voiceHint = "我會用比較溫暖、親切的口氣跟你說明唷～";
@@ -153,7 +86,6 @@ export default function HomePage() {
     setCurrentEmotion("happy");
   };
 
-  // 傳訊息給後端 /api/chat
   const handleSend = async (e) => {
     e.preventDefault();
     if (!input.trim() || !user) return;
@@ -211,7 +143,6 @@ export default function HomePage() {
     }
   };
 
-  // 一開始還在讀 localStorage 的過程
   if (phase === "loading") {
     return (
       <main className="min-h-screen flex items-center justify-center">
@@ -220,7 +151,6 @@ export default function HomePage() {
     );
   }
 
-  // Phase 1：只綁定 Email
   if (phase === "bindEmail") {
     return (
       <main className="min-h-screen flex items-center justify-center px-4">
@@ -260,7 +190,6 @@ export default function HomePage() {
     );
   }
 
-  // Phase 2：創角畫面（選球 + 語氣 + 暱稱）
   if (phase === "create") {
     return (
       <main className="min-h-screen flex items-start justify-center px-4 py-6">
@@ -273,22 +202,23 @@ export default function HomePage() {
           </p>
 
           <div className="grid md:grid-cols-2 gap-6 md:gap-8">
-            {/* 左邊：3D 預覽（創角階段先固定在版面內就好） */}
             <div className="flex flex-col items-center">
               <div className="w-full max-w-xs">
-                <Avatar3D variant={selectedAvatar} emotion={currentEmotion} />
+                <Avatar3D
+                  variant={selectedAvatar}
+                  emotion={currentEmotion}
+                  mode="inline"
+                />
               </div>
               <p className="mt-2 text-xs text-slate-400 text-center">
                 你目前選擇的是：{avatarLabel(selectedAvatar)}
               </p>
             </div>
 
-            {/* 右邊：選項 + 暱稱 */}
             <form
               className="space-y-5 flex flex-col justify-between"
               onSubmit={handleCreateCharacter}
             >
-              {/* 選球款式 */}
               <div>
                 <p className="text-sm font-medium text-slate-700 mb-2">
                   ① 選擇小管家的核心球
@@ -316,7 +246,6 @@ export default function HomePage() {
                 </div>
               </div>
 
-              {/* 選聲線 */}
               <div>
                 <p className="text-sm font-medium text-slate-700 mb-2">
                   ② 選擇說話風格（聲線）
@@ -344,7 +273,6 @@ export default function HomePage() {
                 </div>
               </div>
 
-              {/* 暱稱 */}
               <div>
                 <p className="text-sm font-medium text-slate-700 mb-2">
                   ③ 幫小管家取一個名字
@@ -377,7 +305,6 @@ export default function HomePage() {
     );
   }
 
-  // Phase 3：聊天室（已經有 user）
   if (!user) {
     return (
       <main className="min-h-screen flex items-center justify-center">
@@ -388,28 +315,14 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen flex items-start justify-center px-2 py-4 relative">
-      {/* ✅ 浮動球：只在聊天階段顯示，可以拖到整個畫面任何位置 */}
-      {phase === "chat" && (
-        <div
-          onMouseDown={startDragging}
-          onTouchStart={startDragging}
-          className="fixed z-30 cursor-grab active:cursor-grabbing"
-          style={{
-            left: floatingPos.x,
-            top: floatingPos.y,
-            width: 140,
-            height: 140,
-            touchAction: "none"
-          }}
-        >
-          {/* ★ 這裡不再有任何背景色或方形區塊，完全透明，只看到球 */}
-          <Avatar3D variant={user.avatar || "sky"} emotion={currentEmotion} />
-        </div>
-      )}
+      {/* 浮在整個螢幕上的球（拖拉版） */}
+      <Avatar3D
+        variant={user.avatar || "sky"}
+        emotion={currentEmotion}
+        mode="floating"
+      />
 
-      {/* 主卡片：聊天區 + 文字資訊（注意：沒有 overflow-hidden） */}
       <div className="w-full max-w-4xl bg-white rounded-2xl shadow-lg flex flex-col md:flex-row">
-        {/* 左側：AI 角色資訊文字區 */}
         <div className="md:w-1/3 bg-sky-50 p-4 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-sky-100">
           <h2 className="text-lg font-semibold text-slate-800">
             {user.nickname}
@@ -429,7 +342,6 @@ export default function HomePage() {
           </p>
         </div>
 
-        {/* 右側：聊天區 */}
         <div className="md:w-2/3 flex flex-col">
           <div className="flex-1 flex flex-col p-4 space-y-2 overflow-y-auto max-h-[70vh]">
             {messages.length === 0 && (
@@ -497,7 +409,6 @@ export default function HomePage() {
   );
 }
 
-// 小工具：顯示中文標籤
 function avatarLabel(id) {
   if (id === "mint") return "薄荷綠核心球";
   if (id === "purple") return "紫色核心球";
