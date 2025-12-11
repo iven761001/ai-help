@@ -1,92 +1,56 @@
 "use client";
 
-import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, Float } from "@react-three/drei";
-import { useRef } from "react";
+import { useRef, useEffect, useState } from "react";
+import { Canvas } from "@react-three/fiber";
+import { Sphere, MeshDistortMaterial, AmbientLight, PointLight } from "@react-three/drei";
+import { motion } from "framer-motion";
 
-const avatarStyles = {
-  sky: {
-    color: "#0ea5e9" // 天空藍：溫柔、專業
-  },
-  mint: {
-    color: "#22c55e" // 薄荷綠：清爽、偏清潔感
-  },
-  purple: {
-    color: "#a855f7" // 紫色：科技感、神秘一點
-  }
-};
+export default function Avatar3D({ variant = "sky", emotion = "idle", position, onDrag }) {
 
-function Character({ variant = "sky", emotion = "idle" }) {
-  const style = avatarStyles[variant] || avatarStyles.sky;
-  const meshRef = useRef();
-  const baseScale = 1;
-
-  useFrame((state) => {
-    if (!meshRef.current) return;
-    const t = state.clock.getElapsedTime();
-
-    // 預設：微微浮動
-    let y = Math.sin(t) * 0.1;
-    let scale = baseScale;
-    let rotY = t * 0.4;
-    let rotZ = 0;
-
-    switch (emotion) {
-      case "happy":
-        y = Math.sin(t * 3) * 0.2; // 跳比較大
-        scale = baseScale + Math.sin(t * 5) * 0.05;
-        rotY = t * 1.5;
-        break;
-      case "thinking":
-        y = Math.sin(t * 0.8) * 0.05;
-        rotY = t * 0.8; // 慢慢轉
-        break;
-      case "warning":
-        y = Math.sin(t * 6) * 0.08;
-        rotZ = Math.sin(t * 20) * 0.12; // 左右小晃
-        break;
-      case "sorry":
-        y = -0.15 + Math.sin(t * 0.5) * 0.03;
-        scale = baseScale * 0.9;
-        rotY = t * 0.2;
-        break;
-      case "idle":
-      default:
-        // 用預設就好
-        break;
-    }
-
-    meshRef.current.position.y = y;
-    meshRef.current.scale.set(scale, scale, scale);
-    meshRef.current.rotation.y = rotY;
-    meshRef.current.rotation.z = rotZ;
-  });
+  const colorMap = {
+    sky: "#3ba6ff",
+    mint: "#36d695",
+    purple: "#7b2ff7"
+  };
 
   return (
-    <mesh ref={meshRef} castShadow receiveShadow>
-      <sphereGeometry args={[1, 32, 32]} />
-      <meshStandardMaterial color={style.color} />
-    </mesh>
-  );
-}
+    <motion.div
+      drag
+      dragMomentum={false}
+      onDrag={(e, info) => {
+        onDrag && onDrag(info.point);
+      }}
+      style={{
+        position: "fixed",
+        top: position.top,
+        left: position.left,
+        width: 140,
+        height: 140,
+        zIndex: 9999,        // ★ 永遠浮在最上層
+        cursor: "grab",
+        touchAction: "none"
+      }}
+    >
+      <Canvas
+        camera={{ position: [0, 0, 3] }}
+        style={{
+          width: "100%",
+          height: "100%",
+          background: "transparent"    // ★ 沒有背景色
+        }}
+      >
+        <AmbientLight intensity={0.7} />
+        <PointLight position={[10, 10, 10]} />
 
-export default function Avatar3D({ variant = "sky", emotion = "idle" }) {
-  return (
-    <div className="w-full h-40 md:h-56">
-      <Canvas camera={{ position: [0, 0, 4], fov: 45 }}>
-        <color attach="background" args={["#e0f2fe"]} />
-        <ambientLight intensity={0.6} />
-        <directionalLight position={[3, 4, 2]} intensity={0.9} />
-        <Float
-          speed={2}
-          rotationIntensity={1}
-          floatIntensity={0.7}
-          floatingRange={[0.1, 0.4]}
-        >
-          <Character variant={variant} emotion={emotion} />
-        </Float>
-        <OrbitControls enableZoom={false} />
+        <Sphere args={[1, 64, 64]}>
+          <MeshDistortMaterial
+            color={colorMap[variant]}
+            distort={emotion === "happy" ? 0.5 : emotion === "thinking" ? 0.2 : 0}
+            speed={emotion === "happy" ? 2 : 1}
+            roughness={0.2}
+          />
+        </Sphere>
       </Canvas>
-    </div>
+    </motion.div>
   );
 }
