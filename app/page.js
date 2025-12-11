@@ -408,8 +408,8 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* 主卡片：聊天區 + 文字資訊（球本體不在這裡） */}
-      <div className="w-full max-w-4xl bg-white rounded-2xl shadow-lg flex flex-col md:flex-row overflow-hidden">
+      {/* 主卡片：聊天區 + 文字資訊（注意：這裡已經 *沒有* overflow-hidden 了） */}
+      <div className="w-full max-w-4xl bg-white rounded-2xl shadow-lg flex flex-col md:flex-row">
         {/* 左側：AI 角色資訊文字區 */}
         <div className="md:w-1/3 bg-sky-50 p-4 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-sky-100">
           <h2 className="text-lg font-semibold text-slate-800">
