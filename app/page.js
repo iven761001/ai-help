@@ -27,6 +27,7 @@ export default function HomePage() {
 
   const [currentEmotion, setCurrentEmotion] = useState("idle");
 
+  // 讀取 localStorage 的 user
   useEffect(() => {
     if (typeof window === "undefined") return;
     const saved = window.localStorage.getItem("ai-helper-user");
@@ -84,6 +85,8 @@ export default function HomePage() {
 
     setPhase("chat");
     setCurrentEmotion("happy");
+    // 幾秒後回到 idle
+    setTimeout(() => setCurrentEmotion("idle"), 3000);
   };
 
   const handleSend = async (e) => {
@@ -123,11 +126,14 @@ export default function HomePage() {
 
       setMessages((prev) => [...prev, reply]);
 
-      if (data.emotion) {
-        setCurrentEmotion(data.emotion);
-      } else {
+      // 後端如果有給 emotion 就用後端的，沒有就預設 happy
+      const emo = data.emotion || "happy";
+      setCurrentEmotion(emo);
+
+      // 幾秒後慢慢回到 idle
+      setTimeout(() => {
         setCurrentEmotion("idle");
-      }
+      }, 4000);
     } catch (err) {
       console.error(err);
       setMessages((prev) => [
@@ -138,6 +144,9 @@ export default function HomePage() {
         }
       ]);
       setCurrentEmotion("sorry");
+      setTimeout(() => {
+        setCurrentEmotion("idle");
+      }, 4000);
     } finally {
       setLoading(false);
     }
@@ -202,6 +211,7 @@ export default function HomePage() {
           </p>
 
           <div className="grid md:grid-cols-2 gap-6 md:gap-8">
+            {/* 左邊：3D 預覽 */}
             <div className="flex flex-col items-center">
               <div className="w-full max-w-xs">
                 <Avatar3D
@@ -215,6 +225,7 @@ export default function HomePage() {
               </p>
             </div>
 
+            {/* 右邊：選項 + 暱稱 */}
             <form
               className="space-y-5 flex flex-col justify-between"
               onSubmit={handleCreateCharacter}
@@ -315,7 +326,7 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen flex items-start justify-center px-2 py-4 relative">
-      {/* 浮在整個螢幕上的球（拖拉版） */}
+      {/* 浮在整個螢幕上的球（聊天時用） */}
       <Avatar3D
         variant={user.avatar || "sky"}
         emotion={currentEmotion}
