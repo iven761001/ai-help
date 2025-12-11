@@ -402,13 +402,12 @@ export default function HomePage() {
             touchAction: "none"
           }}
         >
-          <div className="w-full h-full rounded-full bg-sky-100/80 shadow-lg backdrop-blur-sm border border-sky-200 flex items-center justify-center">
-            <Avatar3D variant={user.avatar || "sky"} emotion={currentEmotion} />
-          </div>
+          {/* ★ 這裡不再有任何背景色或方形區塊，完全透明，只看到球 */}
+          <Avatar3D variant={user.avatar || "sky"} emotion={currentEmotion} />
         </div>
       )}
 
-      {/* 主卡片：聊天區 + 文字資訊（注意：這裡已經 *沒有* overflow-hidden 了） */}
+      {/* 主卡片：聊天區 + 文字資訊（注意：沒有 overflow-hidden） */}
       <div className="w-full max-w-4xl bg-white rounded-2xl shadow-lg flex flex-col md:flex-row">
         {/* 左側：AI 角色資訊文字區 */}
         <div className="md:w-1/3 bg-sky-50 p-4 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-sky-100">
