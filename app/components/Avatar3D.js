@@ -1,38 +1,61 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { Sphere, MeshDistortMaterial, OrbitControls } from "@react-three/drei";
 
-function Ball({ color, emotion }) {
-  let distort = 0.15;
-  let speed = 1;
+// 會根據 emotion 上下浮動、扭動的球
+function AnimatedBall({ color, emotion }) {
+  const meshRef = useRef();
 
-  if (emotion === "happy") {
-    distort = 0.35;
-    speed = 2;
-  } else if (emotion === "thinking") {
-    distort = 0.25;
-    speed = 1.5;
-  } else if (emotion === "sorry") {
-    distort = 0.2;
-    speed = 0.8;
-  }
+  useFrame(({ clock }) => {
+    if (!meshRef.current) return;
+    const t = clock.getElapsedTime();
+
+    // 預設 idle
+    let amp = 0.03;   // 上下浮動幅度
+    let speed = 1.2;  // 浮動速度
+    let distort = 0.18; // 扭曲程度
+
+    if (emotion === "happy") {
+      amp = 0.15;
+      speed = 3;
+      distort = 0.45;
+    } else if (emotion === "thinking") {
+      amp = 0.06;
+      speed = 2;
+      distort = 0.3;
+    } else if (emotion === "sorry") {
+      amp = 0.02;
+      speed = 1.5;
+      distort = 0.22;
+    } else if (emotion === "idle") {
+      amp = 0.03;
+      speed = 1.2;
+      distort = 0.18;
+    }
+
+    meshRef.current.position.y = Math.sin(t * speed) * amp;
+    // 透過材質的 distort 做表情變化
+    if (meshRef.current.material) {
+      meshRef.current.material.distort = distort;
+    }
+  });
 
   return (
-    <Sphere args={[1, 64, 64]}>
+    <Sphere ref={meshRef} args={[1, 64, 64]}>
       <MeshDistortMaterial
         color={color}
-        distort={distort}
-        speed={speed}
+        distort={0.18}
+        speed={2}
         roughness={0.2}
       />
     </Sphere>
   );
 }
 
-function BallCanvas({ color, emotion }) {
+function BallScene({ color, emotion }) {
   return (
     <Canvas
       camera={{ position: [0, 0, 3] }}
@@ -40,15 +63,15 @@ function BallCanvas({ color, emotion }) {
     >
       <ambientLight intensity={0.7} />
       <directionalLight position={[5, 5, 5]} intensity={1} />
-      <Ball color={color} emotion={emotion} />
+      <AnimatedBall color={color} emotion={emotion} />
       <OrbitControls enableZoom={false} />
     </Canvas>
   );
 }
 
 /**
- * mode="inline"   : 嵌在版面裡（創角畫面用）
- * mode="floating" : 浮在整個螢幕上，可拖拉（聊天室用）
+ * mode="inline"   : 創角畫面用，嵌在排版裡
+ * mode="floating" : 聊天畫面用，浮在整個螢幕上，可拖拉
  */
 export default function Avatar3D({
   variant = "sky",
@@ -56,22 +79,22 @@ export default function Avatar3D({
   mode = "inline"
 }) {
   const colorMap = {
-    sky: "#38bdf8",
-    mint: "#22c55e",
-    purple: "#a855f7"
+    sky: "#38bdf8", // 天空藍
+    mint: "#22c55e", // 薄荷綠
+    purple: "#a855f7" // 紫色
   };
   const color = colorMap[variant] || colorMap.sky;
 
-  // inline 模式：就乖乖待在容器裡
+  // 創角階段 → 乖乖在版面中
   if (mode === "inline") {
     return (
       <div className="w-full h-full">
-        <BallCanvas color={color} emotion={emotion} />
+        <BallScene color={color} emotion={emotion} />
       </div>
     );
   }
 
-  // 下面是 floating 模式（整個螢幕拖拉）
+  // 底下是浮動模式（聊天時那顆）
   const [mounted, setMounted] = useState(false);
   const [pos, setPos] = useState({ x: 20, y: 120 });
   const [dragging, setDragging] = useState(false);
@@ -80,21 +103,20 @@ export default function Avatar3D({
     setMounted(true);
     if (typeof window === "undefined") return;
 
-    // 讀取之前儲存的位置
     const saved = window.localStorage.getItem("floating-ball-pos");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (typeof parsed.x === "number" && typeof parsed.y === "number") {
           setPos(parsed);
+          return;
         }
       } catch (e) {
         // ignore
       }
-    } else {
-      const h = window.innerHeight || 800;
-      setPos({ x: 16, y: h - 200 });
     }
+    const h = window.innerHeight || 800;
+    setPos({ x: 16, y: h - 200 });
   }, []);
 
   useEffect(() => {
@@ -167,10 +189,10 @@ export default function Avatar3D({
         pointerEvents: "auto"
       }}
     >
-      <BallCanvas color={color} emotion={emotion} />
+      <BallScene color={color} emotion={emotion} />
     </div>
   );
 
-  // 用 Portal 直接畫到 <body>，完全不受版面限制
+  // 直接掛在 body 上，不會再被任何版面限制
   return createPortal(ballNode, document.body);
 }
