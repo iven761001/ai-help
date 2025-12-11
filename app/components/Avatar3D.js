@@ -8,38 +8,49 @@ import { Sphere, MeshDistortMaterial, OrbitControls } from "@react-three/drei";
 // 會根據 emotion 上下浮動、扭動的球
 function AnimatedBall({ color, emotion }) {
   const meshRef = useRef();
+  const emotionRef = useRef(emotion);
+
+  // 把最新的 emotion 存進 ref，避免 useFrame 吃到舊值
+  useEffect(() => {
+    emotionRef.current = emotion;
+  }, [emotion]);
 
   useFrame(({ clock }) => {
     if (!meshRef.current) return;
     const t = clock.getElapsedTime();
 
-    // 預設 idle
-    let amp = 0.03;   // 上下浮動幅度
-    let speed = 1.2;  // 浮動速度
-    let distort = 0.18; // 扭曲程度
+    const emo = emotionRef.current;
 
-    if (emotion === "happy") {
-      amp = 0.15;
-      speed = 3;
-      distort = 0.45;
-    } else if (emotion === "thinking") {
+    // 預設 idle
+    let amp = 0.03; // 上下浮動幅度
+    let speed = 1.2; // 浮動速度
+    let distort = 0.15; // 扭曲程度
+
+    if (emo === "happy") {
+      amp = 0.18;
+      speed = 3.2;
+      distort = 0.5;
+    } else if (emo === "thinking") {
       amp = 0.06;
-      speed = 2;
-      distort = 0.3;
-    } else if (emotion === "sorry") {
+      speed = 1.6;
+      distort = 0.28;
+    } else if (emo === "sorry") {
       amp = 0.02;
-      speed = 1.5;
+      speed = 0.8;
       distort = 0.22;
-    } else if (emotion === "idle") {
+    } else if (emo === "idle") {
       amp = 0.03;
       speed = 1.2;
       distort = 0.18;
     }
 
+    // 上下浮動
     meshRef.current.position.y = Math.sin(t * speed) * amp;
-    // 透過材質的 distort 做表情變化
-    if (meshRef.current.material) {
-      meshRef.current.material.distort = distort;
+
+    // 材質扭曲（表情強弱）
+    const mat = meshRef.current.material;
+    if (mat && "distort" in mat) {
+      mat.distort = distort;
     }
   });
 
@@ -85,7 +96,7 @@ export default function Avatar3D({
   };
   const color = colorMap[variant] || colorMap.sky;
 
-  // 創角階段 → 乖乖在版面中
+  // 創角階段 → 乖乖在卡片中
   if (mode === "inline") {
     return (
       <div className="w-full h-full">
@@ -94,7 +105,7 @@ export default function Avatar3D({
     );
   }
 
-  // 底下是浮動模式（聊天時那顆）
+  // 聊天階段 → 浮在螢幕上，可以拖拉
   const [mounted, setMounted] = useState(false);
   const [pos, setPos] = useState({ x: 20, y: 120 });
   const [dragging, setDragging] = useState(false);
@@ -193,6 +204,6 @@ export default function Avatar3D({
     </div>
   );
 
-  // 直接掛在 body 上，不會再被任何版面限制
+  // 用 portal 掛在 <body>，不被版面限制
   return createPortal(ballNode, document.body);
 }
