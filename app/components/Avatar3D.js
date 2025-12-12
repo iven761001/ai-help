@@ -1,80 +1,157 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Sphere, MeshDistortMaterial, OrbitControls } from "@react-three/drei";
+import { OrbitControls } from "@react-three/drei";
 
-// 會根據 emotion 上下浮動、扭動的球
-function AnimatedBall({ color, emotion }) {
-  const meshRef = useRef();
+/** 果凍小熊：用幾何體拼出來（不需要外部模型） */
+function GummyBear({ color, emotion }) {
+  const groupRef = useRef();
   const emotionRef = useRef(emotion);
 
-  // 把最新的 emotion 存進 ref，避免 useFrame 吃到舊值
   useEffect(() => {
     emotionRef.current = emotion;
   }, [emotion]);
 
-  useFrame(({ clock }) => {
-    if (!meshRef.current) return;
-    const t = clock.getElapsedTime();
+  // 讓果凍材質更像小熊軟糖：半透明 + 光澤
+  const materialProps = useMemo(
+    () => ({
+      color,
+      roughness: 0.18,
+      metalness: 0.0,
+      transmission: 0.85, // 透明感（像果凍）
+      thickness: 1.2, // 果凍厚度
+      ior: 1.35, // 折射率
+      clearcoat: 0.7,
+      clearcoatRoughness: 0.15
+    }),
+    [color]
+  );
 
+  useFrame(({ clock }) => {
+    if (!groupRef.current) return;
+
+    const t = clock.getElapsedTime();
     const emo = emotionRef.current;
 
-    // 預設 idle
-    let amp = 0.03; // 上下浮動幅度
-    let speed = 1.2; // 浮動速度
-    let distort = 0.15; // 扭曲程度
+    // 不同情緒：晃動/彈性/呼吸幅度
+    let bobAmp = 0.03;
+    let bobSpeed = 1.1;
+    let wobbleAmp = 0.05;
+    let wobbleSpeed = 1.5;
+    let pulseAmp = 0.015;
 
     if (emo === "happy") {
-      amp = 0.18;
-      speed = 3.2;
-      distort = 0.5;
+      bobAmp = 0.11;
+      bobSpeed = 2.8;
+      wobbleAmp = 0.14;
+      wobbleSpeed = 3.0;
+      pulseAmp = 0.06;
     } else if (emo === "thinking") {
-      amp = 0.06;
-      speed = 1.6;
-      distort = 0.28;
+      bobAmp = 0.05;
+      bobSpeed = 1.6;
+      wobbleAmp = 0.07;
+      wobbleSpeed = 1.8;
+      pulseAmp = 0.02;
     } else if (emo === "sorry") {
-      amp = 0.02;
-      speed = 0.8;
-      distort = 0.22;
-    } else if (emo === "idle") {
-      amp = 0.03;
-      speed = 1.2;
-      distort = 0.18;
+      bobAmp = 0.02;
+      bobSpeed = 0.9;
+      wobbleAmp = 0.04;
+      wobbleSpeed = 1.0;
+      pulseAmp = 0.01;
     }
 
-    // 上下浮動
-    meshRef.current.position.y = Math.sin(t * speed) * amp;
+    // 上下飄
+    groupRef.current.position.y = Math.sin(t * bobSpeed) * bobAmp;
 
-    // 材質扭曲（表情強弱）
-    const mat = meshRef.current.material;
-    if (mat && "distort" in mat) {
-      mat.distort = distort;
-    }
+    // 果凍搖晃（左右、前後、旋轉）
+    groupRef.current.rotation.z = Math.sin(t * wobbleSpeed) * wobbleAmp * 0.25;
+    groupRef.current.rotation.x = Math.sin(t * wobbleSpeed * 0.9) * wobbleAmp * 0.18;
+    groupRef.current.rotation.y = Math.cos(t * wobbleSpeed * 0.8) * wobbleAmp * 0.12;
+
+    // 呼吸/彈性縮放
+    const s = 1 + Math.sin(t * (bobSpeed + 0.8)) * pulseAmp;
+    groupRef.current.scale.set(s, 1 - pulseAmp * 0.55 + Math.cos(t * bobSpeed) * pulseAmp * 0.35, s);
   });
 
   return (
-    <Sphere ref={meshRef} args={[1, 64, 64]}>
-      <MeshDistortMaterial
-        color={color}
-        distort={0.18}
-        speed={2}
-        roughness={0.2}
-      />
-    </Sphere>
+    <group ref={groupRef} position={[0, 0, 0]}>
+      {/* 身體 */}
+      <mesh position={[0, -0.15, 0]}>
+        <capsuleGeometry args={[0.5, 0.65, 10, 18]} />
+        <meshPhysicalMaterial {...materialProps} />
+      </mesh>
+
+      {/* 頭 */}
+      <mesh position={[0, 0.55, 0]}>
+        <sphereGeometry args={[0.42, 28, 28]} />
+        <meshPhysicalMaterial {...materialProps} />
+      </mesh>
+
+      {/* 耳朵 */}
+      <mesh position={[-0.32, 0.88, 0]}>
+        <sphereGeometry args={[0.18, 22, 22]} />
+        <meshPhysicalMaterial {...materialProps} />
+      </mesh>
+      <mesh position={[0.32, 0.88, 0]}>
+        <sphereGeometry args={[0.18, 22, 22]} />
+        <meshPhysicalMaterial {...materialProps} />
+      </mesh>
+
+      {/* 手臂 */}
+      <mesh position={[-0.6, 0.12, 0]} rotation={[0, 0, 0.35]}>
+        <capsuleGeometry args={[0.17, 0.35, 8, 16]} />
+        <meshPhysicalMaterial {...materialProps} />
+      </mesh>
+      <mesh position={[0.6, 0.12, 0]} rotation={[0, 0, -0.35]}>
+        <capsuleGeometry args={[0.17, 0.35, 8, 16]} />
+        <meshPhysicalMaterial {...materialProps} />
+      </mesh>
+
+      {/* 腿 */}
+      <mesh position={[-0.25, -0.72, 0]} rotation={[0, 0, 0.08]}>
+        <capsuleGeometry args={[0.20, 0.35, 8, 16]} />
+        <meshPhysicalMaterial {...materialProps} />
+      </mesh>
+      <mesh position={[0.25, -0.72, 0]} rotation={[0, 0, -0.08]}>
+        <capsuleGeometry args={[0.20, 0.35, 8, 16]} />
+        <meshPhysicalMaterial {...materialProps} />
+      </mesh>
+
+      {/* 肚子亮面小反光（讓它更像糖） */}
+      <mesh position={[0.02, -0.05, 0.33]} rotation={[0, 0, 0.1]}>
+        <sphereGeometry args={[0.22, 18, 18]} />
+        <meshPhysicalMaterial
+          color={"#ffffff"}
+          roughness={0.08}
+          metalness={0}
+          transmission={0.95}
+          thickness={0.2}
+          ior={1.4}
+          opacity={0.35}
+          transparent
+        />
+      </mesh>
+    </group>
   );
 }
 
-function BallScene({ color, emotion }) {
+function GummyScene({ color, emotion }) {
   return (
     <Canvas
-      camera={{ position: [0, 0, 3] }}
+      camera={{ position: [0, 0.2, 3.2], fov: 45 }}
       style={{ width: "100%", height: "100%", background: "transparent" }}
     >
-      <ambientLight intensity={0.7} />
-      <directionalLight position={[5, 5, 5]} intensity={1} />
-      <AnimatedBall color={color} emotion={emotion} />
+      {/* 光：糖果感要靠光 */}
+      <ambientLight intensity={0.75} />
+      <directionalLight position={[4, 6, 5]} intensity={1.2} />
+      <pointLight position={[-6, 2, 6]} intensity={0.8} />
+      <pointLight position={[0, -2, 3]} intensity={0.35} />
+
+      <GummyBear color={color} emotion={emotion} />
+
+      {/* 允許轉動看，不能縮放 */}
       <OrbitControls enableZoom={false} />
     </Canvas>
   );
@@ -89,32 +166,33 @@ export default function Avatar3D({
   emotion = "idle",
   mode = "inline"
 }) {
+  // 你原本的三種款式 → 變成三種小熊軟糖口味顏色
   const colorMap = {
-    sky: "#38bdf8", // 天空藍
-    mint: "#22c55e", // 薄荷綠
-    purple: "#a855f7" // 紫色
+    sky: "#35b7ff", // 藍莓冰沙（偏藍）
+    mint: "#33e3a0", // 薄荷青蘋（偏綠）
+    purple: "#b26bff" // 葡萄汽水（偏紫）
   };
   const color = colorMap[variant] || colorMap.sky;
 
-  // 創角階段 → 乖乖在卡片中
+  // 創角階段：嵌在卡片裡
   if (mode === "inline") {
     return (
       <div className="w-full h-full">
-        <BallScene color={color} emotion={emotion} />
+        <GummyScene color={color} emotion={emotion} />
       </div>
     );
   }
 
-  // 聊天階段 → 浮在螢幕上，可以拖拉
+  // 聊天階段：浮在螢幕上，可拖拉（Portal 到 body）
   const [mounted, setMounted] = useState(false);
-  const [pos, setPos] = useState({ x: 20, y: 120 });
+  const [pos, setPos] = useState({ x: 16, y: 120 });
   const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
     setMounted(true);
     if (typeof window === "undefined") return;
 
-    const saved = window.localStorage.getItem("floating-ball-pos");
+    const saved = window.localStorage.getItem("floating-bear-pos");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -122,12 +200,10 @@ export default function Avatar3D({
           setPos(parsed);
           return;
         }
-      } catch (e) {
-        // ignore
-      }
+      } catch {}
     }
     const h = window.innerHeight || 800;
-    setPos({ x: 16, y: h - 200 });
+    setPos({ x: 16, y: h - 220 });
   }, []);
 
   useEffect(() => {
@@ -135,18 +211,21 @@ export default function Avatar3D({
 
     function handleMove(e) {
       if (e.cancelable) e.preventDefault();
-
       const clientX = e.touches ? e.touches[0].clientX : e.clientX;
       const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
       const width = window.innerWidth || 400;
       const height = window.innerHeight || 800;
 
-      let x = clientX - 70;
-      let y = clientY - 70;
+      // 小熊外框大小（讓它在畫面內）
+      const boxW = 160;
+      const boxH = 200;
 
-      const maxX = width - 140;
-      const maxY = height - 140;
+      let x = clientX - boxW / 2;
+      let y = clientY - boxH / 2;
+
+      const maxX = width - boxW;
+      const maxY = height - boxH;
       if (x < 0) x = 0;
       if (y < 0) y = 0;
       if (x > maxX) x = maxX;
@@ -158,7 +237,7 @@ export default function Avatar3D({
     function handleUp() {
       setDragging(false);
       if (typeof window !== "undefined") {
-        window.localStorage.setItem("floating-ball-pos", JSON.stringify(pos));
+        window.localStorage.setItem("floating-bear-pos", JSON.stringify(pos));
       }
     }
 
@@ -184,7 +263,7 @@ export default function Avatar3D({
 
   if (!mounted) return null;
 
-  const ballNode = (
+  const node = (
     <div
       onMouseDown={handleDown}
       onTouchStart={handleDown}
@@ -192,18 +271,17 @@ export default function Avatar3D({
         position: "fixed",
         left: pos.x,
         top: pos.y,
-        width: 140,
-        height: 140,
+        width: 160,
+        height: 200,
         zIndex: 9999,
         cursor: "grab",
         touchAction: "none",
         pointerEvents: "auto"
       }}
     >
-      <BallScene color={color} emotion={emotion} />
+      <GummyScene color={color} emotion={emotion} />
     </div>
   );
 
-  // 用 portal 掛在 <body>，不被版面限制
-  return createPortal(ballNode, document.body);
+  return createPortal(node, document.body);
 }
