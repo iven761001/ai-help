@@ -5,19 +5,14 @@ import { createPortal } from "react-dom";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 
-/** 生成「電路紋」貼圖：用 Canvas 畫線，不用任何外部圖片 */
-function makeCircuitTexture({
-  size = 512,
-  seed = 1,
-  glow = "#65d9ff",
-  bg = "rgba(0,0,0,0)"
-}) {
+/** 生成「電路紋」貼圖：用 Canvas 畫線，不用外部圖片 */
+function makeCircuitTexture({ size = 512, seed = 1, glow = "#65d9ff" }) {
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d");
 
-  // 簡易 deterministic random
+  // deterministic random
   let s = seed >>> 0;
   const rand = () => {
     s = (s * 1664525 + 1013904223) >>> 0;
@@ -25,23 +20,22 @@ function makeCircuitTexture({
   };
 
   ctx.clearRect(0, 0, size, size);
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, size, size);
 
-  // 背景淡淡的雜訊點
+  // 背景淡淡的雜訊點（讓它更像「晶片底」）
+  ctx.globalCompositeOperation = "source-over";
   ctx.globalAlpha = 0.18;
-  for (let i = 0; i < 1800; i++) {
+  for (let i = 0; i < 2200; i++) {
     const x = Math.floor(rand() * size);
     const y = Math.floor(rand() * size);
-    const a = 0.2 + rand() * 0.6;
-    ctx.fillStyle = `rgba(120,220,255,${a})`;
+    const a = 0.15 + rand() * 0.55;
+    ctx.fillStyle = `rgba(180,245,255,${a})`;
     ctx.fillRect(x, y, 1, 1);
   }
 
-  // 主電路線條
-  const lines = 55;
-  ctx.globalAlpha = 0.9;
-  ctx.lineWidth = 2;
+  // 主電路線條：更粗、更亮（手機才看得清楚）
+  ctx.globalAlpha = 0.95;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
   ctx.strokeStyle = glow;
 
   const drawPath = (x0, y0) => {
@@ -50,25 +44,26 @@ function makeCircuitTexture({
     let x = x0;
     let y = y0;
 
-    const steps = 10 + Math.floor(rand() * 14);
+    const steps = 8 + Math.floor(rand() * 10);
     for (let k = 0; k < steps; k++) {
       const dir = Math.floor(rand() * 4);
-      const len = 18 + Math.floor(rand() * 75);
+      const len = 25 + Math.floor(rand() * 90);
+
       if (dir === 0) x += len;
       if (dir === 1) x -= len;
       if (dir === 2) y += len;
       if (dir === 3) y -= len;
 
-      x = Math.max(8, Math.min(size - 8, x));
-      y = Math.max(8, Math.min(size - 8, y));
+      x = Math.max(10, Math.min(size - 10, x));
+      y = Math.max(10, Math.min(size - 10, y));
       ctx.lineTo(x, y);
 
-      // 節點圓點
-      if (rand() < 0.55) {
+      // 節點
+      if (rand() < 0.6) {
         ctx.stroke();
         ctx.beginPath();
-        ctx.arc(x, y, 3 + rand() * 3, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(170,245,255,0.9)";
+        ctx.arc(x, y, 3 + rand() * 4, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(235,255,255,0.95)";
         ctx.fill();
         ctx.beginPath();
         ctx.moveTo(x, y);
@@ -77,23 +72,24 @@ function makeCircuitTexture({
     ctx.stroke();
   };
 
+  const lines = 42;
   for (let i = 0; i < lines; i++) {
     const x0 = rand() * size;
     const y0 = rand() * size;
-    ctx.lineWidth = 1.2 + rand() * 2.2;
+    ctx.lineWidth = 1.8 + rand() * 3.0; // ← 加粗
     drawPath(x0, y0);
   }
 
-  // 柔和外光（模擬 bloom 的一點點效果）
+  // 外光暈（用 lighter 疊加）
   ctx.globalCompositeOperation = "lighter";
-  ctx.globalAlpha = 0.22;
-  for (let i = 0; i < 35; i++) {
+  ctx.globalAlpha = 0.26;
+  for (let i = 0; i < 40; i++) {
     const x = rand() * size;
     const y = rand() * size;
-    const r = 30 + rand() * 90;
+    const r = 35 + rand() * 110;
     const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, "rgba(120,230,255,0.55)");
-    g.addColorStop(1, "rgba(120,230,255,0)");
+    g.addColorStop(0, "rgba(190,255,255,0.55)");
+    g.addColorStop(1, "rgba(190,255,255,0)");
     ctx.fillStyle = g;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -103,182 +99,187 @@ function makeCircuitTexture({
   return canvas;
 }
 
-/** 科技玻璃小熊（幾何拼裝 + 玻璃材質 + 內部電路貼圖） */
-function TechGlassBear({ color, emotion }) {
+/** 科技玻璃小熊：外層玻璃 + 內層電路發光（Additive） */
+function TechGlassBear({ glassColor, glowColor, emotion }) {
   const groupRef = useRef();
-  const matRef = useRef();
-  const circuitRef = useRef();
   const emotionRef = useRef(emotion);
+  const circuitRef = useRef(null);
 
   useEffect(() => {
     emotionRef.current = emotion;
   }, [emotion]);
 
-  // 生成電路貼圖（每個 variant 給不同 seed）
+  // 生成電路貼圖（依 variant seed）
   const circuitCanvas = useMemo(() => {
-    // 這裡用顏色不同→ seed 不同
-    const seed = color === "#33e3a0" ? 7 : color === "#b26bff" ? 13 : 3;
     if (typeof document === "undefined") return null;
-    return makeCircuitTexture({ seed, glow: "#78e7ff" });
-  }, [color]);
+    // 用 glowColor 也來影響 seed，讓三款線條分佈不同
+    const seed =
+      glowColor === "#4fffd2" ? 7 : glowColor === "#b26bff" ? 13 : 3;
+    return makeCircuitTexture({ seed, glow: glowColor });
+  }, [glowColor]);
 
-  // 建立 Three texture（延後到有 document 才做）
+  // 建立 THREE CanvasTexture
   useEffect(() => {
     if (!circuitCanvas) return;
-    // 動態 import，避免 SSR
     let disposed = false;
+
     (async () => {
       const THREE = await import("three");
       if (disposed) return;
+
       const tex = new THREE.CanvasTexture(circuitCanvas);
       tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-      tex.repeat.set(1.2, 1.2);
+      tex.repeat.set(1.1, 1.1);
       tex.needsUpdate = true;
+
       circuitRef.current = { THREE, tex };
     })();
+
     return () => {
       disposed = true;
-      // 交給 GC，或你也可以在這裡 dispose
     };
   }, [circuitCanvas]);
 
-  // 玻璃材質（外層）
+  // 外層玻璃（讓它更像你那張「玻璃糖」）
   const glassMaterialProps = useMemo(
     () => ({
-      color,
-      roughness: 0.08,
+      color: glassColor,
+      roughness: 0.06,
       metalness: 0.0,
-      transmission: 0.92,
-      thickness: 1.5,
-      ior: 1.45,
+      transmission: 0.95,
+      thickness: 1.8,
+      ior: 1.48,
       clearcoat: 1.0,
-      clearcoatRoughness: 0.12
+      clearcoatRoughness: 0.1
     }),
-    [color]
+    [glassColor]
   );
 
   useFrame(({ clock }) => {
     if (!groupRef.current) return;
+
     const t = clock.getElapsedTime();
     const emo = emotionRef.current;
 
     // 情緒→動作/亮度
     let bobAmp = 0.02;
     let bobSpeed = 1.0;
-    let wobble = 0.03;
+    let wobble = 0.04;
     let glow = 0.55; // 電路亮度
     let pulse = 0.015;
 
     if (emo === "happy") {
-      bobAmp = 0.10;
+      bobAmp = 0.1;
       bobSpeed = 2.6;
-      wobble = 0.12;
-      glow = 1.15;
+      wobble = 0.14;
+      glow = 1.25;
       pulse = 0.06;
     } else if (emo === "thinking") {
       bobAmp = 0.05;
       bobSpeed = 1.6;
-      wobble = 0.06;
-      glow = 0.85;
+      wobble = 0.07;
+      glow = 0.95;
       pulse = 0.02;
     } else if (emo === "sorry") {
-      bobAmp = 0.015;
+      bobAmp = 0.012;
       bobSpeed = 0.85;
-      wobble = 0.03;
+      wobble = 0.035;
       glow = 0.35;
       pulse = 0.01;
-    } else {
-      // idle
-      bobAmp = 0.02;
-      bobSpeed = 1.0;
-      wobble = 0.04;
-      glow = 0.55;
-      pulse = 0.015;
     }
 
     // 上下飄 + 果凍晃
     groupRef.current.position.y = Math.sin(t * bobSpeed) * bobAmp;
-    groupRef.current.rotation.z = Math.sin(t * bobSpeed) * wobble * 0.18;
+    groupRef.current.rotation.z = Math.sin(t * bobSpeed) * wobble * 0.16;
     groupRef.current.rotation.x = Math.sin(t * bobSpeed * 0.85) * wobble * 0.12;
-    groupRef.current.rotation.y = Math.cos(t * bobSpeed * 0.8) * wobble * 0.10;
+    groupRef.current.rotation.y = Math.cos(t * bobSpeed * 0.8) * wobble * 0.11;
 
     // 呼吸縮放
     const s = 1 + Math.sin(t * (bobSpeed + 0.7)) * pulse;
-    groupRef.current.scale.set(s, 1 - pulse * 0.4 + Math.cos(t * bobSpeed) * pulse * 0.25, s);
+    groupRef.current.scale.set(
+      s,
+      1 - pulse * 0.35 + Math.cos(t * bobSpeed) * pulse * 0.25,
+      s
+    );
 
-    // 電路貼圖：讓它「流動」＆亮度隨情緒變
+    // 電路貼圖：流動
     if (circuitRef.current?.tex) {
-      circuitRef.current.tex.offset.x = (t * 0.02) % 1;
-      circuitRef.current.tex.offset.y = (t * 0.015) % 1;
+      circuitRef.current.tex.offset.x = (t * 0.03) % 1;
+      circuitRef.current.tex.offset.y = (t * 0.022) % 1;
     }
 
-    // 把 glow 帶到 emissive 強度（材質 ref）
-    if (matRef.current) {
-      matRef.current.emissiveIntensity = glow + Math.sin(t * (bobSpeed + 1.2)) * 0.12;
+    // 把 glow 寫回 ref，讓內層材質吃到
+    if (circuitRef.current) {
+      circuitRef.current.glow = glow;
     }
   });
 
-  // 內部「電路發光層」材質（用 emissiveMap 模擬）
-  const InnerCircuit = ({ scale = 0.92 }) => {
+  /** 內層電路材質：用 Additive 疊加，手機更清楚 */
+  const InnerCircuitMeshes = () => {
     const [ready, setReady] = useState(false);
+
     useEffect(() => {
       if (circuitRef.current?.tex) setReady(true);
     }, [circuitCanvas]);
 
-    // 內層：稍微縮小一點，讓它像在玻璃裡面
     if (!ready) return null;
 
-    const THREE = circuitRef.current.THREE;
-    const tex = circuitRef.current.tex;
+    const { THREE, tex } = circuitRef.current;
 
+    const CircuitMat = ({ opacity = 0.55 }) => (
+      <meshBasicMaterial
+        color={new THREE.Color(glowColor)}
+        map={tex}
+        transparent
+        opacity={opacity}
+        blending={THREE.AdditiveBlending}
+        depthWrite={false}
+      />
+    );
+
+    // 內層縮小一點，確保「在玻璃裡面」，但不要太小（不然看不到）
     return (
-      <group scale={[scale, scale, scale]}>
+      <group scale={[0.965, 0.965, 0.965]}>
+        {/* 身體 */}
         <mesh position={[0, -0.15, 0]}>
           <capsuleGeometry args={[0.5, 0.65, 10, 18]} />
-          <meshStandardMaterial
-            color={"#0b1b2a"}
-            emissive={new THREE.Color("#7fefff")}
-            emissiveMap={tex}
-            emissiveIntensity={0.7}
-            transparent
-            opacity={0.35}
-          />
+          <CircuitMat opacity={0.62} />
         </mesh>
 
+        {/* 頭 */}
         <mesh position={[0, 0.55, 0]}>
           <sphereGeometry args={[0.42, 28, 28]} />
-          <meshStandardMaterial
-            color={"#0b1b2a"}
-            emissive={new THREE.Color("#7fefff")}
-            emissiveMap={tex}
-            emissiveIntensity={0.7}
-            transparent
-            opacity={0.32}
-          />
+          <CircuitMat opacity={0.6} />
         </mesh>
 
-        {/* 四肢也給點紋路，但更淡 */}
+        {/* 耳朵 */}
+        <mesh position={[-0.32, 0.88, 0]}>
+          <sphereGeometry args={[0.18, 22, 22]} />
+          <CircuitMat opacity={0.52} />
+        </mesh>
+        <mesh position={[0.32, 0.88, 0]}>
+          <sphereGeometry args={[0.18, 22, 22]} />
+          <CircuitMat opacity={0.52} />
+        </mesh>
+
+        {/* 手臂 */}
         <mesh position={[-0.6, 0.12, 0]} rotation={[0, 0, 0.35]}>
           <capsuleGeometry args={[0.17, 0.35, 8, 16]} />
-          <meshStandardMaterial
-            color={"#0b1b2a"}
-            emissive={new THREE.Color("#7fefff")}
-            emissiveMap={tex}
-            emissiveIntensity={0.55}
-            transparent
-            opacity={0.28}
-          />
+          <CircuitMat opacity={0.55} />
         </mesh>
         <mesh position={[0.6, 0.12, 0]} rotation={[0, 0, -0.35]}>
           <capsuleGeometry args={[0.17, 0.35, 8, 16]} />
-          <meshStandardMaterial
-            color={"#0b1b2a"}
-            emissive={new THREE.Color("#7fefff")}
-            emissiveMap={tex}
-            emissiveIntensity={0.55}
-            transparent
-            opacity={0.28}
-          />
+          <CircuitMat opacity={0.55} />
+        </mesh>
+
+        {/* 腿 */}
+        <mesh position={[-0.25, -0.72, 0]} rotation={[0, 0, 0.08]}>
+          <capsuleGeometry args={[0.2, 0.35, 8, 16]} />
+          <CircuitMat opacity={0.5} />
+        </mesh>
+        <mesh position={[0.25, -0.72, 0]} rotation={[0, 0, -0.08]}>
+          <capsuleGeometry args={[0.2, 0.35, 8, 16]} />
+          <CircuitMat opacity={0.5} />
         </mesh>
       </group>
     );
@@ -286,13 +287,13 @@ function TechGlassBear({ color, emotion }) {
 
   return (
     <group ref={groupRef} position={[0, 0, 0]}>
-      {/* 內部電路層 */}
-      <InnerCircuit />
+      {/* 內層電路發光 */}
+      <InnerCircuitMeshes />
 
-      {/* 外層玻璃小熊（主要形體） */}
+      {/* 外層玻璃 */}
       <mesh position={[0, -0.15, 0]}>
         <capsuleGeometry args={[0.5, 0.65, 10, 18]} />
-        <meshPhysicalMaterial ref={matRef} {...glassMaterialProps} />
+        <meshPhysicalMaterial {...glassMaterialProps} />
       </mesh>
 
       <mesh position={[0, 0.55, 0]}>
@@ -327,17 +328,17 @@ function TechGlassBear({ color, emotion }) {
         <meshPhysicalMaterial {...glassMaterialProps} />
       </mesh>
 
-      {/* 小小高光點，讓它更「科技玻璃」 */}
+      {/* 小高光 */}
       <mesh position={[0.02, -0.05, 0.33]} rotation={[0, 0, 0.1]}>
         <sphereGeometry args={[0.22, 18, 18]} />
         <meshPhysicalMaterial
           color={"#ffffff"}
           roughness={0.05}
           metalness={0}
-          transmission={0.95}
+          transmission={0.96}
           thickness={0.2}
           ior={1.5}
-          opacity={0.25}
+          opacity={0.22}
           transparent
         />
       </mesh>
@@ -345,19 +346,23 @@ function TechGlassBear({ color, emotion }) {
   );
 }
 
-function Scene({ color, emotion }) {
+function Scene({ glassColor, glowColor, emotion }) {
   return (
     <Canvas
       camera={{ position: [0, 0.25, 3.2], fov: 45 }}
       style={{ width: "100%", height: "100%", background: "transparent" }}
     >
-      {/* 冷色科技打光（接近你那張圖） */}
+      {/* 冷色科技打光 */}
       <ambientLight intensity={0.55} />
       <directionalLight position={[6, 8, 6]} intensity={1.25} />
       <pointLight position={[-6, 2, 8]} intensity={0.9} />
       <pointLight position={[0, -2, 3]} intensity={0.35} />
 
-      <TechGlassBear color={color} emotion={emotion} />
+      <TechGlassBear
+        glassColor={glassColor}
+        glowColor={glowColor}
+        emotion={emotion}
+      />
 
       <OrbitControls enableZoom={false} />
     </Canvas>
@@ -365,32 +370,42 @@ function Scene({ color, emotion }) {
 }
 
 /**
- * mode="inline"   : 創角畫面用，嵌在排版裡
- * mode="floating" : 聊天畫面用，浮在整個螢幕上，可拖拉
+ * mode="inline"   : 創角畫面用（嵌在卡片）
+ * mode="floating" : 聊天畫面用（浮在螢幕上，可拖拉）
  */
 export default function Avatar3D({
   variant = "sky",
   emotion = "idle",
   mode = "inline"
 }) {
-  // 三種款式＝三種色系（跟你原本一致）
-  const colorMap = {
-    sky: "#35b7ff", // 天空藍
-    mint: "#33e3a0", // 薄荷綠
-    purple: "#b26bff" // 紫色
+  // ✅ 外層玻璃顏色（比較淡，不要吃掉電路）
+  const glassMap = {
+    sky: "#cfefff",
+    mint: "#d6fff1",
+    purple: "#efe2ff"
   };
-  const color = colorMap[variant] || colorMap.sky;
 
-  // 創角階段：嵌在卡片
+  // ✅ 電路冷光顏色（跟你原本三色連動）
+  // sky: 冷藍光、mint: 冷薄荷光、purple: 冷紫光
+  const glowMap = {
+    sky: "#65d9ff",
+    mint: "#4fffd2",
+    purple: "#b26bff"
+  };
+
+  const glassColor = glassMap[variant] || glassMap.sky;
+  const glowColor = glowMap[variant] || glowMap.sky;
+
+  // 創角畫面：嵌在卡片
   if (mode === "inline") {
     return (
       <div className="w-full h-full">
-        <Scene color={color} emotion={emotion} />
+        <Scene glassColor={glassColor} glowColor={glowColor} emotion={emotion} />
       </div>
     );
   }
 
-  // 聊天階段：浮動 + 可拖拉（Portal 到 body）
+  // 聊天畫面：浮動 + 可拖拉（Portal 到 body）
   const [mounted, setMounted] = useState(false);
   const [pos, setPos] = useState({ x: 16, y: 120 });
   const [dragging, setDragging] = useState(false);
@@ -409,6 +424,7 @@ export default function Avatar3D({
         }
       } catch {}
     }
+
     const h = window.innerHeight || 800;
     setPos({ x: 16, y: h - 240 });
   }, []);
@@ -485,7 +501,7 @@ export default function Avatar3D({
         pointerEvents: "auto"
       }}
     >
-      <Scene color={color} emotion={emotion} />
+      <Scene glassColor={glassColor} glowColor={glowColor} emotion={emotion} />
     </div>
   );
 
