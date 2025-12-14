@@ -5,25 +5,21 @@ import { createPortal } from "react-dom";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 
-/** 生成「透明底」的電路貼圖：只有線條有顏色，背景完全透明 */
+/** 生成「透明底」電路貼圖：只有線條有顏色，背景透明 */
 function makeCircuitTexture({ size = 512, seed = 1, glow = "#65d9ff" }) {
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d");
 
-  // deterministic random
   let s = seed >>> 0;
   const rand = () => {
     s = (s * 1664525 + 1013904223) >>> 0;
     return s / 4294967296;
   };
 
-  // 透明底（關鍵）
   ctx.clearRect(0, 0, size, size);
   ctx.globalCompositeOperation = "source-over";
-
-  // 線條：用 rgba 直接控制 alpha（不要噪點、不要光暈，避免白化）
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
@@ -47,7 +43,6 @@ function makeCircuitTexture({ size = 512, seed = 1, glow = "#65d9ff" }) {
       y = Math.max(10, Math.min(size - 10, y));
       ctx.lineTo(x, y);
 
-      // 節點點點
       if (rand() < 0.55) {
         ctx.stroke();
         ctx.beginPath();
@@ -65,19 +60,14 @@ function makeCircuitTexture({ size = 512, seed = 1, glow = "#65d9ff" }) {
   for (let i = 0; i < lines; i++) {
     const x0 = rand() * size;
     const y0 = rand() * size;
-
     const w = 1.4 + rand() * 2.6;
     ctx.lineWidth = w;
 
-    // 線條顏色（帶 alpha）
-    // 讓它像「冷光線」：主線不透明、偶爾來一條淡的
     const a = 0.55 + rand() * 0.35;
     ctx.strokeStyle = hexToRgba(glow, a);
-
     drawPath(x0, y0);
   }
 
-  // 小量的「短線」讓它更像電路
   for (let i = 0; i < 120; i++) {
     const x = rand() * size;
     const y = rand() * size;
@@ -96,7 +86,8 @@ function makeCircuitTexture({ size = 512, seed = 1, glow = "#65d9ff" }) {
 
 function hexToRgba(hex, a) {
   const h = hex.replace("#", "");
-  const bigint = parseInt(h.length === 3 ? h.split("").map(c => c + c).join("") : h, 16);
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const bigint = parseInt(full, 16);
   const r = (bigint >> 16) & 255;
   const g = (bigint >> 8) & 255;
   const b = bigint & 255;
@@ -104,14 +95,19 @@ function hexToRgba(hex, a) {
 }
 
 /** 科技玻璃小熊：外層玻璃 + 表面電路線條（流動） */
-function TechGlassBear({ glassColor, glowColor, emotion }) {
+function TechGlassBear({ glassColor, glowColor, emotion, isDragging }) {
   const groupRef = useRef();
   const emotionRef = useRef(emotion);
+  const dragRef = useRef(isDragging);
   const texRef = useRef(null);
 
   useEffect(() => {
     emotionRef.current = emotion;
   }, [emotion]);
+
+  useEffect(() => {
+    dragRef.current = isDragging;
+  }, [isDragging]);
 
   const circuitCanvas = useMemo(() => {
     if (typeof document === "undefined") return null;
@@ -132,11 +128,9 @@ function TechGlassBear({ glassColor, glowColor, emotion }) {
       tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
       tex.repeat.set(1.25, 1.25);
       tex.needsUpdate = true;
-
-      // 透明貼圖更穩（避免某些裝置 alpha 發灰）
       tex.premultiplyAlpha = true;
 
-      texRef.current = { THREE, tex };
+      texRef.current = { THREE, tex, lineOpacity: 0.55 };
     })();
 
     return () => {
@@ -160,15 +154,32 @@ function TechGlassBear({ glassColor, glowColor, emotion }) {
 
   useFrame(({ clock }) => {
     if (!groupRef.current) return;
+
     const t = clock.getElapsedTime();
     const emo = emotionRef.current;
+    const dragging = dragRef.current;
+
+    // ✅ 拖拉時：不要搖晃/旋轉，避免「翻滾感」
+    if (dragging) {
+      groupRef.current.position.y = 0;
+      groupRef.current.rotation.x = 0;
+      groupRef.current.rotation.y = 0;
+      groupRef.current.rotation.z = 0;
+      groupRef.current.scale.set(1, 1, 1);
+
+      // 線條依然可以流動（保留科技感）
+      if (texRef.current?.tex) {
+        texRef.current.tex.offset.x = (t * 0.045) % 1;
+        texRef.current.tex.offset.y = (t * 0.03) % 1;
+      }
+      return;
+    }
 
     let bobAmp = 0.02;
     let bobSpeed = 1.0;
     let wobble = 0.04;
     let pulse = 0.015;
 
-    // 線條亮度（用 opacity 控）
     let lineOpacity = 0.55;
 
     if (emo === "happy") {
@@ -203,7 +214,6 @@ function TechGlassBear({ glassColor, glowColor, emotion }) {
       s
     );
 
-    // 貼圖流動（你要的「表面流動感」在這）
     if (texRef.current?.tex) {
       texRef.current.tex.offset.x = (t * 0.045) % 1;
       texRef.current.tex.offset.y = (t * 0.03) % 1;
@@ -229,7 +239,7 @@ function TechGlassBear({ glassColor, glowColor, emotion }) {
           color={glowColor}
           transparent
           opacity={texRef.current?.lineOpacity ?? 0.55}
-          blending={THREE.NormalBlending}   // ✅ 不用 Additive，避免整隻白
+          blending={THREE.NormalBlending}
           depthWrite={false}
           toneMapped={false}
         />
@@ -239,7 +249,7 @@ function TechGlassBear({ glassColor, glowColor, emotion }) {
 
   return (
     <group ref={groupRef} position={[0, 0, 0]}>
-      {/* 外層玻璃（可透） */}
+      {/* 外層玻璃 */}
       <mesh position={[0, -0.15, 0]}>
         <capsuleGeometry args={[0.5, 0.65, 10, 18]} />
         <meshPhysicalMaterial {...glassMaterialProps} />
@@ -277,7 +287,7 @@ function TechGlassBear({ glassColor, glowColor, emotion }) {
         <meshPhysicalMaterial {...glassMaterialProps} />
       </mesh>
 
-      {/* ✅ 表面電路線條（覆蓋在外層表面上） */}
+      {/* 表面電路（略大一點，貼在表面） */}
       <CircuitSurface
         pos={[0, -0.15, 0]}
         rot={[0, 0, 0]}
@@ -337,7 +347,7 @@ function TechGlassBear({ glassColor, glowColor, emotion }) {
   );
 }
 
-function Scene({ glassColor, glowColor, emotion }) {
+function Scene({ glassColor, glowColor, emotion, isDragging, enableControls }) {
   return (
     <Canvas
       camera={{ position: [0, 0.25, 3.2], fov: 45 }}
@@ -348,11 +358,34 @@ function Scene({ glassColor, glowColor, emotion }) {
       <pointLight position={[-6, 2, 8]} intensity={0.9} />
       <pointLight position={[0, -2, 3]} intensity={0.35} />
 
-      <TechGlassBear glassColor={glassColor} glowColor={glowColor} emotion={emotion} />
+      <TechGlassBear
+        glassColor={glassColor}
+        glowColor={glowColor}
+        emotion={emotion}
+        isDragging={isDragging}
+      />
 
-      <OrbitControls enableZoom={false} />
+      {/* ✅ 浮動模式不開 controls，避免拖曳手勢造成翻滾 */}
+      {enableControls ? <OrbitControls enableZoom={false} /> : null}
     </Canvas>
   );
+}
+
+/** 依 emotion 讓「浮動容器」大小跟著變，降低遮蔽 UI 的機率 */
+function getBoxSize(emotion, vw) {
+  // 基礎：手機上不要太大
+  const baseW = Math.max(130, Math.min(170, Math.floor(vw * 0.36)));
+  const baseH = Math.floor(baseW * 1.28);
+
+  let k = 1.0;
+  if (emotion === "happy") k = 1.08;
+  else if (emotion === "thinking") k = 1.03;
+  else if (emotion === "sorry") k = 0.98;
+
+  return {
+    w: Math.round(baseW * k),
+    h: Math.round(baseH * k)
+  };
 }
 
 /**
@@ -360,14 +393,12 @@ function Scene({ glassColor, glowColor, emotion }) {
  * mode="floating" : 聊天畫面用（浮在螢幕上，可拖拉）
  */
 export default function Avatar3D({ variant = "sky", emotion = "idle", mode = "inline" }) {
-  // 外層玻璃顏色：不要太白，保留「糖」的顏色感
   const glassMap = {
     sky: "#7fdcff",
     mint: "#6fffd6",
     purple: "#d3a8ff"
   };
 
-  // 電路冷光：沿用你原本三色概念（線條顏色會跟著變）
   const glowMap = {
     sky: "#65d9ff",
     mint: "#4fffd2",
@@ -377,21 +408,38 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", mode = "in
   const glassColor = glassMap[variant] || glassMap.sky;
   const glowColor = glowMap[variant] || glowMap.sky;
 
+  // 創角畫面：嵌在卡片（保留可轉動看）
   if (mode === "inline") {
     return (
       <div className="w-full h-full">
-        <Scene glassColor={glassColor} glowColor={glowColor} emotion={emotion} />
+        <Scene
+          glassColor={glassColor}
+          glowColor={glowColor}
+          emotion={emotion}
+          isDragging={false}
+          enableControls={true}
+        />
       </div>
     );
   }
 
+  // 聊天畫面：浮動 + 可拖拉（Portal 到 body）
   const [mounted, setMounted] = useState(false);
   const [pos, setPos] = useState({ x: 16, y: 120 });
   const [dragging, setDragging] = useState(false);
+  const [box, setBox] = useState({ w: 170, h: 220 });
 
   useEffect(() => {
     setMounted(true);
     if (typeof window === "undefined") return;
+
+    // 初次計算尺寸
+    setBox(getBoxSize(emotion, window.innerWidth || 390));
+
+    const onResize = () => {
+      setBox(getBoxSize(emotion, window.innerWidth || 390));
+    };
+    window.addEventListener("resize", onResize);
 
     const saved = window.localStorage.getItem("floating-techbear-pos");
     if (saved) {
@@ -399,14 +447,21 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", mode = "in
         const parsed = JSON.parse(saved);
         if (typeof parsed.x === "number" && typeof parsed.y === "number") {
           setPos(parsed);
-          return;
         }
       } catch {}
+    } else {
+      const h = window.innerHeight || 800;
+      setPos({ x: 16, y: h - 240 });
     }
 
-    const h = window.innerHeight || 800;
-    setPos({ x: 16, y: h - 240 });
+    return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  // emotion 變更時，讓框也跟著重新計算（你說的「隨熊顯示動態變動大小」）
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setBox(getBoxSize(emotion, window.innerWidth || 390));
+  }, [emotion]);
 
   useEffect(() => {
     if (!dragging) return;
@@ -419,8 +474,8 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", mode = "in
       const width = window.innerWidth || 400;
       const height = window.innerHeight || 800;
 
-      const boxW = 170;
-      const boxH = 220;
+      const boxW = box.w;
+      const boxH = box.h;
 
       let x = clientX - boxW / 2;
       let y = clientY - boxH / 2;
@@ -455,10 +510,12 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", mode = "in
       window.removeEventListener("touchend", handleUp);
       window.removeEventListener("touchcancel", handleUp);
     };
-  }, [dragging, pos]);
+  }, [dragging, pos, box.w, box.h]);
 
   const handleDown = (e) => {
+    // ✅ 很重要：阻止事件往 Canvas/Controls 傳，避免翻滾
     e.preventDefault();
+    e.stopPropagation();
     setDragging(true);
   };
 
@@ -472,15 +529,23 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", mode = "in
         position: "fixed",
         left: pos.x,
         top: pos.y,
-        width: 170,
-        height: 220,
+        width: box.w,
+        height: box.h,
         zIndex: 9999,
-        cursor: "grab",
+        cursor: dragging ? "grabbing" : "grab",
         touchAction: "none",
-        pointerEvents: "auto"
+        pointerEvents: "auto",
+        // ✅ 不裁切，避免熊動起來貼邊被切掉
+        overflow: "visible"
       }}
     >
-      <Scene glassColor={glassColor} glowColor={glowColor} emotion={emotion} />
+      <Scene
+        glassColor={glassColor}
+        glowColor={glowColor}
+        emotion={emotion}
+        isDragging={dragging}
+        enableControls={false}
+      />
     </div>
   );
 
