@@ -2,10 +2,9 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
+import CompassCreator from "./components/CompassCreator/CompassCreator";
 
-const Avatar3D = dynamic(() => import("./components/Avatar3D"), {
-  ssr: false
-});
+const Avatar3D = dynamic(() => import("./components/Avatar3D"), { ssr: false });
 
 function classNames(...arr) {
   return arr.filter(Boolean).join(" ");
@@ -19,7 +18,7 @@ export default function HomePage() {
   const [nicknameInput, setNicknameInput] = useState("");
 
   const [selectedAvatar, setSelectedAvatar] = useState("sky");
-  const [selectedVoice, setSelectedVoice] = useState("warm"); // warm / calm / energetic
+  const [selectedVoice, setSelectedVoice] = useState("warm");
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -27,7 +26,6 @@ export default function HomePage() {
 
   const [currentEmotion, setCurrentEmotion] = useState("idle");
 
-  // 讀取 localStorage 的 user
   useEffect(() => {
     if (typeof window === "undefined") return;
     const saved = window.localStorage.getItem("ai-helper-user");
@@ -47,15 +45,15 @@ export default function HomePage() {
     setCurrentEmotion("happy");
   };
 
-  const handleCreateCharacter = (e) => {
-    e.preventDefault();
-    if (!nicknameInput || !email) return;
+  const finalizeCreate = (profileDraft) => {
+    const nick = (profileDraft?.nickname || nicknameInput || "").trim();
+    if (!nick || !email) return;
 
     const profile = {
       email,
-      nickname: nicknameInput,
-      avatar: selectedAvatar,
-      voice: selectedVoice
+      nickname: nick,
+      avatar: profileDraft?.avatar || selectedAvatar,
+      voice: profileDraft?.voice || selectedVoice
     };
 
     setUser(profile);
@@ -64,40 +62,25 @@ export default function HomePage() {
     }
 
     let voiceHint = "";
-    if (selectedVoice === "warm") {
-      voiceHint = "我會用比較溫暖、親切的口氣跟你說明唷～";
-    } else if (selectedVoice === "calm") {
-      voiceHint = "我會盡量講得冷靜、條理分明，讓你一眼就看懂。";
-    } else if (selectedVoice === "energetic") {
-      voiceHint = "我會用比較活潑、有精神的方式跟你分享保養技巧！";
-    }
+    if (profile.voice === "warm") voiceHint = "我會用比較溫暖、親切的口氣跟你說明唷～";
+    else if (profile.voice === "calm") voiceHint = "我會盡量講得冷靜、條理分明，讓你一眼就看懂。";
+    else voiceHint = "我會用比較活潑、有精神的方式跟你分享保養技巧！";
 
     setMessages([
       {
         role: "assistant",
-        content: `嗨，我是「${nicknameInput}」，你剛剛幫我選的是 ${avatarLabel(
-          selectedAvatar
-        )} 搭配 ${voiceLabel(
-          selectedVoice
-        )} 聲線。\n\n之後有浴室、廚房、地板、玻璃鍍膜與清潔的問題，都可以直接問我～\n\n${voiceHint}`
+        content: `嗨，我是「${profile.nickname}」。\n\n之後有浴室、廚房、地板、玻璃鍍膜與清潔的問題，都可以直接問我～\n\n${voiceHint}`
       }
     ]);
 
     setPhase("chat");
-    setCurrentEmotion("happy");
-    // 幾秒後回到 idle
-    setTimeout(() => setCurrentEmotion("idle"), 3000);
   };
 
   const handleSend = async (e) => {
     e.preventDefault();
     if (!input.trim() || !user) return;
 
-    const userMessage = {
-      role: "user",
-      content: input.trim()
-    };
-
+    const userMessage = { role: "user", content: input.trim() };
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setLoading(true);
@@ -117,36 +100,22 @@ export default function HomePage() {
       });
 
       const data = await res.json();
-
       const reply = {
         role: "assistant",
-        content:
-          data.reply || "不好意思，我剛剛有點當機，再問我一次可以嗎？"
+        content: data.reply || "不好意思，我剛剛有點當機，再問我一次可以嗎？"
       };
 
       setMessages((prev) => [...prev, reply]);
 
-      // 後端如果有給 emotion 就用後端的，沒有就預設 happy
-      const emo = data.emotion || "happy";
-      setCurrentEmotion(emo);
-
-      // 幾秒後慢慢回到 idle
-      setTimeout(() => {
-        setCurrentEmotion("idle");
-      }, 4000);
+      if (data.emotion) setCurrentEmotion(data.emotion);
+      else setCurrentEmotion("idle");
     } catch (err) {
       console.error(err);
       setMessages((prev) => [
         ...prev,
-        {
-          role: "assistant",
-          content: "現在系統好像有點忙碌，稍後再試一次看看～"
-        }
+        { role: "assistant", content: "現在系統好像有點忙碌，稍後再試一次看看～" }
       ]);
       setCurrentEmotion("sorry");
-      setTimeout(() => {
-        setCurrentEmotion("idle");
-      }, 4000);
     } finally {
       setLoading(false);
     }
@@ -199,119 +168,56 @@ export default function HomePage() {
     );
   }
 
+  // ✅ 新創角介面：中間 3D，底部羅盤
   if (phase === "create") {
     return (
-      <main className="min-h-screen flex items-start justify-center px-4 py-6">
-        <div className="w-full max-w-3xl bg-white rounded-2xl shadow-lg p-6 md:p-8 space-y-6">
-          <h1 className="text-xl md:text-2xl font-bold text-slate-800 text-center">
-            客製你的專屬 AI 小管家
-          </h1>
-          <p className="text-xs md:text-sm text-slate-500 text-center">
-            先幫小管家選一顆你喜歡的「核心球」和說話的聲線，再幫它取個名字。
-          </p>
-
-          <div className="grid md:grid-cols-2 gap-6 md:gap-8">
-            {/* 左邊：3D 預覽 */}
-            <div className="flex flex-col items-center">
-              <div className="w-full max-w-xs">
-                <Avatar3D
-                  variant={selectedAvatar}
-                  emotion={currentEmotion}
-                  mode="inline"
-                />
-              </div>
-              <p className="mt-2 text-xs text-slate-400 text-center">
-                你目前選擇的是：{avatarLabel(selectedAvatar)}
-              </p>
-            </div>
-
-            {/* 右邊：選項 + 暱稱 */}
-            <form
-              className="space-y-5 flex flex-col justify-between"
-              onSubmit={handleCreateCharacter}
-            >
-              <div>
-                <p className="text-sm font-medium text-slate-700 mb-2">
-                  ① 選擇小管家的核心球
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    { id: "sky", label: "天空藍 · 穩重專業" },
-                    { id: "mint", label: "薄荷綠 · 清爽潔淨" },
-                    { id: "purple", label: "紫色 · 科技感" }
-                  ].map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setSelectedAvatar(opt.id)}
-                      className={classNames(
-                        "px-3 py-2 rounded-full text-xs md:text-sm border transition",
-                        selectedAvatar === opt.id
-                          ? "bg-sky-500 border-sky-500 text-white"
-                          : "bg-slate-50 border-slate-200 text-slate-700"
-                      )}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <p className="text-sm font-medium text-slate-700 mb-2">
-                  ② 選擇說話風格（聲線）
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    { id: "warm", label: "溫暖親切" },
-                    { id: "calm", label: "冷靜條理" },
-                    { id: "energetic", label: "活潑有精神" }
-                  ].map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setSelectedVoice(opt.id)}
-                      className={classNames(
-                        "px-3 py-2 rounded-full text-xs md:text-sm border transition",
-                        selectedVoice === opt.id
-                          ? "bg-sky-500 border-sky-500 text-white"
-                          : "bg-slate-50 border-slate-200 text-slate-700"
-                      )}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <p className="text-sm font-medium text-slate-700 mb-2">
-                  ③ 幫小管家取一個名字
-                </p>
-                <input
-                  type="text"
-                  className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-400"
-                  placeholder="例如：小護膜、阿膜、浴室管家"
-                  value={nicknameInput}
-                  onChange={(e) => setNicknameInput(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="flex flex-col gap-2 mt-2">
-                <button
-                  type="submit"
-                  className="w-full bg-sky-500 hover:bg-sky-600 text-white font-medium py-2 rounded-lg text-sm"
-                >
-                  完成創角，開始對話
-                </button>
-                <p className="text-[11px] text-slate-400">
-                  ※ 之後再回來，系統會記住你的球款、聲線與暱稱。
-                </p>
-              </div>
-            </form>
+      <main className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 text-white overflow-hidden">
+        {/* 上方標題 */}
+        <div className="px-4 pt-6 pb-3 max-w-4xl mx-auto">
+          <div className="text-xl font-bold">客製你的專屬 AI 小管家</div>
+          <div className="text-sm text-slate-300/80 mt-1">
+            下面的高科技羅盤：每一圈都可以獨立左右滑動選擇。
           </div>
         </div>
+
+        {/* 3D 預覽 */}
+        <div className="max-w-4xl mx-auto px-4">
+          <div className="rounded-3xl border border-sky-200/15 bg-slate-950/40 backdrop-blur-xl overflow-hidden shadow-[0_30px_80px_rgba(0,0,0,0.5)]">
+            <div className="p-4 sm:p-6">
+              <div className="text-sm text-slate-200/90">
+                角色預覽（單指旋轉、二指拖拉）
+              </div>
+              <div className="mt-3 h-[360px] sm:h-[420px] rounded-2xl bg-slate-900/30 border border-sky-200/10 overflow-hidden flex items-center justify-center">
+                <div className="w-full h-full">
+                  <Avatar3D variant={selectedAvatar} emotion={"idle"} mode="inline" />
+                </div>
+              </div>
+
+              <div className="mt-3 text-xs text-slate-300/80">
+                目前：{avatarLabel(selectedAvatar)} · {voiceLabel(selectedVoice)} ·{" "}
+                {nicknameInput ? nicknameInput : "（名字由下方羅盤選）"}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 底部羅盤（固定） */}
+        <CompassCreator
+          value={{
+            avatar: selectedAvatar,
+            voice: selectedVoice,
+            nickname: nicknameInput
+          }}
+          onChange={(v) => {
+            if (v.avatar) setSelectedAvatar(v.avatar);
+            if (v.voice) setSelectedVoice(v.voice);
+            if (typeof v.nickname === "string") setNicknameInput(v.nickname);
+          }}
+          onConfirm={(v) => finalizeCreate(v)}
+        />
+
+        {/* 底部安全空間，避免內容被羅盤遮住 */}
+        <div className="h-[340px]" />
       </main>
     );
   }
@@ -324,97 +230,73 @@ export default function HomePage() {
     );
   }
 
+  // 聊天頁
   return (
-    <main className="min-h-screen flex items-start justify-center px-2 py-4 relative">
-      {/* 浮在整個螢幕上的球（聊天時用） */}
-      <Avatar3D
-        variant={user.avatar || "sky"}
-        emotion={currentEmotion}
-        mode="floating"
-      />
+    <main className="min-h-screen flex items-center justify-center px-2 py-4 bg-slate-50">
+      {/* 浮動角色（你目前版本應該是用 mode=floating） */}
+      <Avatar3D variant={user.avatar || "sky"} emotion={currentEmotion} mode="floating" />
 
-      <div className="w-full max-w-4xl bg-white rounded-2xl shadow-lg flex flex-col md:flex-row">
-        <div className="md:w-1/3 bg-sky-50 p-4 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-sky-100">
-          <h2 className="text-lg font-semibold text-slate-800">
-            {user.nickname}
-          </h2>
-          <p className="text-xs text-slate-500 text-center mt-1 px-4">
-            你的專屬鍍膜＆清潔顧問，有關浴室、廚房、地板保養都可以問我。
-          </p>
-          <p className="mt-2 text-[11px] text-slate-400 text-center break-all">
-            綁定信箱：{user.email}
-          </p>
-          <p className="mt-1 text-[11px] text-slate-400 text-center">
-            語氣設定：{voiceLabel(user.voice || "warm")}
-          </p>
-          <p className="mt-3 text-[11px] text-slate-400 text-center">
-            螢幕上那顆會動的球，就是 {user.nickname}，
-            可以用手指或滑鼠拖到你順眼的位置。
-          </p>
+      <div className="w-full max-w-3xl bg-white rounded-2xl shadow-lg flex flex-col overflow-hidden">
+        <div className="border-b border-slate-200 p-4">
+          <div className="text-lg font-semibold text-slate-800">{user.nickname}</div>
+          <div className="text-xs text-slate-500 mt-1">
+            綁定信箱：{user.email} ・語氣：{voiceLabel(user.voice || "warm")}
+          </div>
         </div>
 
-        <div className="md:w-2/3 flex flex-col">
-          <div className="flex-1 flex flex-col p-4 space-y-2 overflow-y-auto max-h-[70vh]">
-            {messages.length === 0 && (
-              <div className="text-xs text-slate-400 text-center mt-10 whitespace-pre-wrap">
-                跟 {user.nickname} 打聲招呼吧！{"\n"}
-                可以問：「浴室玻璃有水垢要怎麼清？」、
-                「鍍膜後幾天不能用什麼清潔劑？」{"\n"}
-                或拍照實際問你的狀況（之後也可以擴充這個功能）。
-              </div>
-            )}
+        <div className="flex-1 flex flex-col p-4 space-y-2 overflow-y-auto max-h-[70vh]">
+          {messages.length === 0 && (
+            <div className="text-xs text-slate-400 text-center mt-10 whitespace-pre-wrap">
+              跟 {user.nickname} 打聲招呼吧！{"\n"}
+              可以問：「浴室玻璃有水垢要怎麼清？」、
+              「鍍膜後幾天不能用什麼清潔劑？」
+            </div>
+          )}
 
-            {messages.map((m, idx) => (
+          {messages.map((m, idx) => (
+            <div
+              key={idx}
+              className={classNames("flex", m.role === "user" ? "justify-end" : "justify-start")}
+            >
               <div
-                key={idx}
                 className={classNames(
-                  "flex",
-                  m.role === "user" ? "justify-end" : "justify-start"
+                  "max-w-[80%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap",
+                  m.role === "user"
+                    ? "bg-sky-500 text-white rounded-br-none"
+                    : "bg-slate-100 text-slate-800 rounded-bl-none"
                 )}
               >
-                <div
-                  className={classNames(
-                    "max-w-[80%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap",
-                    m.role === "user"
-                      ? "bg-sky-500 text-white rounded-br-none"
-                      : "bg-slate-100 text-slate-800 rounded-bl-none"
-                  )}
-                >
-                  {m.content}
-                </div>
+                {m.content}
               </div>
-            ))}
+            </div>
+          ))}
 
-            {loading && (
-              <div className="flex justify-start">
-                <div className="bg-slate-100 text-slate-500 text-xs px-3 py-2 rounded-2xl rounded-bl-none">
-                  {user.nickname} 思考中⋯⋯
-                </div>
+          {loading && (
+            <div className="flex justify-start">
+              <div className="bg-slate-100 text-slate-500 text-xs px-3 py-2 rounded-2xl rounded-bl-none">
+                {user.nickname} 思考中⋯⋯
               </div>
-            )}
-          </div>
-
-          <form
-            onSubmit={handleSend}
-            className="border-t border-slate-200 p-3 flex gap-2"
-          >
-            <input
-              type="text"
-              className="flex-1 border rounded-full px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-400"
-              placeholder="輸入想問的問題，例如：地板有黃漬，要怎麼清比較安全？"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              disabled={loading}
-            />
-            <button
-              type="submit"
-              className="bg-sky-500 hover:bg-sky-600 text-white text-sm px-4 py-2 rounded-full disabled:opacity-60"
-              disabled={loading}
-            >
-              發送
-            </button>
-          </form>
+            </div>
+          )}
         </div>
+
+        <form onSubmit={handleSend} className="border-t border-slate-200 p-3 flex gap-2">
+          <input
+            type="text"
+            className="flex-1 border rounded-full px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-400"
+            placeholder="輸入想問的問題，例如：地板有黃漬，要怎麼清比較安全？"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            disabled={loading}
+          />
+          <button
+            type="submit"
+            className="bg-sky-500 hover:bg-sky-600 text-white text-sm px-4 py-2 rounded-full disabled:opacity-60"
+            disabled={loading}
+          >
+            發送
+          </button>
+        </form>
       </div>
     </main>
   );
@@ -425,7 +307,6 @@ function avatarLabel(id) {
   if (id === "purple") return "紫色核心球";
   return "天空藍核心球";
 }
-
 function voiceLabel(id) {
   if (id === "calm") return "冷靜條理";
   if (id === "energetic") return "活潑有精神";
