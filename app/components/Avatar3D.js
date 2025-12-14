@@ -3,9 +3,8 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
 
-/** 生成「透明底」電路貼圖：只有線條有顏色，背景透明 */
+/** 透明底電路貼圖 */
 function makeCircuitTexture({ size = 512, seed = 1, glow = "#65d9ff" }) {
   const canvas = document.createElement("canvas");
   canvas.width = size;
@@ -60,9 +59,7 @@ function makeCircuitTexture({ size = 512, seed = 1, glow = "#65d9ff" }) {
   for (let i = 0; i < lines; i++) {
     const x0 = rand() * size;
     const y0 = rand() * size;
-    const w = 1.4 + rand() * 2.6;
-    ctx.lineWidth = w;
-
+    ctx.lineWidth = 1.4 + rand() * 2.6;
     const a = 0.55 + rand() * 0.35;
     ctx.strokeStyle = hexToRgba(glow, a);
     drawPath(x0, y0);
@@ -94,11 +91,12 @@ function hexToRgba(hex, a) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
-/** 科技玻璃小熊：外層玻璃 + 表面電路線條（流動） */
-function TechGlassBear({ glassColor, glowColor, emotion, isDragging }) {
+/** 角色本體：帶電路的玻璃小熊 */
+function TechGlassBear({ glassColor, glowColor, emotion, isDragging, previewRotationY }) {
   const groupRef = useRef();
   const emotionRef = useRef(emotion);
   const dragRef = useRef(isDragging);
+  const previewRotRef = useRef(previewRotationY);
   const texRef = useRef(null);
 
   useEffect(() => {
@@ -108,6 +106,10 @@ function TechGlassBear({ glassColor, glowColor, emotion, isDragging }) {
   useEffect(() => {
     dragRef.current = isDragging;
   }, [isDragging]);
+
+  useEffect(() => {
+    previewRotRef.current = previewRotationY;
+  }, [previewRotationY]);
 
   const circuitCanvas = useMemo(() => {
     if (typeof document === "undefined") return null;
@@ -159,15 +161,16 @@ function TechGlassBear({ glassColor, glowColor, emotion, isDragging }) {
     const emo = emotionRef.current;
     const dragging = dragRef.current;
 
-    // ✅ 拖拉時：不要搖晃/旋轉，避免「翻滾感」
+    // ✅ 1 指旋轉預覽：永遠套用 previewRotationY
+    groupRef.current.rotation.y = previewRotRef.current || 0;
+
+    // ✅ 2 指拖拉時：停掉其它晃動，避免看起來亂飄
     if (dragging) {
       groupRef.current.position.y = 0;
       groupRef.current.rotation.x = 0;
-      groupRef.current.rotation.y = 0;
       groupRef.current.rotation.z = 0;
       groupRef.current.scale.set(1, 1, 1);
 
-      // 線條依然可以流動（保留科技感）
       if (texRef.current?.tex) {
         texRef.current.tex.offset.x = (t * 0.045) % 1;
         texRef.current.tex.offset.y = (t * 0.03) % 1;
@@ -179,7 +182,6 @@ function TechGlassBear({ glassColor, glowColor, emotion, isDragging }) {
     let bobSpeed = 1.0;
     let wobble = 0.04;
     let pulse = 0.015;
-
     let lineOpacity = 0.55;
 
     if (emo === "happy") {
@@ -205,7 +207,6 @@ function TechGlassBear({ glassColor, glowColor, emotion, isDragging }) {
     groupRef.current.position.y = Math.sin(t * bobSpeed) * bobAmp;
     groupRef.current.rotation.z = Math.sin(t * bobSpeed) * wobble * 0.16;
     groupRef.current.rotation.x = Math.sin(t * bobSpeed * 0.85) * wobble * 0.12;
-    groupRef.current.rotation.y = Math.cos(t * bobSpeed * 0.8) * wobble * 0.11;
 
     const s = 1 + Math.sin(t * (bobSpeed + 0.7)) * pulse;
     groupRef.current.scale.set(
@@ -249,7 +250,6 @@ function TechGlassBear({ glassColor, glowColor, emotion, isDragging }) {
 
   return (
     <group ref={groupRef} position={[0, 0, 0]}>
-      {/* 外層玻璃 */}
       <mesh position={[0, -0.15, 0]}>
         <capsuleGeometry args={[0.5, 0.65, 10, 18]} />
         <meshPhysicalMaterial {...glassMaterialProps} />
@@ -287,7 +287,7 @@ function TechGlassBear({ glassColor, glowColor, emotion, isDragging }) {
         <meshPhysicalMaterial {...glassMaterialProps} />
       </mesh>
 
-      {/* 表面電路（略大一點，貼在表面） */}
+      {/* 電路表面 */}
       <CircuitSurface
         pos={[0, -0.15, 0]}
         rot={[0, 0, 0]}
@@ -329,7 +329,7 @@ function TechGlassBear({ glassColor, glowColor, emotion, isDragging }) {
         geo={<capsuleGeometry args={[0.205, 0.355, 8, 16]} />}
       />
 
-      {/* 小高光 */}
+      {/* 高光 */}
       <mesh position={[0.02, -0.05, 0.33]} rotation={[0, 0, 0.1]}>
         <sphereGeometry args={[0.22, 18, 18]} />
         <meshPhysicalMaterial
@@ -347,7 +347,7 @@ function TechGlassBear({ glassColor, glowColor, emotion, isDragging }) {
   );
 }
 
-function Scene({ glassColor, glowColor, emotion, isDragging, enableControls }) {
+function Scene({ glassColor, glowColor, emotion, isDragging, previewRotationY }) {
   return (
     <Canvas
       camera={{ position: [0, 0.25, 3.2], fov: 45 }}
@@ -363,17 +363,13 @@ function Scene({ glassColor, glowColor, emotion, isDragging, enableControls }) {
         glowColor={glowColor}
         emotion={emotion}
         isDragging={isDragging}
+        previewRotationY={previewRotationY}
       />
-
-      {/* ✅ 浮動模式不開 controls，避免拖曳手勢造成翻滾 */}
-      {enableControls ? <OrbitControls enableZoom={false} /> : null}
     </Canvas>
   );
 }
 
-/** 依 emotion 讓「浮動容器」大小跟著變，降低遮蔽 UI 的機率 */
 function getBoxSize(emotion, vw) {
-  // 基礎：手機上不要太大
   const baseW = Math.max(130, Math.min(170, Math.floor(vw * 0.36)));
   const baseH = Math.floor(baseW * 1.28);
 
@@ -382,15 +378,12 @@ function getBoxSize(emotion, vw) {
   else if (emotion === "thinking") k = 1.03;
   else if (emotion === "sorry") k = 0.98;
 
-  return {
-    w: Math.round(baseW * k),
-    h: Math.round(baseH * k)
-  };
+  return { w: Math.round(baseW * k), h: Math.round(baseH * k) };
 }
 
 /**
- * mode="inline"   : 創角畫面用（嵌在卡片）
- * mode="floating" : 聊天畫面用（浮在螢幕上，可拖拉）
+ * mode="inline"   : 創角（嵌入）
+ * mode="floating" : 聊天（浮動）
  */
 export default function Avatar3D({ variant = "sky", emotion = "idle", mode = "inline" }) {
   const glassMap = {
@@ -408,7 +401,7 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", mode = "in
   const glassColor = glassMap[variant] || glassMap.sky;
   const glowColor = glowMap[variant] || glowMap.sky;
 
-  // 創角畫面：嵌在卡片（保留可轉動看）
+  // inline：保留預覽可用滑鼠（桌機）旋轉的需求可以再加，但你現在主要手機就先不做 controls
   if (mode === "inline") {
     return (
       <div className="w-full h-full">
@@ -417,23 +410,36 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", mode = "in
           glowColor={glowColor}
           emotion={emotion}
           isDragging={false}
-          enableControls={true}
+          previewRotationY={0}
         />
       </div>
     );
   }
 
-  // 聊天畫面：浮動 + 可拖拉（Portal 到 body）
   const [mounted, setMounted] = useState(false);
   const [pos, setPos] = useState({ x: 16, y: 120 });
-  const [dragging, setDragging] = useState(false);
   const [box, setBox] = useState({ w: 170, h: 220 });
+
+  // ✅ 兩指拖拉時用
+  const [twoFingerDrag, setTwoFingerDrag] = useState(false);
+
+  // ✅ 單指旋轉預覽
+  const [previewRotY, setPreviewRotY] = useState(0);
+
+  // 觸控追蹤
+  const touchModeRef = useRef("none"); // "rotate" | "drag" | "none"
+  const startRef = useRef({
+    x: 0,
+    y: 0,
+    rotY: 0,
+    posX: 0,
+    posY: 0
+  });
 
   useEffect(() => {
     setMounted(true);
     if (typeof window === "undefined") return;
 
-    // 初次計算尺寸
     setBox(getBoxSize(emotion, window.innerWidth || 390));
 
     const onResize = () => {
@@ -457,19 +463,86 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", mode = "in
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // emotion 變更時，讓框也跟著重新計算（你說的「隨熊顯示動態變動大小」）
   useEffect(() => {
     if (typeof window === "undefined") return;
     setBox(getBoxSize(emotion, window.innerWidth || 390));
   }, [emotion]);
 
-  useEffect(() => {
-    if (!dragging) return;
+  // ✅ 手勢：單指旋轉 / 兩指拖拉
+  const onTouchStart = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
 
-    function handleMove(e) {
-      if (e.cancelable) e.preventDefault();
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const touches = e.touches;
+    if (!touches || touches.length === 0) return;
+
+    // 兩指：拖拉移動
+    if (touches.length >= 2) {
+      touchModeRef.current = "drag";
+      setTwoFingerDrag(true);
+
+      const midX = (touches[0].clientX + touches[1].clientX) / 2;
+      const midY = (touches[0].clientY + touches[1].clientY) / 2;
+
+      startRef.current = {
+        ...startRef.current,
+        x: midX,
+        y: midY,
+        posX: pos.x,
+        posY: pos.y
+      };
+      return;
+    }
+
+    // 單指：旋轉預覽
+    touchModeRef.current = "rotate";
+    setTwoFingerDrag(false);
+
+    startRef.current = {
+      ...startRef.current,
+      x: touches[0].clientX,
+      y: touches[0].clientY,
+      rotY: previewRotY
+    };
+  };
+
+  const onTouchMove = (e) => {
+    if (e.cancelable) e.preventDefault();
+    e.stopPropagation();
+
+    const touches = e.touches;
+    if (!touches || touches.length === 0) return;
+
+    // 若中途變兩指 → 切拖拉
+    if (touches.length >= 2 && touchModeRef.current !== "drag") {
+      touchModeRef.current = "drag";
+      setTwoFingerDrag(true);
+      const midX = (touches[0].clientX + touches[1].clientX) / 2;
+      const midY = (touches[0].clientY + touches[1].clientY) / 2;
+      startRef.current = {
+        ...startRef.current,
+        x: midX,
+        y: midY,
+        posX: pos.x,
+        posY: pos.y
+      };
+    }
+
+    if (touchModeRef.current === "rotate") {
+      // 單指旋轉：水平移動 → 旋轉 Y
+      const dx = touches[0].clientX - startRef.current.x;
+      const rot = startRef.current.rotY + dx * 0.01; // 旋轉靈敏度
+      setPreviewRotY(rot);
+      return;
+    }
+
+    if (touchModeRef.current === "drag") {
+      // 兩指拖拉：用兩指中點移動容器位置
+      const midX = (touches[0].clientX + touches[1].clientX) / 2;
+      const midY = (touches[0].clientY + touches[1].clientY) / 2;
+
+      const dx = midX - startRef.current.x;
+      const dy = midY - startRef.current.y;
 
       const width = window.innerWidth || 400;
       const height = window.innerHeight || 800;
@@ -477,54 +550,43 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", mode = "in
       const boxW = box.w;
       const boxH = box.h;
 
-      let x = clientX - boxW / 2;
-      let y = clientY - boxH / 2;
+      let x = startRef.current.posX + dx;
+      let y = startRef.current.posY + dy;
 
       const maxX = width - boxW;
       const maxY = height - boxH;
+
       if (x < 0) x = 0;
       if (y < 0) y = 0;
       if (x > maxX) x = maxX;
       if (y > maxY) y = maxY;
 
       setPos({ x, y });
+      return;
     }
+  };
 
-    function handleUp() {
-      setDragging(false);
+  const onTouchEnd = () => {
+    // 放開後，結束拖拉模式並存位置
+    const mode = touchModeRef.current;
+    touchModeRef.current = "none";
+    setTwoFingerDrag(false);
+
+    if (mode === "drag") {
       if (typeof window !== "undefined") {
         window.localStorage.setItem("floating-techbear-pos", JSON.stringify(pos));
       }
     }
-
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("mouseup", handleUp);
-    window.addEventListener("touchmove", handleMove, { passive: false });
-    window.addEventListener("touchend", handleUp);
-    window.addEventListener("touchcancel", handleUp);
-
-    return () => {
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
-      window.removeEventListener("touchmove", handleMove);
-      window.removeEventListener("touchend", handleUp);
-      window.removeEventListener("touchcancel", handleUp);
-    };
-  }, [dragging, pos, box.w, box.h]);
-
-  const handleDown = (e) => {
-    // ✅ 很重要：阻止事件往 Canvas/Controls 傳，避免翻滾
-    e.preventDefault();
-    e.stopPropagation();
-    setDragging(true);
   };
 
   if (!mounted) return null;
 
   const node = (
     <div
-      onMouseDown={handleDown}
-      onTouchStart={handleDown}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchEnd}
       style={{
         position: "fixed",
         left: pos.x,
@@ -532,10 +594,8 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", mode = "in
         width: box.w,
         height: box.h,
         zIndex: 9999,
-        cursor: dragging ? "grabbing" : "grab",
         touchAction: "none",
         pointerEvents: "auto",
-        // ✅ 不裁切，避免熊動起來貼邊被切掉
         overflow: "visible"
       }}
     >
@@ -543,8 +603,8 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", mode = "in
         glassColor={glassColor}
         glowColor={glowColor}
         emotion={emotion}
-        isDragging={dragging}
-        enableControls={false}
+        isDragging={twoFingerDrag}
+        previewRotationY={previewRotY}
       />
     </div>
   );
