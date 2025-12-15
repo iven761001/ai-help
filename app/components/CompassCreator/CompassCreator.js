@@ -212,7 +212,7 @@ function Ring({ title, subtitle, children, scrollRef }) {
   return (
     <div className="rounded-2xl border border-sky-100 bg-sky-50/60 px-3 py-3">
       <div className="flex items-baseline justify-between gap-2 px-1">
-        <div className="s>
+        <div className="min-w-0">
           <div className="text-xs font-semibold text-slate-700">{title}</div>
           <div className="text-[11px] text-slate-500">{subtitle}</div>
         </div>
