@@ -2,8 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 保底：避免手機上橫向爆版 */
 html,
 body {
   max-width: 100%;
   overflow-x: hidden;
+}
+
+/* 保底：避免預設 margin 把 layout 推歪 */
+body {
+  margin: 0;
 }
