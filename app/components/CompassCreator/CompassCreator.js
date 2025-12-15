@@ -8,8 +8,6 @@ function cx(...arr) {
 function mod(n, m) {
   return ((n % m) + m) % m;
 }
-
-// 甜甜圈命中測試：點到「這一圈的帶狀範圍」才算
 function inDonutBand(px, py, cx0, cy0, radius, band) {
   const dx = px - cx0;
   const dy = py - cy0;
@@ -47,6 +45,8 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
     ],
     []
   );
+
+  const stageRef = useRef(null);
 
   const [localName, setLocalName] = useState(value?.nickname || "");
   const [namePick, setNamePick] = useState("zd");
@@ -86,7 +86,6 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
         style={{ WebkitTapHighlightColor: "transparent" }}
       >
         <div className="rounded-[28px] border border-sky-200/60 bg-white/75 backdrop-blur overflow-hidden shadow-[0_-10px_40px_rgba(2,132,199,0.15)]">
-          {/* Header */}
           <div className="px-4 pt-4 pb-3">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -116,17 +115,18 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
             </div>
           </div>
 
-          {/* 羅盤舞台 */}
           <div className="relative px-3 pb-4">
             <div className="relative w-full rounded-2xl border border-sky-100 bg-sky-50/60 overflow-hidden">
-              <div className="relative h-[320px] sm:h-[350px]">
+              {/* ★舞台高度加大，三圈才不會被切掉 */}
+              <div ref={stageRef} className="relative h-[380px] sm:h-[420px]">
                 {/* 中央準星 */}
-                <div className="absolute left-1/2 top-[48%] -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+                <div className="absolute left-1/2 top-[72%] -translate-x-1/2 -translate-y-1/2 pointer-events-none">
                   <div className="h-2 w-2 rounded-full bg-sky-600 shadow-[0_0_0_6px_rgba(2,132,199,0.15)]" />
                 </div>
 
-                {/* 三個圈：同心圓、但各自「甜甜圈命中」才會接手 */}
+                {/* ★圓心移到更下面：72%（讓弧線完整在羅盤區內） */}
                 <WheelRing
+                  stageRef={stageRef}
                   z={30}
                   title="① 顏色"
                   subtitle="選核心色（也會套用到冷光線條）"
@@ -134,12 +134,13 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
                   valueId={value?.color || value?.avatar || "sky"}
                   onChangeId={pickColor}
                   disabled={disabled}
-                  centerTopPct={48}
-                  radius={120}
-                  band={32}
+                  centerTopPct={72}
+                  radius={95}
+                  band={26}
                 />
 
                 <WheelRing
+                  stageRef={stageRef}
                   z={20}
                   title="② 個性"
                   subtitle="選說話風格（聲線）"
@@ -147,12 +148,13 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
                   valueId={value?.voice || "warm"}
                   onChangeId={pickVoice}
                   disabled={disabled}
-                  centerTopPct={48}
-                  radius={160}
-                  band={32}
+                  centerTopPct={72}
+                  radius={135}
+                  band={26}
                 />
 
                 <WheelRing
+                  stageRef={stageRef}
                   z={10}
                   title="③ 名字"
                   subtitle="選預設或自訂"
@@ -160,12 +162,11 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
                   valueId={namePick}
                   onChangeId={onPickPresetName}
                   disabled={disabled}
-                  centerTopPct={48}
-                  radius={205}
-                  band={34}
+                  centerTopPct={72}
+                  radius={178}
+                  band={28}
                 />
 
-                {/* 圈的標題區（不疊在一起） */}
                 <div className="absolute left-4 top-4 right-4 pointer-events-none space-y-1">
                   <div className="text-[11px] text-slate-500">
                     ① 顏色　② 個性　③ 名字（各圈都能獨立拖拉）
@@ -173,7 +174,6 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
                 </div>
               </div>
 
-              {/* 名字輸入 */}
               <div className="px-4 pb-4 -mt-2">
                 <div className="flex items-center gap-2">
                   <input
@@ -205,6 +205,7 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
 }
 
 function WheelRing({
+  stageRef,
   z = 10,
   title,
   subtitle,
@@ -212,17 +213,14 @@ function WheelRing({
   valueId,
   onChangeId,
   disabled,
-  centerTopPct = 48,
-  radius = 160,
-  band = 32
+  centerTopPct = 72,
+  radius = 135,
+  band = 26
 }) {
   const n = items.length;
   const step = 360 / n;
 
-  const idx0 = Math.max(
-    0,
-    items.findIndex((x) => x.id === valueId)
-  );
+  const idx0 = Math.max(0, items.findIndex((x) => x.id === valueId));
   const targetAngle = -idx0 * step;
 
   const [angle, setAngle] = useState(targetAngle);
@@ -230,8 +228,6 @@ function WheelRing({
   const dragging = useRef(false);
   const startX = useRef(0);
   const startAngle = useRef(0);
-
-  const containerRef = useRef(null);
 
   useEffect(() => {
     setAngle(targetAngle);
@@ -244,18 +240,18 @@ function WheelRing({
     return { idx, snappedAngle: -idx * step };
   };
 
+  // ★命中測試改用「真正的圓心」（舞台寬的中間 + 舞台高的 centerTopPct）
   const shouldHandle = (e) => {
-    const el = containerRef.current;
-    if (!el) return false;
-    const rect = el.getBoundingClientRect();
-    const cx0 = rect.left + rect.width / 2;
-    const cy0 = rect.top + rect.height / 2;
+    const st = stageRef?.current;
+    if (!st) return true;
+    const r = st.getBoundingClientRect();
+    const cx0 = r.left + r.width / 2;
+    const cy0 = r.top + r.height * (centerTopPct / 100);
     return inDonutBand(e.clientX, e.clientY, cx0, cy0, radius, band);
   };
 
   const onPointerDown = (e) => {
     if (disabled) return;
-    // ★ 只有點在自己的圈帶上才接手
     if (!shouldHandle(e)) return;
 
     dragging.current = true;
@@ -281,14 +277,11 @@ function WheelRing({
     if (chosen && chosen.id !== valueId) onChangeId?.(chosen.id);
   };
 
+  const stepDeg = step;
+
   return (
-    <div
-      className="absolute inset-0"
-      style={{ zIndex: z }}
-      ref={containerRef}
-    >
-      {/* 每圈自己的準星線（同位置，但不搶事件） */}
-      <div className="absolute left-1/2 top-[12px] -translate-x-1/2 pointer-events-none">
+    <div className="absolute inset-0" style={{ zIndex: z }}>
+      <div className="absolute left-1/2 top-[14px] -translate-x-1/2 pointer-events-none">
         <div
           style={{
             width: 2,
@@ -300,22 +293,23 @@ function WheelRing({
         />
       </div>
 
-      {/* 圈本體（整圈可拖，但只有命中圈帶才會開始） */}
       <div
         className="absolute left-1/2 pointer-events-auto"
-        style={{ top: `${centerTopPct}%`, transform: "translate(-50%, -50%)" }}
+        style={{
+          top: `${centerTopPct}%`,
+          transform: "translate(-50%, -50%)"
+        }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onPointerLeave={onPointerUp}
       >
-        {/* 露出區：上半圈儀表感 */}
         <div
           className="relative overflow-hidden"
           style={{
-            width: radius * 2 + 40,
-            height: radius + 70,
+            width: radius * 2 + 44,
+            height: radius + 88,
             touchAction: "pan-x",
             WebkitUserSelect: "none",
             userSelect: "none"
@@ -324,13 +318,12 @@ function WheelRing({
           <div
             className="absolute left-1/2"
             style={{
-              top: radius + 45,
+              top: radius + 56,
               transform: `translateX(-50%) rotate(${angle}deg)`,
               width: radius * 2,
               height: radius * 2
             }}
           >
-            {/* 圈環線 */}
             <div
               className="absolute inset-0 rounded-full"
               style={{
@@ -340,8 +333,6 @@ function WheelRing({
                   "radial-gradient(circle at 50% 50%, rgba(2,132,199,0.05), rgba(2,132,199,0.0) 55%)"
               }}
             />
-
-            {/* 圈帶提示（淡淡的弧線） */}
             <div
               className="absolute inset-0 rounded-full"
               style={{
@@ -352,9 +343,8 @@ function WheelRing({
               }}
             />
 
-            {/* 項目分佈 */}
             {items.map((it, i) => {
-              const itemAngle = i * step - 90;
+              const itemAngle = i * stepDeg - 90;
               const isActive = it.id === valueId;
 
               return (
@@ -376,7 +366,6 @@ function WheelRing({
                       ? "0 10px 22px rgba(2,132,199,0.22)"
                       : "0 6px 16px rgba(15,23,42,0.08)"
                   }}
-                  aria-label={`${title} ${subtitle} ${it.label}`}
                 >
                   {it.label}
                 </button>
@@ -385,7 +374,6 @@ function WheelRing({
           </div>
         </div>
 
-        {/* 小標籤（靠左下角，避免三圈標題疊） */}
         <div className="absolute left-3 bottom-2 pointer-events-none">
           <div className="text-[11px] text-slate-600 font-semibold">{title}</div>
           <div className="text-[10px] text-slate-500">{subtitle}</div>
