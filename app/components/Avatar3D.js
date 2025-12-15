@@ -113,8 +113,7 @@ function TechGlassBear({ glassColor, glowColor, emotion, isDragging, previewRota
 
   const circuitCanvas = useMemo(() => {
     if (typeof document === "undefined") return null;
-    const seed =
-      glowColor === "#4fffd2" ? 7 : glowColor === "#b26bff" ? 13 : 3;
+    const seed = glowColor === "#4fffd2" ? 7 : glowColor === "#b26bff" ? 13 : 3;
     return makeCircuitTexture({ seed, glow: glowColor });
   }, [glowColor]);
 
@@ -161,10 +160,10 @@ function TechGlassBear({ glassColor, glowColor, emotion, isDragging, previewRota
     const emo = emotionRef.current;
     const dragging = dragRef.current;
 
-    // ✅ 1 指旋轉預覽：永遠套用 previewRotationY
+    // 單指旋轉預覽：永遠套用 previewRotationY
     groupRef.current.rotation.y = previewRotRef.current || 0;
 
-    // ✅ 2 指拖拉時：停掉其它晃動，避免看起來亂飄
+    // 兩指拖拉時：停掉其它晃動，避免看起來亂飄
     if (dragging) {
       groupRef.current.position.y = 0;
       groupRef.current.rotation.x = 0;
@@ -384,8 +383,15 @@ function getBoxSize(emotion, vw) {
 /**
  * mode="inline"   : 創角（嵌入）
  * mode="floating" : 聊天（浮動）
+ *
+ * ✅ 新增 previewYaw：讓 inline 也能吃到「單指拖拉旋轉」的角度
  */
-export default function Avatar3D({ variant = "sky", emotion = "idle", mode = "inline" }) {
+export default function Avatar3D({
+  variant = "sky",
+  emotion = "idle",
+  mode = "inline",
+  previewYaw = 0
+}) {
   const glassMap = {
     sky: "#7fdcff",
     mint: "#6fffd6",
@@ -401,7 +407,7 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", mode = "in
   const glassColor = glassMap[variant] || glassMap.sky;
   const glowColor = glowMap[variant] || glowMap.sky;
 
-  // inline：保留預覽可用滑鼠（桌機）旋轉的需求可以再加，但你現在主要手機就先不做 controls
+  // ✅ inline：吃得到外部傳入的 previewYaw
   if (mode === "inline") {
     return (
       <div className="w-full h-full">
@@ -410,7 +416,7 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", mode = "in
           glowColor={glowColor}
           emotion={emotion}
           isDragging={false}
-          previewRotationY={0}
+          previewRotationY={previewYaw}
         />
       </div>
     );
@@ -531,7 +537,7 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", mode = "in
     if (touchModeRef.current === "rotate") {
       // 單指旋轉：水平移動 → 旋轉 Y
       const dx = touches[0].clientX - startRef.current.x;
-      const rot = startRef.current.rotY + dx * 0.01; // 旋轉靈敏度
+      const rot = startRef.current.rotY + dx * 0.01;
       setPreviewRotY(rot);
       return;
     }
@@ -567,7 +573,6 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", mode = "in
   };
 
   const onTouchEnd = () => {
-    // 放開後，結束拖拉模式並存位置
     const mode = touchModeRef.current;
     touchModeRef.current = "none";
     setTwoFingerDrag(false);
@@ -610,4 +615,4 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", mode = "in
   );
 
   return createPortal(node, document.body);
-}
+          }
