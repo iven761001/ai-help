@@ -125,6 +125,20 @@ export default function HomePage() {
     }
   };
 
+  // ✅ 從聊天室回到「選角」：把目前 user 帶回 draft，回到 create
+  const goBackToCreator = () => {
+    if (!user) return;
+    setDraft((p) => ({
+      ...p,
+      email: user.email || p.email,
+      nickname: user.nickname || p.nickname,
+      voice: user.voice || p.voice,
+      avatar: user.avatar || p.avatar,
+      color: user.avatar || p.color
+    }));
+    setPhase("create");
+  };
+
   if (phase === "loading") {
     return (
       <main className="min-h-screen flex items-center justify-center">
@@ -193,7 +207,10 @@ export default function HomePage() {
             <div className="w-full max-w-sm">
               <div className="rounded-3xl bg-white shadow-lg border border-sky-100 p-3">
                 <div className="aspect-square rounded-2xl bg-sky-50 flex items-center justify-center overflow-hidden">
-                  <Avatar3D variant={draft.avatar || draft.color || "sky"} emotion="idle" />
+                  <Avatar3D
+                    variant={draft.avatar || draft.color || "sky"}
+                    emotion="idle"
+                  />
                 </div>
 
                 <div className="mt-3 space-y-1 px-2 pb-1">
@@ -201,7 +218,8 @@ export default function HomePage() {
                     預覽：{draft.nickname ? `「${draft.nickname}」` : "尚未命名"}
                   </div>
                   <div className="text-xs text-slate-500">
-                    顏色：{avatarLabel(draft.color || draft.avatar)}／聲線：{voiceLabel(draft.voice)}
+                    顏色：{avatarLabel(draft.color || draft.avatar)}／聲線：
+                    {voiceLabel(draft.voice)}
                   </div>
                   <div className="text-[11px] text-slate-400">
                     完成後會自動進入對話模式
@@ -234,7 +252,7 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen flex items-center justify-center px-2 py-4 bg-slate-50">
-      <div className="w-full max-w-4xl bg-white rounded-2xl shadow-lg flex flex-col md:flex-row overflow-hidden">
+      <div className="w-full max-w-4xl bg-white rounded-2xl shadow-lg flex flex-col md:flex-row overflow-hidden relative">
         <div className="md:w-1/3 bg-sky-50 p-4 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-sky-100">
           <div className="w-full mb-3 flex items-center justify-center">
             <Avatar3D variant={user.avatar || "sky"} emotion={currentEmotion} />
@@ -252,12 +270,36 @@ export default function HomePage() {
           </p>
         </div>
 
-        <div className="md:w-2/3 flex flex-col">
+        <div className="md:w-2/3 flex flex-col relative">
+          {/* ✅ 浮動圓形按鈕：回到選角 */}
+          <button
+            type="button"
+            onClick={goBackToCreator}
+            aria-label="回到選角"
+            className="fixed z-[200] right-4 bottom-[calc(env(safe-area-inset-bottom)+92px)]
+                       h-12 w-12 rounded-full bg-sky-600 text-white shadow-lg
+                       active:scale-95 transition flex items-center justify-center"
+            style={{ WebkitTapHighlightColor: "transparent" }}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M15 18l-6-6 6-6"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+
           <div className="flex-1 flex flex-col p-4 space-y-2 overflow-y-auto max-h-[70vh]">
             {messages.map((m, idx) => (
               <div
                 key={idx}
-                className={classNames("flex", m.role === "user" ? "justify-end" : "justify-start")}
+                className={classNames(
+                  "flex",
+                  m.role === "user" ? "justify-end" : "justify-start"
+                )}
               >
                 <div
                   className={classNames(
