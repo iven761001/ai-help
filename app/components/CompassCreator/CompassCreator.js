@@ -6,11 +6,19 @@ function cx(...arr) {
   return arr.filter(Boolean).join(" ");
 }
 
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function mod(n, m) {
+  return ((n % m) + m) % m;
+}
+
 /**
- * 羅盤版「三圈同心圓」創角盤
- * - 固定底部、圓形底座（羅盤感）
- * - 三圈獨立左右滑（互不干擾）
- * - 中央顯示目前選擇（更像在「校準羅盤」）
+ * 圓周羅盤（3圈）
+ * - 每一圈：沿圓周旋轉（手指左右拖拉）
+ * - 放開：吸附到最近項目（snapping）
+ * - 固定在底部 safe-area
  */
 export default function CompassCreator({ value, onChange, onDone, disabled }) {
   const colors = useMemo(
@@ -31,77 +39,59 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
     []
   );
 
+  const namePresets = useMemo(
+    () => [
+      { id: "nm", label: "小護膜" },
+      { id: "am", label: "阿膜" },
+      { id: "bs", label: "浴室管家" },
+      { id: "kf", label: "廚房管家" },
+      { id: "gl", label: "玻璃小幫手" },
+      { id: "zd", label: "自訂" }
+    ],
+    []
+  );
+
   const [localName, setLocalName] = useState(value?.nickname || "");
-  useEffect(() => setLocalName(value?.nickname || ""), [value?.nickname]);
+  const [namePick, setNamePick] = useState("zd"); // 預設自訂
 
-  // 拖拉=滾動（橫向滑動用）
-  function useDragScroll() {
-    const ref = useRef(null);
-    const state = useRef({ down: false, x: 0, left: 0 });
+  useEffect(() => {
+    setLocalName(value?.nickname || "");
+  }, [value?.nickname]);
 
-    useEffect(() => {
-      const el = ref.current;
-      if (!el) return;
-
-      const onDown = (e) => {
-        if (disabled) return;
-        state.current.down = true;
-        state.current.x = e.clientX;
-        state.current.left = el.scrollLeft;
-        el.setPointerCapture?.(e.pointerId);
-      };
-      const onMove = (e) => {
-        if (!state.current.down) return;
-        const dx = e.clientX - state.current.x;
-        el.scrollLeft = state.current.left - dx;
-      };
-      const onUp = () => (state.current.down = false);
-
-      el.addEventListener("pointerdown", onDown, { passive: true });
-      el.addEventListener("pointermove", onMove, { passive: true });
-      el.addEventListener("pointerup", onUp, { passive: true });
-      el.addEventListener("pointercancel", onUp, { passive: true });
-      el.addEventListener("pointerleave", onUp, { passive: true });
-
-      return () => {
-        el.removeEventListener("pointerdown", onDown);
-        el.removeEventListener("pointermove", onMove);
-        el.removeEventListener("pointerup", onUp);
-        el.removeEventListener("pointercancel", onUp);
-        el.removeEventListener("pointerleave", onUp);
-      };
-    }, [disabled]);
-
-    return ref;
-  }
-
-  const ring1Ref = useDragScroll();
-  const ring2Ref = useDragScroll();
-  const ring3Ref = useDragScroll();
-
-  const currentColor = value?.color || value?.avatar || "sky";
-  const currentVoice = value?.voice || "warm";
+  // 初始化 namePick：如果 nickname 剛好等於 preset，就選起來
+  useEffect(() => {
+    const hit = namePresets.find((p) => p.label === (value?.nickname || ""));
+    setNamePick(hit ? hit.id : "zd");
+  }, [value?.nickname, namePresets]);
 
   const canDone =
-    !!value?.email && !!currentColor && !!currentVoice && !!localName.trim();
+    !!value?.email &&
+    !!(value?.color || value?.avatar) &&
+    !!value?.voice &&
+    !!localName.trim();
 
-  const pickColor = (id) => onChange?.({ ...value, color: id, avatar: id });
-  const pickVoice = (id) => onChange?.({ ...value, voice: id });
-  const commitName = (name) => onChange?.({ ...value, nickname: name });
+  const pickColor = (id) => {
+    onChange?.({ ...value, color: id, avatar: id }); // 兼容原本 avatar 欄位
+  };
+  const pickVoice = (id) => {
+    onChange?.({ ...value, voice: id });
+  };
+  const commitName = (name) => {
+    onChange?.({ ...value, nickname: name });
+  };
 
-  // 小標籤
-  const colorLabel =
-    currentColor === "mint"
-      ? "薄荷綠"
-      : currentColor === "purple"
-      ? "紫色"
-      : "天空藍";
-  const voiceLabel =
-    currentVoice === "calm"
-      ? "冷靜條理"
-      : currentVoice === "energetic"
-      ? "活潑有精神"
-      : "溫暖親切";
+  const onPickPresetName = (presetId) => {
+    setNamePick(presetId);
+    const p = namePresets.find((x) => x.id === presetId);
+    if (!p) return;
+
+    if (p.id === "zd") {
+      // 自訂：不強制改名字
+      return;
+    }
+    setLocalName(p.label);
+    commitName(p.label);
+  };
 
   return (
     <div className="fixed left-0 right-0 bottom-0 z-[60] pointer-events-none">
@@ -109,136 +99,108 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
         className="pointer-events-auto mx-auto w-full max-w-4xl px-3 pb-[calc(env(safe-area-inset-bottom)+12px)]"
         style={{ WebkitTapHighlightColor: "transparent" }}
       >
-        {/* 羅盤底座 */}
-        <div className="relative overflow-hidden rounded-[32px] border border-sky-200/60 bg-white/65 backdrop-blur shadow-[0_-18px_70px_rgba(2,132,199,0.22)]">
-          {/* 上方小標題 */}
-          <div className="flex items-center justify-between gap-3 px-4 pt-4 pb-2">
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-slate-800">
-                高科技羅盤 · 創角設定
+        <div className="rounded-[28px] border border-sky-200/60 bg-white/75 backdrop-blur overflow-hidden shadow-[0_-10px_40px_rgba(2,132,199,0.15)]">
+          {/* Header */}
+          <div className="px-4 pt-4 pb-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-slate-800">
+                  高科技羅盤 · 創角設定
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  每一圈沿圓周旋轉（左右拖拉），放開會自動吸附到最近選項
+                </div>
               </div>
-              <div className="text-[11px] text-slate-500">
-                三圈同心圓，各自左右滑動選擇
-              </div>
-            </div>
 
-            <button
-              disabled={disabled || !canDone}
-              onClick={() => {
-                commitName(localName.trim());
-                onDone?.();
-              }}
-              className={cx(
-                "shrink-0 rounded-full px-4 py-2 text-sm font-medium transition",
-                disabled || !canDone
-                  ? "bg-slate-200 text-slate-500"
-                  : "bg-sky-600 text-white hover:bg-sky-700"
-              )}
-            >
-              完成
-            </button>
+              <button
+                disabled={disabled || !canDone}
+                onClick={() => {
+                  commitName(localName.trim());
+                  onDone?.();
+                }}
+                className={cx(
+                  "shrink-0 rounded-full px-4 py-2 text-sm font-medium transition",
+                  disabled || !canDone
+                    ? "bg-slate-200 text-slate-500"
+                    : "bg-sky-600 text-white hover:bg-sky-700"
+                )}
+              >
+                完成
+              </button>
+            </div>
           </div>
 
-          {/* 圓形羅盤區 */}
-          <div className="relative px-4 pb-4 pt-2">
-            <div className="relative mx-auto aspect-square w-full max-w-[460px]">
-              {/* 羅盤背景 */}
-              <div className="absolute inset-0 rounded-full border border-sky-100 bg-gradient-to-b from-sky-50/80 to-white/40" />
+          {/* 羅盤舞台：只露出上半部圈環，像底部儀表 */}
+          <div className="relative px-3 pb-4">
+            <div className="relative w-full rounded-2xl border border-sky-100 bg-sky-50/60 overflow-hidden">
+              {/* 舞台高度（可調） */}
+              <div className="relative h-[280px] sm:h-[310px]">
+                {/* 中央提示點（準星） */}
+                <div className="absolute left-1/2 top-[44%] -translate-x-1/2 -translate-y-1/2">
+                  <div className="h-2 w-2 rounded-full bg-sky-600 shadow-[0_0_0_6px_rgba(2,132,199,0.15)]" />
+                </div>
 
-              {/* 科技格線/光暈 */}
-              <div
-                className="absolute inset-0 rounded-full opacity-70"
-                style={{
-                  background:
-                    "radial-gradient(circle at 50% 40%, rgba(14,165,233,0.18), transparent 55%), radial-gradient(circle at 20% 80%, rgba(34,211,238,0.14), transparent 45%), radial-gradient(circle at 80% 75%, rgba(99,102,241,0.12), transparent 45%)"
-                }}
-              />
-              <div
-                className="absolute inset-0 rounded-full"
-                style={{
-                  background:
-                    "repeating-radial-gradient(circle at 50% 50%, rgba(148,163,184,0.22) 0 1px, transparent 1px 18px)"
-                }}
-              />
+                {/* Ring 1 */}
+                <WheelRing
+                  title="① 顏色"
+                  subtitle="選核心色（也會套用到冷光線條）"
+                  items={colors}
+                  valueId={value?.color || value?.avatar || "sky"}
+                  onChangeId={pickColor}
+                  disabled={disabled}
+                  radius={130}
+                  topPct={56}
+                />
 
-              {/* 指針/準星 */}
-              <div className="absolute left-1/2 top-1/2 h-[72%] w-[72%] -translate-x-1/2 -translate-y-1/2 rounded-full border border-sky-200/60" />
-              <div className="absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-sky-500 shadow-[0_0_18px_rgba(14,165,233,0.65)]" />
-              <div className="absolute left-1/2 top-[10px] -translate-x-1/2 text-[10px] tracking-widest text-slate-400">
-                N
+                {/* Ring 2 */}
+                <WheelRing
+                  title="② 個性"
+                  subtitle="選說話風格（聲線）"
+                  items={voices}
+                  valueId={value?.voice || "warm"}
+                  onChangeId={pickVoice}
+                  disabled={disabled}
+                  radius={165}
+                  topPct={56}
+                />
+
+                {/* Ring 3（名字圈：預設名字沿圓周選） */}
+                <WheelRing
+                  title="③ 名字"
+                  subtitle="選預設或自訂"
+                  items={namePresets}
+                  valueId={namePick}
+                  onChangeId={onPickPresetName}
+                  disabled={disabled}
+                  radius={205}
+                  topPct={56}
+                />
               </div>
 
-              {/* 中央狀態顯示 */}
-              <div className="absolute left-1/2 top-1/2 w-[66%] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-sky-100 bg-white/70 px-3 py-2 text-center backdrop-blur">
-                <div className="text-[11px] text-slate-500">
-                  已選：{colorLabel} · {voiceLabel}
-                </div>
-                <div className="mt-1 text-xs font-semibold text-slate-800 line-clamp-1">
-                  {localName.trim() ? `暱稱：${localName.trim()}` : "請輸入暱稱"}
-                </div>
-              </div>
-
-              {/* 三圈弧形滑軌（用「圓環外觀 + 內部水平滑動」做出羅盤感） */}
-              <ArcRing
-                label="① 顏色"
-                hint="核心色（也會套用到冷光線條）"
-                scrollRef={ring1Ref}
-                radiusClass="inset-[8%]"
-                disabled={disabled}
-              >
-                {colors.map((c) => (
-                  <ArcChip
-                    key={c.id}
-                    active={currentColor === c.id}
-                    label={c.label}
-                    onClick={() => pickColor(c.id)}
-                    disabled={disabled}
-                  />
-                ))}
-              </ArcRing>
-
-              <ArcRing
-                label="② 個性"
-                hint="說話風格（聲線）"
-                scrollRef={ring2Ref}
-                radiusClass="inset-[18%]"
-                disabled={disabled}
-              >
-                {voices.map((v) => (
-                  <ArcChip
-                    key={v.id}
-                    active={currentVoice === v.id}
-                    label={v.label}
-                    onClick={() => pickVoice(v.id)}
-                    disabled={disabled}
-                  />
-                ))}
-              </ArcRing>
-
-              <ArcRing
-                label="③ 名字"
-                hint="輸入後就能開始聊天"
-                scrollRef={ring3Ref}
-                radiusClass="inset-[28%]"
-                disabled={disabled}
-              >
-                <div className="min-w-[340px] flex items-center gap-2 px-2">
+              {/* 底部：名字輸入（保留自訂能力） */}
+              <div className="px-4 pb-4 -mt-2">
+                <div className="flex items-center gap-2">
                   <input
                     value={localName}
                     onChange={(e) => {
                       const v = e.target.value.slice(0, 20);
                       setLocalName(v);
+                      // 使用者開始打字就視為自訂
+                      if (namePick !== "zd") setNamePick("zd");
                     }}
                     onBlur={() => commitName(localName.trim())}
                     placeholder="例如：小護膜、阿膜、浴室管家"
                     disabled={disabled}
                     className="flex-1 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-400"
                   />
-                  <div className="text-[11px] text-slate-400 pr-2">
-                    {localName.length}/20
+                  <div className="text-[11px] text-slate-400 pr-1">
+                    {Math.min(localName.length, 20)}/20
                   </div>
                 </div>
-              </ArcRing>
+                <div className="mt-2 text-[11px] text-slate-500">
+                  小技巧：拖拉圈環把想要的項目轉到準星附近，就會自動選中
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -247,60 +209,179 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
   );
 }
 
-function ArcRing({ label, hint, children, scrollRef, radiusClass, disabled }) {
-  return (
-    <div className={cx("absolute rounded-full", radiusClass)}>
-      {/* 圓環外觀 */}
-      <div className="absolute inset-0 rounded-full border border-sky-200/60 bg-white/10" />
-      <div
-        className="absolute inset-0 rounded-full opacity-70"
-        style={{
-          background:
-            "conic-gradient(from 180deg, rgba(14,165,233,0.08), rgba(99,102,241,0.06), rgba(34,211,238,0.08))"
-        }}
-      />
+/**
+ * WheelRing：圓周旋轉圈
+ * - 以「左右拖拉」改變角度
+ * - 放開自動吸附（snap）到最近項目
+ * - 項目分佈在圓周上，顯示時靠上半圈最清楚（底部儀表感）
+ */
+function WheelRing({
+  title,
+  subtitle,
+  items,
+  valueId,
+  onChangeId,
+  disabled,
+  radius = 160,
+  topPct = 56
+}) {
+  const n = items.length;
+  const step = 360 / n; // 每個項目角度間距
+  const centerIndex = Math.max(
+    0,
+    items.findIndex((x) => x.id === valueId)
+  );
 
-      {/* 上方標籤 */}
-      <div className="absolute left-1/2 top-2 -translate-x-1/2 rounded-full border border-sky-100 bg-white/75 px-3 py-1 text-[11px] text-slate-600 backdrop-blur">
-        <span className="font-semibold text-slate-700">{label}</span>
-        <span className="mx-2 text-slate-300">|</span>
-        <span className="text-slate-500">{hint}</span>
+  // 角度規則：讓「目前選中」靠近準星（上方/正中）
+  // 我們定義：index 0 在 -90deg（正上方），所以選中 index 應對應 angle = -index*step
+  const targetAngle = -centerIndex * step;
+
+  const [angle, setAngle] = useState(targetAngle);
+  const dragging = useRef(false);
+  const startX = useRef(0);
+  const startAngle = useRef(0);
+
+  // 外部 value 變化時，同步角度（避免跳動，做個柔和過渡）
+  useEffect(() => {
+    setAngle(targetAngle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [valueId]);
+
+  const snapToNearest = (a) => {
+    // 反推最接近的 index：a ≈ -index*step
+    const raw = -a / step;
+    const idx = mod(Math.round(raw), n);
+    const snappedAngle = -idx * step;
+    return { idx, snappedAngle };
+  };
+
+  const onPointerDown = (e) => {
+    if (disabled) return;
+    dragging.current = true;
+    startX.current = e.clientX;
+    startAngle.current = angle;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+
+  const onPointerMove = (e) => {
+    if (!dragging.current) return;
+    // dx 轉成角度：越大越靈敏（可調）
+    const dx = e.clientX - startX.current;
+    const next = startAngle.current + dx * 0.25; // ★靈敏度
+    setAngle(next);
+  };
+
+  const onPointerUp = () => {
+    if (!dragging.current) return;
+    dragging.current = false;
+    const { idx, snappedAngle } = snapToNearest(angle);
+    setAngle(snappedAngle);
+
+    const chosen = items[idx];
+    if (chosen && chosen.id !== valueId) {
+      onChangeId?.(chosen.id);
+    }
+  };
+
+  // 只露出上半圈：用 overflow hidden + 位移來做「儀表盤」
+  const centerTop = `${topPct}%`;
+
+  return (
+    <div className="absolute inset-0 pointer-events-none">
+      {/* 標題（固定在上方） */}
+      <div className="absolute left-4 top-4 pointer-events-none">
+        <div className="text-xs font-semibold text-slate-700">{title}</div>
+        <div className="text-[11px] text-slate-500">{subtitle}</div>
       </div>
 
-      {/* 弧形「窗口」：只露出下半圈，做出羅盤弧形滑軌的感覺 */}
-      <div className="absolute left-1/2 bottom-2 w-[92%] -translate-x-1/2">
-        <div className="relative overflow-hidden rounded-full border border-sky-100 bg-white/55 backdrop-blur">
+      {/* 圈環容器（可拖拉） */}
+      <div
+        className="absolute left-1/2 pointer-events-auto"
+        style={{ top: centerTop, transform: "translate(-50%, -50%)" }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onPointerLeave={onPointerUp}
+      >
+        {/* 露出區：只顯示上半 */}
+        <div
+          className="relative overflow-hidden"
+          style={{
+            width: radius * 2 + 40,
+            height: radius + 60,
+            touchAction: "pan-x",
+            WebkitUserSelect: "none",
+            userSelect: "none"
+          }}
+        >
+          {/* 圈本體 */}
           <div
-            ref={scrollRef}
-            className="flex gap-2 overflow-x-auto no-scrollbar px-3 py-3"
+            className="absolute left-1/2"
             style={{
-              touchAction: "pan-x",
-              WebkitOverflowScrolling: "touch",
-              pointerEvents: disabled ? "none" : "auto"
+              top: radius + 40, // 往下放，讓只露出上半圈
+              transform: `translateX(-50%) rotate(${angle}deg)`,
+              width: radius * 2,
+              height: radius * 2
             }}
           >
-            {children}
+            {/* 圈環光暈 */}
+            <div
+              className="absolute inset-0 rounded-full"
+              style={{
+                boxShadow: "0 0 0 1px rgba(2,132,199,0.18), 0 0 30px rgba(2,132,199,0.12)",
+                background:
+                  "radial-gradient(circle at 50% 50%, rgba(2,132,199,0.06), rgba(2,132,199,0.0) 55%)"
+              }}
+            />
+
+            {/* 項目分佈在圓周 */}
+            {items.map((it, i) => {
+              const itemAngle = i * step - 90; // 讓 i=0 在正上方
+              const isActive = it.id === valueId;
+
+              return (
+                <button
+                  key={it.id}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onChangeId?.(it.id)}
+                  className={cx(
+                    "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2",
+                    "rounded-full border px-3 py-2 text-[11px] sm:text-xs whitespace-nowrap",
+                    "transition",
+                    isActive
+                      ? "bg-sky-600 border-sky-600 text-white"
+                      : "bg-white/85 border-slate-200 text-slate-700 hover:bg-white"
+                  )}
+                  style={{
+                    transform: `translate(-50%, -50%) rotate(${itemAngle}deg) translateY(-${radius}px) rotate(${-itemAngle}deg)`,
+                    // 讓項目面向正面（第二個 rotate 轉回來）
+                    boxShadow: isActive
+                      ? "0 10px 25px rgba(2,132,199,0.25)"
+                      : "0 6px 18px rgba(15,23,42,0.08)"
+                  }}
+                >
+                  {it.label}
+                </button>
+              );
+            })}
           </div>
         </div>
+
+        {/* 準星高亮線（指向準星方向） */}
+        <div
+          className="absolute left-1/2 top-[8px] -translate-x-1/2"
+          style={{
+            width: 2,
+            height: 34,
+            background:
+              "linear-gradient(to bottom, rgba(2,132,199,0.0), rgba(2,132,199,0.75), rgba(2,132,199,0.0))",
+            filter: "drop-shadow(0 0 10px rgba(2,132,199,0.4))",
+            pointerEvents: "none"
+          }}
+        />
       </div>
     </div>
-  );
-}
-
-function ArcChip({ active, label, onClick, disabled }) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className={cx(
-        "shrink-0 rounded-full border px-4 py-2 text-xs md:text-sm transition",
-        active
-          ? "bg-sky-600 border-sky-600 text-white shadow-[0_0_18px_rgba(14,165,233,0.35)]"
-          : "bg-white/85 border-slate-200 text-slate-700 hover:bg-white"
-      )}
-    >
-      {label}
-    </button>
   );
 }
