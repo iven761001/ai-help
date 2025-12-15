@@ -11,6 +11,8 @@ function classNames(...arr) {
 }
 
 export default function HomePage() {
+  const [previewYaw, setPreviewYaw] = useState(0);
+  const dragRef = useState(() => ({ down: false, x: 0, yaw: 0 }))[0];
   const [phase, setPhase] = useState("loading"); // loading / bindEmail / create / chat
   const [user, setUser] = useState(null);
 
@@ -207,11 +209,33 @@ export default function HomePage() {
             <div className="w-full max-w-sm">
               <div className="rounded-3xl bg-white shadow-lg border border-sky-100 p-3">
                 <div className="aspect-square rounded-2xl bg-sky-50 flex items-center justify-center overflow-hidden">
-                  <Avatar3D
-                    variant={draft.avatar || draft.color || "sky"}
-                    emotion="idle"
-                  />
-                </div>
+                  <div
+  className="aspect-square rounded-2xl bg-sky-50 flex items-center justify-center overflow-hidden"
+  style={{ touchAction: "none" }} // ✅ 重要：讓單指拖曳不會變成頁面滾動
+  onPointerDown={(e) => {
+    dragRef.down = true;
+    dragRef.x = e.clientX;
+    dragRef.yaw = previewYaw;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  }}
+  onPointerMove={(e) => {
+    if (!dragRef.down) return;
+    const dx = e.clientX - dragRef.x;
+    setPreviewYaw(dragRef.yaw + dx * 0.01); // ✅ 調整 0.01 可改更快/更慢
+  }}
+  onPointerUp={() => {
+    dragRef.down = false;
+  }}
+  onPointerCancel={() => {
+    dragRef.down = false;
+  }}
+>
+  <Avatar3D
+    variant={draft.avatar || draft.color || "sky"}
+    emotion="idle"
+    previewYaw={previewYaw}   // ✅ 新增
+  />
+</div>
 
                 <div className="mt-3 space-y-1 px-2 pb-1">
                   <div className="text-sm font-semibold text-slate-800">
