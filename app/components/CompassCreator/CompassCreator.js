@@ -9,15 +9,15 @@ function clamp(n, a, b) {
   return Math.max(a, Math.min(b, n));
 }
 
-/** 垂直滾輪（放開吸附） */
+/** 垂直滾輪（放開吸附）— 精簡版 */
 function SnapWheel({
   title,
-  subtitle,
   items,
   valueId,
   onChangeId,
   disabled,
-  itemHeight = 44
+  itemHeight = 40,
+  height = 160
 }) {
   const wrapRef = useRef(null);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -26,18 +26,15 @@ function SnapWheel({
 
   const idxFromId = (id) => Math.max(0, items.findIndex((x) => x.id === id));
 
-  // 初始化/外部變更時，把滾輪滾到對應項
   useEffect(() => {
     const idx = idxFromId(valueId);
     setActiveIndex(idx);
     const el = wrapRef.current;
     if (!el) return;
-    const top = idx * itemHeight;
-    el.scrollTo({ top, behavior: "instant" });
+    el.scrollTo({ top: idx * itemHeight, behavior: "instant" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [valueId]);
 
-  // 依滾動位置算最近 index（即時高亮用）
   const updateActiveFromScroll = () => {
     const el = wrapRef.current;
     if (!el) return;
@@ -49,8 +46,7 @@ function SnapWheel({
     const el = wrapRef.current;
     if (!el) return;
     const idx = clamp(Math.round(el.scrollTop / itemHeight), 0, items.length - 1);
-    const top = idx * itemHeight;
-    el.scrollTo({ top, behavior: "smooth" });
+    el.scrollTo({ top: idx * itemHeight, behavior: "smooth" });
 
     const chosen = items[idx];
     if (chosen && chosen.id !== valueId) onChangeId?.(chosen.id);
@@ -59,15 +55,11 @@ function SnapWheel({
   const onScroll = () => {
     if (disabled) return;
 
-    // 用 rAF 降低頻繁 setState 的卡頓
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     rafRef.current = requestAnimationFrame(updateActiveFromScroll);
 
-    // 放開後吸附：scroll 停下來 120ms 就吸
     if (snapTimer.current) clearTimeout(snapTimer.current);
-    snapTimer.current = setTimeout(() => {
-      snapToNearest();
-    }, 120);
+    snapTimer.current = setTimeout(() => snapToNearest(), 120);
   };
 
   useEffect(() => {
@@ -77,36 +69,31 @@ function SnapWheel({
     };
   }, []);
 
-  // 上下 padding 做出「中間選中線」效果
+  // padding 讓「選中線」在正中間
   const pad = itemHeight * 2;
+  const wheelHeight = height;
 
   return (
-    <div className="rounded-2xl border border-sky-100 bg-sky-50/60 px-3 py-3">
-      <div className="flex items-baseline justify-between gap-2 px-1">
-        <div className="min-w-0">
-          <div className="text-xs font-semibold text-slate-700">{title}</div>
-          <div className="text-[11px] text-slate-500">{subtitle}</div>
-        </div>
+    <div className="rounded-2xl border border-sky-100 bg-sky-50/60 px-2 py-2">
+      <div className="px-1">
+        <div className="text-[11px] font-semibold text-slate-700">{title}</div>
       </div>
 
       <div className="relative mt-2">
         {/* 選中線 */}
         <div
-          className="pointer-events-none absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[44px] rounded-xl border border-sky-200 bg-white/70 shadow-[0_6px_20px_rgba(2,132,199,0.12)]"
+          className="pointer-events-none absolute left-0 right-0 top-1/2 -translate-y-1/2 rounded-xl border border-sky-200 bg-white/75 shadow-[0_6px_18px_rgba(2,132,199,0.12)]"
           style={{ height: itemHeight }}
         />
 
         <div
           ref={wrapRef}
           onScroll={onScroll}
-          className={cx(
-            "h-[220px] overflow-y-auto no-scrollbar rounded-xl",
-            disabled ? "opacity-60" : ""
-          )}
+          className={cx("overflow-y-auto no-scrollbar rounded-xl", disabled ? "opacity-60" : "")}
           style={{
+            height: wheelHeight,
             paddingTop: pad,
             paddingBottom: pad,
-            scrollBehavior: "auto",
             WebkitOverflowScrolling: "touch"
           }}
         >
@@ -115,10 +102,7 @@ function SnapWheel({
             return (
               <div
                 key={it.id}
-                className={cx(
-                  "flex items-center justify-center",
-                  active ? "text-slate-900" : "text-slate-500"
-                )}
+                className={cx("flex items-center justify-center")}
                 style={{ height: itemHeight }}
               >
                 <button
@@ -131,8 +115,9 @@ function SnapWheel({
                     onChangeId?.(it.id);
                   }}
                   className={cx(
-                    "w-full text-center text-sm transition px-2",
-                    active ? "font-semibold" : "font-normal"
+                    "w-full px-1 text-center transition",
+                    active ? "text-slate-900 font-semibold" : "text-slate-500 font-normal",
+                    "text-xs sm:text-sm"
                   )}
                 >
                   {it.label}
@@ -142,10 +127,6 @@ function SnapWheel({
           })}
         </div>
       </div>
-
-      <div className="mt-2 text-[11px] text-slate-400 px-1">
-        小技巧：上下滑動，放開就會自動吸附到最近選項
-      </div>
     </div>
   );
 }
@@ -153,9 +134,9 @@ function SnapWheel({
 export default function CompassCreator({ value, onChange, onDone, disabled }) {
   const colors = useMemo(
     () => [
-      { id: "sky", label: "天空藍 · 穩重專業" },
-      { id: "mint", label: "薄荷綠 · 清爽潔淨" },
-      { id: "purple", label: "紫色 · 科技感" }
+      { id: "sky", label: "天空藍" },
+      { id: "mint", label: "薄荷綠" },
+      { id: "purple", label: "紫色" }
     ],
     []
   );
@@ -184,9 +165,7 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
   const [localName, setLocalName] = useState(value?.nickname || "");
   const [namePick, setNamePick] = useState("zd");
 
-  useEffect(() => {
-    setLocalName(value?.nickname || "");
-  }, [value?.nickname]);
+  useEffect(() => setLocalName(value?.nickname || ""), [value?.nickname]);
 
   useEffect(() => {
     const hit = namePresets.find((p) => p.label === (value?.nickname || ""));
@@ -205,8 +184,6 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
     onChange?.({ ...value, nickname: p.label });
   };
 
-  const commitName = (name) => onChange?.({ ...value, nickname: name });
-
   const canDone =
     !!value?.email &&
     !!(value?.color || value?.avatar) &&
@@ -215,28 +192,19 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
 
   return (
     <div className="fixed left-0 right-0 bottom-0 z-[60] pointer-events-none">
-      <div
-        className="pointer-events-auto mx-auto w-full max-w-4xl px-3 pb-[calc(env(safe-area-inset-bottom)+12px)]"
-        style={{ WebkitTapHighlightColor: "transparent" }}
-      >
-        <div className="rounded-[28px] border border-sky-200/60 bg-white/75 backdrop-blur shadow-[0_-10px_40px_rgba(2,132,199,0.15)] overflow-hidden">
-          <div className="px-4 pt-4 pb-3">
+      <div className="pointer-events-auto mx-auto w-full max-w-4xl px-3 pb-[calc(env(safe-area-inset-bottom)+10px)]">
+        <div className="rounded-[26px] border border-sky-200/60 bg-white/75 backdrop-blur shadow-[0_-10px_40px_rgba(2,132,199,0.15)] overflow-hidden">
+          {/* 精簡標題列 */}
+          <div className="px-4 pt-3 pb-2">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-slate-800">
-                  客製你的專屬 AI 小管家
-                </div>
-                <div className="text-[11px] text-slate-500">
-                  改成上下滾動選單，放開自動吸附到最近選項
-                </div>
+                <div className="text-sm font-semibold text-slate-800">創角設定</div>
+                <div className="text-[11px] text-slate-500">上下滑動，放開自動吸附</div>
               </div>
 
               <button
                 disabled={disabled || !canDone}
-                onClick={() => {
-                  commitName(localName.trim());
-                  onDone?.();
-                }}
+                onClick={() => onDone?.()}
                 className={cx(
                   "shrink-0 rounded-full px-4 py-2 text-sm font-medium transition",
                   disabled || !canDone
@@ -249,43 +217,41 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
             </div>
           </div>
 
-          <div className="px-3 pb-4 space-y-3">
-            <SnapWheel
-              title="① 顏色"
-              subtitle="選核心色（也會套用到冷光線條）"
-              items={colors}
-              valueId={value?.color || value?.avatar || "sky"}
-              onChangeId={pickColor}
-              disabled={disabled}
-            />
+          {/* 三欄並排滾軸 */}
+          <div className="px-3 pb-3">
+            <div className="grid grid-cols-3 gap-2">
+              <SnapWheel
+                title="① 顏色"
+                items={colors}
+                valueId={value?.color || value?.avatar || "sky"}
+                onChangeId={pickColor}
+                disabled={disabled}
+                itemHeight={40}
+                height={160}
+              />
+              <SnapWheel
+                title="② 個性"
+                items={voices}
+                valueId={value?.voice || "warm"}
+                onChangeId={pickVoice}
+                disabled={disabled}
+                itemHeight={40}
+                height={160}
+              />
+              <SnapWheel
+                title="③ 名字"
+                items={namePresets}
+                valueId={namePick}
+                onChangeId={onPickPresetName}
+                disabled={disabled}
+                itemHeight={40}
+                height={160}
+              />
+            </div>
 
-            <SnapWheel
-              title="② 個性"
-              subtitle="選說話風格（聲線）"
-              items={voices}
-              valueId={value?.voice || "warm"}
-              onChangeId={pickVoice}
-              disabled={disabled}
-            />
-
-            <SnapWheel
-              title="③ 名字"
-              subtitle="先選預設名，或選「自訂」後手動輸入"
-              items={namePresets}
-              valueId={namePick}
-              onChangeId={onPickPresetName}
-              disabled={disabled}
-            />
-
-            <div className="rounded-2xl border border-sky-100 bg-sky-50/60 px-3 py-3">
-              <div className="text-xs font-semibold text-slate-700 px-1">
-                自訂名稱
-              </div>
-              <div className="text-[11px] text-slate-500 px-1">
-                手動輸入會自動切換到「自訂」
-              </div>
-
-              <div className="mt-2 flex items-center gap-2 px-1">
+            {/* 自訂名稱（在三欄下方，避免擠爆） */}
+            <div className="mt-2 rounded-2xl border border-sky-100 bg-sky-50/60 px-3 py-2">
+              <div className="flex items-center gap-2">
                 <input
                   value={localName}
                   onChange={(e) => {
@@ -294,14 +260,11 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
                     if (namePick !== "zd") setNamePick("zd");
                     onChange?.({ ...value, nickname: v });
                   }}
-                  onBlur={() => commitName(localName.trim())}
-                  placeholder="例如：小護膜、阿膜、浴室管家"
+                  placeholder="自訂名稱（最多 20 字）"
                   disabled={disabled}
                   className="flex-1 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-400"
                 />
-                <div className="text-[11px] text-slate-400 pr-2">
-                  {Math.min(localName.length, 20)}/20
-                </div>
+                <div className="text-[11px] text-slate-400">{Math.min(localName.length, 20)}/20</div>
               </div>
             </div>
           </div>
