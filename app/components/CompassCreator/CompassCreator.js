@@ -5,21 +5,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 function cx(...arr) {
   return arr.filter(Boolean).join(" ");
 }
-
-function clamp(n, min, max) {
-  return Math.max(min, Math.min(max, n));
-}
-
 function mod(n, m) {
   return ((n % m) + m) % m;
 }
 
-/**
- * 圓周羅盤（3圈）
- * - 每一圈：沿圓周旋轉（手指左右拖拉）
- * - 放開：吸附到最近項目（snapping）
- * - 固定在底部 safe-area
- */
+// 甜甜圈命中測試：點到「這一圈的帶狀範圍」才算
+function inDonutBand(px, py, cx0, cy0, radius, band) {
+  const dx = px - cx0;
+  const dy = py - cy0;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  return d >= radius - band && d <= radius + band;
+}
+
 export default function CompassCreator({ value, onChange, onDone, disabled }) {
   const colors = useMemo(
     () => [
@@ -52,46 +49,35 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
   );
 
   const [localName, setLocalName] = useState(value?.nickname || "");
-  const [namePick, setNamePick] = useState("zd"); // 預設自訂
+  const [namePick, setNamePick] = useState("zd");
 
   useEffect(() => {
     setLocalName(value?.nickname || "");
   }, [value?.nickname]);
 
-  // 初始化 namePick：如果 nickname 剛好等於 preset，就選起來
   useEffect(() => {
     const hit = namePresets.find((p) => p.label === (value?.nickname || ""));
     setNamePick(hit ? hit.id : "zd");
   }, [value?.nickname, namePresets]);
+
+  const pickColor = (id) => onChange?.({ ...value, color: id, avatar: id });
+  const pickVoice = (id) => onChange?.({ ...value, voice: id });
+  const commitName = (name) => onChange?.({ ...value, nickname: name });
+
+  const onPickPresetName = (presetId) => {
+    setNamePick(presetId);
+    const p = namePresets.find((x) => x.id === presetId);
+    if (!p) return;
+    if (p.id === "zd") return;
+    setLocalName(p.label);
+    commitName(p.label);
+  };
 
   const canDone =
     !!value?.email &&
     !!(value?.color || value?.avatar) &&
     !!value?.voice &&
     !!localName.trim();
-
-  const pickColor = (id) => {
-    onChange?.({ ...value, color: id, avatar: id }); // 兼容原本 avatar 欄位
-  };
-  const pickVoice = (id) => {
-    onChange?.({ ...value, voice: id });
-  };
-  const commitName = (name) => {
-    onChange?.({ ...value, nickname: name });
-  };
-
-  const onPickPresetName = (presetId) => {
-    setNamePick(presetId);
-    const p = namePresets.find((x) => x.id === presetId);
-    if (!p) return;
-
-    if (p.id === "zd") {
-      // 自訂：不強制改名字
-      return;
-    }
-    setLocalName(p.label);
-    commitName(p.label);
-  };
 
   return (
     <div className="fixed left-0 right-0 bottom-0 z-[60] pointer-events-none">
@@ -108,7 +94,7 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
                   高科技羅盤 · 創角設定
                 </div>
                 <div className="text-[11px] text-slate-500">
-                  每一圈沿圓周旋轉（左右拖拉），放開會自動吸附到最近選項
+                  每一圈沿圓周旋轉（左右拖拉），互不干擾，放開會吸附到最近選項
                 </div>
               </div>
 
@@ -130,54 +116,64 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
             </div>
           </div>
 
-          {/* 羅盤舞台：只露出上半部圈環，像底部儀表 */}
+          {/* 羅盤舞台 */}
           <div className="relative px-3 pb-4">
             <div className="relative w-full rounded-2xl border border-sky-100 bg-sky-50/60 overflow-hidden">
-              {/* 舞台高度（可調） */}
-              <div className="relative h-[280px] sm:h-[310px]">
-                {/* 中央提示點（準星） */}
-                <div className="absolute left-1/2 top-[44%] -translate-x-1/2 -translate-y-1/2">
+              <div className="relative h-[320px] sm:h-[350px]">
+                {/* 中央準星 */}
+                <div className="absolute left-1/2 top-[48%] -translate-x-1/2 -translate-y-1/2 pointer-events-none">
                   <div className="h-2 w-2 rounded-full bg-sky-600 shadow-[0_0_0_6px_rgba(2,132,199,0.15)]" />
                 </div>
 
-                {/* Ring 1 */}
+                {/* 三個圈：同心圓、但各自「甜甜圈命中」才會接手 */}
                 <WheelRing
+                  z={30}
                   title="① 顏色"
                   subtitle="選核心色（也會套用到冷光線條）"
                   items={colors}
                   valueId={value?.color || value?.avatar || "sky"}
                   onChangeId={pickColor}
                   disabled={disabled}
-                  radius={130}
-                  topPct={56}
+                  centerTopPct={48}
+                  radius={120}
+                  band={32}
                 />
 
-                {/* Ring 2 */}
                 <WheelRing
+                  z={20}
                   title="② 個性"
                   subtitle="選說話風格（聲線）"
                   items={voices}
                   valueId={value?.voice || "warm"}
                   onChangeId={pickVoice}
                   disabled={disabled}
-                  radius={165}
-                  topPct={56}
+                  centerTopPct={48}
+                  radius={160}
+                  band={32}
                 />
 
-                {/* Ring 3（名字圈：預設名字沿圓周選） */}
                 <WheelRing
+                  z={10}
                   title="③ 名字"
                   subtitle="選預設或自訂"
                   items={namePresets}
                   valueId={namePick}
                   onChangeId={onPickPresetName}
                   disabled={disabled}
+                  centerTopPct={48}
                   radius={205}
-                  topPct={56}
+                  band={34}
                 />
+
+                {/* 圈的標題區（不疊在一起） */}
+                <div className="absolute left-4 top-4 right-4 pointer-events-none space-y-1">
+                  <div className="text-[11px] text-slate-500">
+                    ① 顏色　② 個性　③ 名字（各圈都能獨立拖拉）
+                  </div>
+                </div>
               </div>
 
-              {/* 底部：名字輸入（保留自訂能力） */}
+              {/* 名字輸入 */}
               <div className="px-4 pb-4 -mt-2">
                 <div className="flex items-center gap-2">
                   <input
@@ -185,7 +181,6 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
                     onChange={(e) => {
                       const v = e.target.value.slice(0, 20);
                       setLocalName(v);
-                      // 使用者開始打字就視為自訂
                       if (namePick !== "zd") setNamePick("zd");
                     }}
                     onBlur={() => commitName(localName.trim())}
@@ -198,7 +193,7 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
                   </div>
                 </div>
                 <div className="mt-2 text-[11px] text-slate-500">
-                  小技巧：拖拉圈環把想要的項目轉到準星附近，就會自動選中
+                  小技巧：手指放在你要控制的那一圈「弧線附近」拖拉，就只會動那一圈
                 </div>
               </div>
             </div>
@@ -209,54 +204,60 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
   );
 }
 
-/**
- * WheelRing：圓周旋轉圈
- * - 以「左右拖拉」改變角度
- * - 放開自動吸附（snap）到最近項目
- * - 項目分佈在圓周上，顯示時靠上半圈最清楚（底部儀表感）
- */
 function WheelRing({
+  z = 10,
   title,
   subtitle,
   items,
   valueId,
   onChangeId,
   disabled,
+  centerTopPct = 48,
   radius = 160,
-  topPct = 56
+  band = 32
 }) {
   const n = items.length;
-  const step = 360 / n; // 每個項目角度間距
-  const centerIndex = Math.max(
+  const step = 360 / n;
+
+  const idx0 = Math.max(
     0,
     items.findIndex((x) => x.id === valueId)
   );
-
-  // 角度規則：讓「目前選中」靠近準星（上方/正中）
-  // 我們定義：index 0 在 -90deg（正上方），所以選中 index 應對應 angle = -index*step
-  const targetAngle = -centerIndex * step;
+  const targetAngle = -idx0 * step;
 
   const [angle, setAngle] = useState(targetAngle);
+
   const dragging = useRef(false);
   const startX = useRef(0);
   const startAngle = useRef(0);
 
-  // 外部 value 變化時，同步角度（避免跳動，做個柔和過渡）
+  const containerRef = useRef(null);
+
   useEffect(() => {
     setAngle(targetAngle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [valueId]);
 
   const snapToNearest = (a) => {
-    // 反推最接近的 index：a ≈ -index*step
     const raw = -a / step;
     const idx = mod(Math.round(raw), n);
-    const snappedAngle = -idx * step;
-    return { idx, snappedAngle };
+    return { idx, snappedAngle: -idx * step };
+  };
+
+  const shouldHandle = (e) => {
+    const el = containerRef.current;
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    const cx0 = rect.left + rect.width / 2;
+    const cy0 = rect.top + rect.height / 2;
+    return inDonutBand(e.clientX, e.clientY, cx0, cy0, radius, band);
   };
 
   const onPointerDown = (e) => {
     if (disabled) return;
+    // ★ 只有點在自己的圈帶上才接手
+    if (!shouldHandle(e)) return;
+
     dragging.current = true;
     startX.current = e.clientX;
     startAngle.current = angle;
@@ -265,79 +266,95 @@ function WheelRing({
 
   const onPointerMove = (e) => {
     if (!dragging.current) return;
-    // dx 轉成角度：越大越靈敏（可調）
     const dx = e.clientX - startX.current;
-    const next = startAngle.current + dx * 0.25; // ★靈敏度
-    setAngle(next);
+    setAngle(startAngle.current + dx * 0.25);
   };
 
   const onPointerUp = () => {
     if (!dragging.current) return;
     dragging.current = false;
+
     const { idx, snappedAngle } = snapToNearest(angle);
     setAngle(snappedAngle);
 
     const chosen = items[idx];
-    if (chosen && chosen.id !== valueId) {
-      onChangeId?.(chosen.id);
-    }
+    if (chosen && chosen.id !== valueId) onChangeId?.(chosen.id);
   };
 
-  // 只露出上半圈：用 overflow hidden + 位移來做「儀表盤」
-  const centerTop = `${topPct}%`;
-
   return (
-    <div className="absolute inset-0 pointer-events-none">
-      {/* 標題（固定在上方） */}
-      <div className="absolute left-4 top-4 pointer-events-none">
-        <div className="text-xs font-semibold text-slate-700">{title}</div>
-        <div className="text-[11px] text-slate-500">{subtitle}</div>
+    <div
+      className="absolute inset-0"
+      style={{ zIndex: z }}
+      ref={containerRef}
+    >
+      {/* 每圈自己的準星線（同位置，但不搶事件） */}
+      <div className="absolute left-1/2 top-[12px] -translate-x-1/2 pointer-events-none">
+        <div
+          style={{
+            width: 2,
+            height: 34,
+            background:
+              "linear-gradient(to bottom, rgba(2,132,199,0.0), rgba(2,132,199,0.55), rgba(2,132,199,0.0))",
+            filter: "drop-shadow(0 0 10px rgba(2,132,199,0.25))"
+          }}
+        />
       </div>
 
-      {/* 圈環容器（可拖拉） */}
+      {/* 圈本體（整圈可拖，但只有命中圈帶才會開始） */}
       <div
         className="absolute left-1/2 pointer-events-auto"
-        style={{ top: centerTop, transform: "translate(-50%, -50%)" }}
+        style={{ top: `${centerTopPct}%`, transform: "translate(-50%, -50%)" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onPointerLeave={onPointerUp}
       >
-        {/* 露出區：只顯示上半 */}
+        {/* 露出區：上半圈儀表感 */}
         <div
           className="relative overflow-hidden"
           style={{
             width: radius * 2 + 40,
-            height: radius + 60,
+            height: radius + 70,
             touchAction: "pan-x",
             WebkitUserSelect: "none",
             userSelect: "none"
           }}
         >
-          {/* 圈本體 */}
           <div
             className="absolute left-1/2"
             style={{
-              top: radius + 40, // 往下放，讓只露出上半圈
+              top: radius + 45,
               transform: `translateX(-50%) rotate(${angle}deg)`,
               width: radius * 2,
               height: radius * 2
             }}
           >
-            {/* 圈環光暈 */}
+            {/* 圈環線 */}
             <div
               className="absolute inset-0 rounded-full"
               style={{
-                boxShadow: "0 0 0 1px rgba(2,132,199,0.18), 0 0 30px rgba(2,132,199,0.12)",
+                boxShadow:
+                  "0 0 0 1px rgba(2,132,199,0.14), 0 0 26px rgba(2,132,199,0.10)",
                 background:
-                  "radial-gradient(circle at 50% 50%, rgba(2,132,199,0.06), rgba(2,132,199,0.0) 55%)"
+                  "radial-gradient(circle at 50% 50%, rgba(2,132,199,0.05), rgba(2,132,199,0.0) 55%)"
               }}
             />
 
-            {/* 項目分佈在圓周 */}
+            {/* 圈帶提示（淡淡的弧線） */}
+            <div
+              className="absolute inset-0 rounded-full"
+              style={{
+                boxShadow: `inset 0 0 0 ${Math.max(
+                  1,
+                  Math.floor(band / 8)
+                )}px rgba(2,132,199,0.08)`
+              }}
+            />
+
+            {/* 項目分佈 */}
             {items.map((it, i) => {
-              const itemAngle = i * step - 90; // 讓 i=0 在正上方
+              const itemAngle = i * step - 90;
               const isActive = it.id === valueId;
 
               return (
@@ -348,19 +365,18 @@ function WheelRing({
                   onClick={() => onChangeId?.(it.id)}
                   className={cx(
                     "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2",
-                    "rounded-full border px-3 py-2 text-[11px] sm:text-xs whitespace-nowrap",
-                    "transition",
+                    "rounded-full border px-3 py-2 text-[11px] sm:text-xs whitespace-nowrap transition",
                     isActive
                       ? "bg-sky-600 border-sky-600 text-white"
                       : "bg-white/85 border-slate-200 text-slate-700 hover:bg-white"
                   )}
                   style={{
                     transform: `translate(-50%, -50%) rotate(${itemAngle}deg) translateY(-${radius}px) rotate(${-itemAngle}deg)`,
-                    // 讓項目面向正面（第二個 rotate 轉回來）
                     boxShadow: isActive
-                      ? "0 10px 25px rgba(2,132,199,0.25)"
-                      : "0 6px 18px rgba(15,23,42,0.08)"
+                      ? "0 10px 22px rgba(2,132,199,0.22)"
+                      : "0 6px 16px rgba(15,23,42,0.08)"
                   }}
+                  aria-label={`${title} ${subtitle} ${it.label}`}
                 >
                   {it.label}
                 </button>
@@ -369,18 +385,11 @@ function WheelRing({
           </div>
         </div>
 
-        {/* 準星高亮線（指向準星方向） */}
-        <div
-          className="absolute left-1/2 top-[8px] -translate-x-1/2"
-          style={{
-            width: 2,
-            height: 34,
-            background:
-              "linear-gradient(to bottom, rgba(2,132,199,0.0), rgba(2,132,199,0.75), rgba(2,132,199,0.0))",
-            filter: "drop-shadow(0 0 10px rgba(2,132,199,0.4))",
-            pointerEvents: "none"
-          }}
-        />
+        {/* 小標籤（靠左下角，避免三圈標題疊） */}
+        <div className="absolute left-3 bottom-2 pointer-events-none">
+          <div className="text-[11px] text-slate-600 font-semibold">{title}</div>
+          <div className="text-[10px] text-slate-500">{subtitle}</div>
+        </div>
       </div>
     </div>
   );
