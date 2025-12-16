@@ -1,19 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 function cx(...arr) {
   return arr.filter(Boolean).join(" ");
 }
 
-/**
- * iOS Picker 風格垂直滾輪（置中吸附）
- * - scroll-snap: 每一個 item 置中吸附
- * - 中央項：更大、更清楚
- * - 上下項：縮小、淡化、微模糊 + 3D 弧度（rotateX）
- *
- * 重點：我們用 rAF 在 scroll 時「直接改每個 item 的 style」，不靠 re-render，滑起來很順
- */
 export default function WheelPicker({
   title,
   subtitle,
@@ -22,10 +14,19 @@ export default function WheelPicker({
   onChange,
   height = 176,
   itemHeight = 44,
-  disabled = false
+  disabled = false,
+  haptics = true // ✅ 可關閉震動：<WheelPicker haptics={false} />
 }) {
   const ref = useRef(null);
   const itemElsRef = useRef([]);
+
+  const [isInteracting, setIsInteracting] = useState(false);
+  const [bounce, setBounce] = useState(false);
+
+  const lastEmitRef = useRef(value);
+  const rafRef = useRef(0);
+  const settleTimerRef = useRef(null);
+  const interactTimerRef = useRef(null);
 
   const pad = useMemo(
     () => Math.max(0, Math.floor((height - itemHeight) / 2)),
@@ -34,47 +35,60 @@ export default function WheelPicker({
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 
-  // ✅ 套用 iOS picker 的「3D 弧度 / 模糊 / 透明度 / 縮放」
+  // ✅ 小震動（支援才做）
+  const vibrate = (ms = 8) => {
+    if (!haptics) return;
+    try {
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        navigator.vibrate(ms);
+      }
+    } catch {}
+  };
+
+  // ✅ iOS picker 的「3D 弧度 / 模糊 / 透明度 / 縮放」
+  // 你要更彎：maxDist 更小、rotateX 更大、translateZ 更大
   const applyIOSStyles = (scrollTop) => {
     const el = ref.current;
     if (!el) return;
 
     const centerY = scrollTop + height / 2;
-    const maxDist = itemHeight * 2.2; // 影響範圍：越大越「平」，越小越「捲」
+
+    // 🔥 更彎一點（你剛剛指定的）
+    const maxDist = itemHeight * 2.2;
+    const ROT = 42;
+    const Z = 56;
 
     for (let i = 0; i < itemElsRef.current.length; i++) {
       const node = itemElsRef.current[i];
       if (!node) continue;
 
-      // 每個 item 的中心點位置（含 top spacer）
       const itemCenter = pad + i * itemHeight + itemHeight / 2;
-      const dist = itemCenter - centerY; // + 往下，- 往上
-      const nd = clamp(dist / maxDist, -1, 1); // normalize -1..1
+      const dist = itemCenter - centerY;
+      const nd = clamp(dist / maxDist, -1, 1);
       const ad = Math.abs(nd);
 
-      // 0(中心) -> 1(遠離中心)
       const fade = clamp(1 - ad, 0, 1);
 
-      // 視覺：中心最大，越遠越小
-      const scale = 0.86 + 0.18 * fade; // 0.86~1.04
-      const opacity = 0.18 + 0.82 * Math.pow(fade, 1.8); // 遠的很淡
-      const blurPx = (1 - fade) * 1.6; // 遠的微模糊
-      const rotateX = nd * 42; // iOS 捲輪弧度感
-      const translateZ = 56 * fade; // 讓中心更「浮」出來
+      const scale = 0.86 + 0.18 * fade;
+      const opacity = 0.16 + 0.84 * Math.pow(fade, 1.9);
+      const blurPx = (1 - fade) * 1.5;
+
+      const rotateX = nd * ROT;
+      const translateZ = Z * fade;
 
       node.style.opacity = String(opacity);
       node.style.filter = `blur(${blurPx.toFixed(2)}px)`;
-      node.style.transform = `perspective(500px) rotateX(${rotateX.toFixed(
+      node.style.transform = `perspective(520px) rotateX(${rotateX.toFixed(
         2
       )}deg) translateZ(${translateZ.toFixed(1)}px) scale(${scale.toFixed(3)})`;
 
-      // 中央那個字更黑更清楚
+      // 中央更黑、更「對焦」
       node.style.color = fade > 0.82 ? "rgb(15 23 42)" : "rgb(71 85 105)";
       node.style.fontWeight = fade > 0.86 ? "700" : "500";
     }
   };
 
-  // ✅ 依 value 把滾輪移到正確位置（置中吸附）
+  // ✅ 把滾輪滾到 value 對應位置
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -82,49 +96,111 @@ export default function WheelPicker({
     const idx = Math.max(0, items.findIndex((x) => x.id === value));
     const targetTop = idx * itemHeight;
 
-    // 避免一直跳，差距大才更新
     if (Math.abs(el.scrollTop - targetTop) > 2) {
       el.scrollTop = targetTop;
     }
 
-    // 同步一次 iOS 視覺
     applyIOSStyles(el.scrollTop);
+    lastEmitRef.current = value;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, items, itemHeight]);
 
-  // ✅ scroll：更新選中 & 視覺（rAF）
+  // ✅ 計算「目前最接近中心」的 index
+  const calcNearest = (scrollTop) => {
+    const idx = Math.round(scrollTop / itemHeight);
+    return clamp(idx, 0, items.length - 1);
+  };
+
+  // ✅ 滑動結束：吸附到最近、回彈、震動
+  const settle = () => {
+    const el = ref.current;
+    if (!el) return;
+
+    const nearest = calcNearest(el.scrollTop);
+    const next = items[nearest]?.id;
+
+    // 平滑吸附到正確位置（確保停下來一定正中）
+    el.scrollTo({ top: nearest * itemHeight, behavior: "smooth" });
+
+    // 觸發回彈（中央選取窗）
+    setBounce(true);
+    window.setTimeout(() => setBounce(false), 220);
+
+    // 震動 + 送出值
+    if (next && next !== lastEmitRef.current) {
+      lastEmitRef.current = next;
+      onChange?.(next);
+      vibrate(9);
+    } else {
+      // 即使沒換值，也給一個很輕的「落點感」
+      vibrate(5);
+    }
+
+    setIsInteracting(false);
+  };
+
+  // ✅ scroll handler（rAF + debounce settle）
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
 
-    let raf = 0;
+    const markInteracting = () => {
+      if (disabled) return;
+      setIsInteracting(true);
+
+      // 互動保持亮起：停止後再熄
+      if (interactTimerRef.current) window.clearTimeout(interactTimerRef.current);
+      interactTimerRef.current = window.setTimeout(() => {
+        // 交給 settle() 來關閉 isInteracting
+      }, 999999);
+    };
+
+    const scheduleSettle = () => {
+      if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = window.setTimeout(() => {
+        settle();
+      }, 120); // Apple 感：放手後很快就「落點」
+    };
+
     const onScroll = () => {
       if (disabled) return;
 
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        const st = el.scrollTop;
+      markInteracting();
 
-        // iOS 視覺效果
-        applyIOSStyles(st);
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(() => {
+        applyIOSStyles(el.scrollTop);
 
-        // 取「最接近中心」的 idx
-        const idx = Math.round(st / itemHeight);
-        const safe = clamp(idx, 0, items.length - 1);
-        const next = items[safe]?.id;
+        // 先即時更新選中（讓中央字重/清晰即時變化）
+        const nearest = calcNearest(el.scrollTop);
+        const next = items[nearest]?.id;
+        if (next && next !== value) {
+          onChange?.(next);
+        }
 
-        if (next && next !== value) onChange?.(next);
+        scheduleSettle();
       });
     };
 
+    // 觸控/滑鼠開始：先亮起
+    const onPointerDown = () => {
+      if (disabled) return;
+      setIsInteracting(true);
+    };
+
     el.addEventListener("scroll", onScroll, { passive: true });
+    el.addEventListener("pointerdown", onPointerDown, { passive: true });
 
     // 初始套一次
     requestAnimationFrame(() => applyIOSStyles(el.scrollTop));
 
     return () => {
-      cancelAnimationFrame(raf);
+      cancelAnimationFrame(rafRef.current);
       el.removeEventListener("scroll", onScroll);
+      el.removeEventListener("pointerdown", onPointerDown);
+
+      if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
+      if (interactTimerRef.current) window.clearTimeout(interactTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [disabled, items, itemHeight, onChange, value, height, pad]);
@@ -133,7 +209,12 @@ export default function WheelPicker({
   const snapTo = (idx) => {
     const el = ref.current;
     if (!el) return;
+    setIsInteracting(true);
     el.scrollTo({ top: idx * itemHeight, behavior: "smooth" });
+
+    // 點擊也給 Apple 那種「落點感」
+    if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
+    settleTimerRef.current = window.setTimeout(() => settle(), 140);
   };
 
   return (
@@ -144,16 +225,22 @@ export default function WheelPicker({
       </div>
 
       <div className="mt-2 relative">
-        {/* 中央選取框（像 iOS 的選取窗） */}
+        {/* 中央選取窗：互動時更亮 + 落點回彈 */}
         <div
-          className="pointer-events-none absolute left-2 right-2 rounded-xl border border-sky-200 bg-white/85 shadow-sm"
+          className={cx(
+            "pointer-events-none absolute left-2 right-2 rounded-xl border shadow-sm transition",
+            isInteracting
+              ? "border-sky-300 bg-white/92 shadow-[0_0_0_1px_rgba(14,165,233,0.18),0_10px_25px_rgba(2,132,199,0.18)]"
+              : "border-sky-200 bg-white/85 shadow-sm",
+            bounce ? "wheel-bounce" : ""
+          )}
           style={{
             top: pad,
             height: itemHeight
           }}
         />
 
-        {/* 上下漸層（更像 iOS 滾輪遮罩） */}
+        {/* 上下遮罩：更像 iOS */}
         <div className="pointer-events-none absolute left-0 right-0 top-0 h-12 bg-gradient-to-b from-sky-50/95 to-transparent rounded-2xl" />
         <div className="pointer-events-none absolute left-0 right-0 bottom-0 h-12 bg-gradient-to-t from-sky-50/95 to-transparent rounded-2xl" />
 
@@ -171,42 +258,49 @@ export default function WheelPicker({
             scrollSnapType: "y mandatory"
           }}
         >
-          {/* top spacer：讓第一個 item 也能置中 */}
           <div style={{ height: pad }} />
 
-          {items.map((it, idx) => {
-            const active = it.id === value;
+          {items.map((it, idx) => (
+            <button
+              key={it.id}
+              type="button"
+              disabled={disabled}
+              onClick={() => snapTo(idx)}
+              className="w-full text-left px-3 rounded-xl flex items-center"
+              style={{
+                height: itemHeight,
+                scrollSnapAlign: "center",
+                transformStyle: "preserve-3d",
+                willChange: "transform, filter, opacity"
+              }}
+              ref={(el) => {
+                itemElsRef.current[idx] = el;
+              }}
+            >
+              <div className="text-sm leading-none">{it.label}</div>
+            </button>
+          ))}
 
-            return (
-              <button
-                key={it.id}
-                type="button"
-                disabled={disabled}
-                onClick={() => snapTo(idx)}
-                className={cx(
-                  "w-full text-left px-3 rounded-xl flex items-center transition",
-                  // 先給基本文字大小，真正 iOS 立體效果會由 applyIOSStyles 直接覆蓋 transform/opacity
-                  active ? "text-slate-900" : "text-slate-600"
-                )}
-                style={{
-                  height: itemHeight,
-                  scrollSnapAlign: "center",
-                  // iOS 那種「有深度」的感覺
-                  transformStyle: "preserve-3d",
-                  willChange: "transform, filter, opacity"
-                }}
-                ref={(el) => {
-                  itemElsRef.current[idx] = el;
-                }}
-              >
-                <div className="text-sm leading-none">{it.label}</div>
-              </button>
-            );
-          })}
-
-          {/* bottom spacer */}
           <div style={{ height: pad }} />
         </div>
+
+        {/* ✅ 這段是回彈動畫（只作用在選取窗） */}
+        <style jsx>{`
+          .wheel-bounce {
+            animation: wheelBounce 220ms cubic-bezier(0.2, 0.9, 0.2, 1);
+          }
+          @keyframes wheelBounce {
+            0% {
+              transform: scale(1);
+            }
+            55% {
+              transform: scale(1.04);
+            }
+            100% {
+              transform: scale(1);
+            }
+          }
+        `}</style>
       </div>
     </div>
   );
