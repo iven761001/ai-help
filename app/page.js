@@ -14,7 +14,7 @@ export default function HomePage() {
 
   const [email, setEmail] = useState("");
 
-  // 創角資料（交給 CreateScreen/CompassCreator）
+  // 創角資料（交給 CreateScreen）
   const [draft, setDraft] = useState({
     email: "",
     avatar: "sky",
@@ -140,57 +140,55 @@ export default function HomePage() {
   if (phase === "loading") {
     return (
       <TechBackground>
-      <main className="min-h-screen flex items-center justify-center">
-        <div className="text-sm text-slate-500">小管家準備中⋯⋯</div>
-      </main>
+        <main className="min-h-screen flex items-center justify-center">
+          <div className="text-sm text-slate-500">小管家準備中⋯⋯</div>
+        </main>
       </TechBackground>
     );
   }
 
+  // bind email
   if (phase === "bindEmail") {
     return (
       <TechBackground>
-      <BindEmailScreen
-        email={email}
-        setEmail={setEmail}
-        onSubmit={handleEmailSubmit}
-      />
-          </TechBackground> 
-    );
-  }
-
-  if (phase === "create") {
-    return (
-      <TechBackground>
-      <CreateScreen draft={draft} 
-      setDraft={setDraft} 
-        onDone={handleDoneCreate} 
-          />
-          </TechBackground>
-          );
-  }
-
-  // chat
-  if (!user) {
-    return (
-      <TechBackground>
-      <main className="min-h-screen flex items-center justify-center">
-        <div className="text-sm text-slate-500">資料載入中⋯⋯</div>
-      </main>
+        <BindEmailScreen email={email} setEmail={setEmail} onSubmit={handleEmailSubmit} />
       </TechBackground>
     );
   }
 
+  // create
+  if (phase === "create") {
+    return (
+      <TechBackground>
+        <CreateScreen draft={draft} setDraft={setDraft} onDone={handleDoneCreate} />
+      </TechBackground>
+    );
+  }
+
+  // chat guard
+  if (!user) {
+    return (
+      <TechBackground>
+        <main className="min-h-screen flex items-center justify-center">
+          <div className="text-sm text-slate-500">資料載入中⋯⋯</div>
+        </main>
+      </TechBackground>
+    );
+  }
+
+  // chat
   return (
-    <ChatScreen
-      user={user}
-      messages={messages}
-      loading={loading}
-      input={input}
-      setInput={setInput}
-      onSend={handleSend}
-      currentEmotion={currentEmotion}
-      onBackToCreator={handleBackToCreator}
-    />
+    <TechBackground>
+      <ChatScreen
+        user={user}
+        messages={messages}
+        loading={loading}
+        input={input}
+        setInput={setInput}
+        onSend={handleSend}
+        currentEmotion={currentEmotion}
+        onBackToCreator={handleBackToCreator}
+      />
+    </TechBackground>
   );
 }
