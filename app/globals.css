@@ -13,3 +13,12 @@ body {
 body {
   margin: 0;
 }
+
+/* === UI 滾輪用：隱藏 scrollbar，保留滑動 === */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
