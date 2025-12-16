@@ -35,47 +35,49 @@ body {
   filter: saturate(1.05) contrast(1.05);
 }
 
-/* === 藍色光纖流動層 === */
+/* === 藍色光纖流動層（更像光纖，不是整片斜線） === */
 .bg-fiber {
+  /* 1) 兩條主光帶（慢慢漂） */
   background:
-    radial-gradient(900px 240px at 30% 50%, rgba(90, 210, 255, 0.35), rgba(0,0,0,0) 68%),
-    radial-gradient(900px 260px at 70% 55%, rgba(70, 180, 255, 0.28), rgba(0,0,0,0) 70%),
+    radial-gradient(900px 260px at 20% 55%, rgba(90, 210, 255, 0.22), rgba(0,0,0,0) 70%),
+    radial-gradient(900px 260px at 78% 48%, rgba(70, 180, 255, 0.18), rgba(0,0,0,0) 72%),
+
+    /* 2) 細光纖線（不再 repeating 大斜線，而是很細、很淡） */
     repeating-linear-gradient(
-      110deg,
+      115deg,
       rgba(120, 220, 255, 0) 0px,
-      rgba(120, 220, 255, 0) 18px,
-      rgba(120, 220, 255, 0.14) 22px,
-      rgba(120, 220, 255, 0) 28px
-    );
+      rgba(120, 220, 255, 0) 26px,
+      rgba(120, 220, 255, 0.06) 27px,
+      rgba(120, 220, 255, 0) 31px
+    ),
+
+    /* 3) 光點（像資料在跑） */
+    radial-gradient(circle at 12% 62%, rgba(120,220,255,0.30) 0 1px, transparent 2px),
+    radial-gradient(circle at 26% 34%, rgba(120,220,255,0.22) 0 1px, transparent 2px),
+    radial-gradient(circle at 48% 58%, rgba(120,220,255,0.26) 0 1px, transparent 2px),
+    radial-gradient(circle at 66% 30%, rgba(120,220,255,0.22) 0 1px, transparent 2px),
+    radial-gradient(circle at 84% 66%, rgba(120,220,255,0.30) 0 1px, transparent 2px);
+
   mix-blend-mode: screen;
   opacity: 0.95;
 
-  /* 流動關鍵：背景位移 + 些微模糊，像光束滑過 */
-  background-size: 180% 180%;
-  animation: fiberFlow 6.5s linear infinite;
-  filter: blur(0.2px);
+  /* ✅ 不要整片滑動，改成多軸慢漂移 */
+  background-size: 160% 160%, 160% 160%, 220% 220%, 600px 600px, 680px 680px, 720px 720px, 760px 760px, 800px 800px;
+  animation: fiberDrift 9s ease-in-out infinite;
+  filter: blur(0.15px);
 }
 
-@keyframes fiberFlow {
-  0%   { background-position: 0% 50%; }
-  100% { background-position: 200% 50%; }
-}
-
-/* === 星點粒子 === */
-.bg-stars {
-  background:
-    radial-gradient(circle at 12% 18%, rgba(120, 220, 255, 0.65) 0 1px, transparent 2px),
-    radial-gradient(circle at 28% 72%, rgba(120, 220, 255, 0.35) 0 1px, transparent 2px),
-    radial-gradient(circle at 44% 32%, rgba(120, 220, 255, 0.45) 0 1px, transparent 2px),
-    radial-gradient(circle at 63% 22%, rgba(120, 220, 255, 0.35) 0 1px, transparent 2px),
-    radial-gradient(circle at 78% 58%, rgba(120, 220, 255, 0.55) 0 1px, transparent 2px),
-    radial-gradient(circle at 88% 28%, rgba(120, 220, 255, 0.45) 0 1px, transparent 2px);
-  background-size: 520px 520px;
-  animation: starsDrift 10s ease-in-out infinite;
-}
-
-@keyframes starsDrift {
-  0%   { transform: translateY(0px); opacity: 0.65; }
-  50%  { transform: translateY(-6px); opacity: 0.85; }
-  100% { transform: translateY(0px); opacity: 0.65; }
+@keyframes fiberDrift {
+  0% {
+    background-position: 0% 50%, 100% 50%, 0% 0%, 0 0, 0 0, 0 0, 0 0, 0 0;
+    opacity: 0.9;
+  }
+  50% {
+    background-position: 35% 55%, 65% 45%, 30% 25%, 40px -30px, -60px 20px, 30px 50px, -20px -40px, 50px 10px;
+    opacity: 1;
+  }
+  100% {
+    background-position: 0% 50%, 100% 50%, 0% 0%, 0 0, 0 0, 0 0, 0 0, 0 0;
+    opacity: 0.9;
+  }
 }
