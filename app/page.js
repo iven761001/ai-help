@@ -160,7 +160,14 @@ export default function HomePage() {
   }
 
   if (phase === "create") {
-    return <CreateScreen draft={draft} setDraft={setDraft} onDone={handleDoneCreate} />;
+    return (
+      <TechBackground>
+      <CreateScreen draft={draft} 
+      setDraft={setDraft} 
+        onDone={handleDoneCreate} 
+          />
+          </TechBackground>
+          );
   }
 
   // chat
