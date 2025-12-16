@@ -10,7 +10,7 @@ export default function CreateScreen({ draft, setDraft, onDone }) {
   const { yaw, bind } = useDragRotate({ sensitivity: 0.01 });
 
   return (
-    <main className="min-h-screen bg-slate-50">
+    <main className="min-h-screen bg-transparent">
       {/* 上方：角色預覽區（留底部空間給羅盤） */}
       <div className="px-4 pt-6 pb-40 max-w-4xl mx-auto">
         <h1 className="text-xl md:text-2xl font-bold text-slate-800 text-center">
@@ -22,10 +22,10 @@ export default function CreateScreen({ draft, setDraft, onDone }) {
 
         <div className="mt-6 flex items-center justify-center">
           <div className="w-full max-w-sm">
-            <div className="rounded-3xl bg-white shadow-lg border border-sky-100 p-3">
+            <div className="rounded-3xl bg-white/80 backdrop-blur shadow-lg border border-sky-100 p-3">
               {/* 單手拖拉旋轉（預覽熊） */}
               <div
-                className="aspect-square rounded-2xl bg-sky-50 flex items-center justify-center overflow-hidden"
+                className="aspect-square rounded-2xl bg-sky-50/50 flex items-center justify-center overflow-hidden"
                 {...bind}
               >
                 <Avatar3D
