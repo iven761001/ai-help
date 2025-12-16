@@ -143,7 +143,7 @@ export default function HomePage() {
       <main className="min-h-screen flex items-center justify-center">
         <div className="text-sm text-slate-500">小管家準備中⋯⋯</div>
       </main>
-    <TechBackground>
+      </TechBackground>
     );
   }
 
@@ -155,7 +155,7 @@ export default function HomePage() {
         setEmail={setEmail}
         onSubmit={handleEmailSubmit}
       />
-         <TechBackground> 
+          </TechBackground> 
     );
   }
 
@@ -170,7 +170,7 @@ export default function HomePage() {
       <main className="min-h-screen flex items-center justify-center">
         <div className="text-sm text-slate-500">資料載入中⋯⋯</div>
       </main>
-    <TechBackground>
+      </TechBackground>
     );
   }
 
