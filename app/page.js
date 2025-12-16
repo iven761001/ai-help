@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import BindEmailScreen from "./components/screens/BindEmailScreen";
 import CreateScreen from "./components/screens/CreateScreen";
 import ChatScreen from "./components/screens/ChatScreen";
-
+import TechBackground from "./components/global/TechBackground";
 import { loadUser, saveUser } from "./lib/storage";
 
 export default function HomePage() {
@@ -139,19 +139,23 @@ export default function HomePage() {
   // loading
   if (phase === "loading") {
     return (
+      <TechBackground>
       <main className="min-h-screen flex items-center justify-center">
         <div className="text-sm text-slate-500">小管家準備中⋯⋯</div>
       </main>
+    <TechBackground>
     );
   }
 
   if (phase === "bindEmail") {
     return (
+      <TechBackground>
       <BindEmailScreen
         email={email}
         setEmail={setEmail}
         onSubmit={handleEmailSubmit}
       />
+         <TechBackground> 
     );
   }
 
@@ -162,9 +166,11 @@ export default function HomePage() {
   // chat
   if (!user) {
     return (
+      <TechBackground>
       <main className="min-h-screen flex items-center justify-center">
         <div className="text-sm text-slate-500">資料載入中⋯⋯</div>
       </main>
+    <TechBackground>
     );
   }
 
