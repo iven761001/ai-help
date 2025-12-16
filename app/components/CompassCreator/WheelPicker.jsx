@@ -40,7 +40,7 @@ export default function WheelPicker({
     if (!el) return;
 
     const centerY = scrollTop + height / 2;
-    const maxDist = itemHeight * 3.2; // 影響範圍：越大越「平」，越小越「捲」
+    const maxDist = itemHeight * 2.2; // 影響範圍：越大越「平」，越小越「捲」
 
     for (let i = 0; i < itemElsRef.current.length; i++) {
       const node = itemElsRef.current[i];
@@ -59,8 +59,8 @@ export default function WheelPicker({
       const scale = 0.86 + 0.18 * fade; // 0.86~1.04
       const opacity = 0.18 + 0.82 * Math.pow(fade, 1.8); // 遠的很淡
       const blurPx = (1 - fade) * 1.6; // 遠的微模糊
-      const rotateX = nd * 28; // iOS 捲輪弧度感
-      const translateZ = 36 * fade; // 讓中心更「浮」出來
+      const rotateX = nd * 42; // iOS 捲輪弧度感
+      const translateZ = 56 * fade; // 讓中心更「浮」出來
 
       node.style.opacity = String(opacity);
       node.style.filter = `blur(${blurPx.toFixed(2)}px)`;
