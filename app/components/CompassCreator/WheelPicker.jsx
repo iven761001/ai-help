@@ -15,10 +15,11 @@ export default function WheelPicker({
   height = 176,
   itemHeight = 44,
   disabled = false,
-  haptics = true // ✅ 可關閉震動：<WheelPicker haptics={false} />
+  haptics = true
 }) {
   const ref = useRef(null);
   const itemElsRef = useRef([]);
+  const selectWinRef = useRef(null);
 
   const [isInteracting, setIsInteracting] = useState(false);
   const [bounce, setBounce] = useState(false);
@@ -26,7 +27,6 @@ export default function WheelPicker({
   const lastEmitRef = useRef(value);
   const rafRef = useRef(0);
   const settleTimerRef = useRef(null);
-  const interactTimerRef = useRef(null);
 
   const pad = useMemo(
     () => Math.max(0, Math.floor((height - itemHeight) / 2)),
@@ -35,7 +35,6 @@ export default function WheelPicker({
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 
-  // ✅ 小震動（支援才做）
   const vibrate = (ms = 8) => {
     if (!haptics) return;
     try {
@@ -45,16 +44,28 @@ export default function WheelPicker({
     } catch {}
   };
 
-  // ✅ iOS picker 的「3D 弧度 / 模糊 / 透明度 / 縮放」
-  // 你要更彎：maxDist 更小、rotateX 更大、translateZ 更大
+  // ✅ iOS 風格 + 更彎
   const applyIOSStyles = (scrollTop) => {
     const el = ref.current;
     if (!el) return;
 
+    // --- 讓中央「齒輪紋理」跟著滾動旋轉 ---
+    // 一格轉幾度：越大越像齒輪咬合（建議 18~28）
+    const DEG_PER_STEP = 22;
+    const gearAngle = (scrollTop / itemHeight) * DEG_PER_STEP;
+
+    // 把角度寫進選取窗，CSS 會拿來 rotate()
+    if (selectWinRef.current) {
+      selectWinRef.current.style.setProperty("--gearAngle", `${gearAngle}deg`);
+      selectWinRef.current.style.setProperty(
+        "--gearPulse",
+        isInteracting ? "1" : "0"
+      );
+    }
+
     const centerY = scrollTop + height / 2;
 
-    // 🔥 更彎一點（你剛剛指定的）
-    const maxDist = itemHeight * 2.2;
+    const maxDist = itemHeight * 2.2; // 更彎
     const ROT = 42;
     const Z = 56;
 
@@ -82,13 +93,12 @@ export default function WheelPicker({
         2
       )}deg) translateZ(${translateZ.toFixed(1)}px) scale(${scale.toFixed(3)})`;
 
-      // 中央更黑、更「對焦」
       node.style.color = fade > 0.82 ? "rgb(15 23 42)" : "rgb(71 85 105)";
       node.style.fontWeight = fade > 0.86 ? "700" : "500";
     }
   };
 
-  // ✅ 把滾輪滾到 value 對應位置
+  // 依 value 對齊滾動位置
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -105,13 +115,11 @@ export default function WheelPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, items, itemHeight]);
 
-  // ✅ 計算「目前最接近中心」的 index
   const calcNearest = (scrollTop) => {
     const idx = Math.round(scrollTop / itemHeight);
     return clamp(idx, 0, items.length - 1);
   };
 
-  // ✅ 滑動結束：吸附到最近、回彈、震動
   const settle = () => {
     const el = ref.current;
     if (!el) return;
@@ -119,70 +127,47 @@ export default function WheelPicker({
     const nearest = calcNearest(el.scrollTop);
     const next = items[nearest]?.id;
 
-    // 平滑吸附到正確位置（確保停下來一定正中）
     el.scrollTo({ top: nearest * itemHeight, behavior: "smooth" });
 
-    // 觸發回彈（中央選取窗）
     setBounce(true);
     window.setTimeout(() => setBounce(false), 220);
 
-    // 震動 + 送出值
     if (next && next !== lastEmitRef.current) {
       lastEmitRef.current = next;
       onChange?.(next);
       vibrate(9);
     } else {
-      // 即使沒換值，也給一個很輕的「落點感」
       vibrate(5);
     }
 
     setIsInteracting(false);
   };
 
-  // ✅ scroll handler（rAF + debounce settle）
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
 
-    const markInteracting = () => {
-      if (disabled) return;
-      setIsInteracting(true);
-
-      // 互動保持亮起：停止後再熄
-      if (interactTimerRef.current) window.clearTimeout(interactTimerRef.current);
-      interactTimerRef.current = window.setTimeout(() => {
-        // 交給 settle() 來關閉 isInteracting
-      }, 999999);
-    };
-
-    const scheduleSettle = () => {
-      if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
-      settleTimerRef.current = window.setTimeout(() => {
-        settle();
-      }, 120); // Apple 感：放手後很快就「落點」
-    };
-
     const onScroll = () => {
       if (disabled) return;
 
-      markInteracting();
+      setIsInteracting(true);
 
       cancelAnimationFrame(rafRef.current);
       rafRef.current = requestAnimationFrame(() => {
         applyIOSStyles(el.scrollTop);
 
-        // 先即時更新選中（讓中央字重/清晰即時變化）
+        // 即時更新選中
         const nearest = calcNearest(el.scrollTop);
         const next = items[nearest]?.id;
         if (next && next !== value) {
           onChange?.(next);
         }
 
-        scheduleSettle();
+        if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
+        settleTimerRef.current = window.setTimeout(() => settle(), 120);
       });
     };
 
-    // 觸控/滑鼠開始：先亮起
     const onPointerDown = () => {
       if (disabled) return;
       setIsInteracting(true);
@@ -191,28 +176,24 @@ export default function WheelPicker({
     el.addEventListener("scroll", onScroll, { passive: true });
     el.addEventListener("pointerdown", onPointerDown, { passive: true });
 
-    // 初始套一次
     requestAnimationFrame(() => applyIOSStyles(el.scrollTop));
 
     return () => {
       cancelAnimationFrame(rafRef.current);
       el.removeEventListener("scroll", onScroll);
       el.removeEventListener("pointerdown", onPointerDown);
-
       if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
-      if (interactTimerRef.current) window.clearTimeout(interactTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [disabled, items, itemHeight, onChange, value, height, pad]);
+  }, [disabled, items, itemHeight, onChange, value, height, pad, isInteracting]);
 
-  // 點擊某個選項：平滑滾動到置中位置
   const snapTo = (idx) => {
     const el = ref.current;
     if (!el) return;
+
     setIsInteracting(true);
     el.scrollTo({ top: idx * itemHeight, behavior: "smooth" });
 
-    // 點擊也給 Apple 那種「落點感」
     if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
     settleTimerRef.current = window.setTimeout(() => settle(), 140);
   };
@@ -225,10 +206,11 @@ export default function WheelPicker({
       </div>
 
       <div className="mt-2 relative">
-        {/* 中央選取窗：互動時更亮 + 落點回彈 */}
+        {/* 中央「齒輪視窗」：更像刻印在齒輪上轉動 */}
         <div
+          ref={selectWinRef}
           className={cx(
-            "pointer-events-none absolute left-2 right-2 rounded-xl border shadow-sm transition",
+            "pointer-events-none absolute left-2 right-2 rounded-xl border transition",
             isInteracting
               ? "border-sky-300 bg-white/92 shadow-[0_0_0_1px_rgba(14,165,233,0.18),0_10px_25px_rgba(2,132,199,0.18)]"
               : "border-sky-200 bg-white/85 shadow-sm",
@@ -236,11 +218,17 @@ export default function WheelPicker({
           )}
           style={{
             top: pad,
-            height: itemHeight
+            height: itemHeight,
+            overflow: "hidden"
           }}
-        />
+        >
+          {/* 齒輪刻痕 / 金屬紋理 / 波動光 */}
+          <div className="gear-layer" />
+          <div className="gear-teeth" />
+          <div className="gear-sheen" />
+        </div>
 
-        {/* 上下遮罩：更像 iOS */}
+        {/* 上下遮罩 */}
         <div className="pointer-events-none absolute left-0 right-0 top-0 h-12 bg-gradient-to-b from-sky-50/95 to-transparent rounded-2xl" />
         <div className="pointer-events-none absolute left-0 right-0 bottom-0 h-12 bg-gradient-to-t from-sky-50/95 to-transparent rounded-2xl" />
 
@@ -284,7 +272,6 @@ export default function WheelPicker({
           <div style={{ height: pad }} />
         </div>
 
-        {/* ✅ 這段是回彈動畫（只作用在選取窗） */}
         <style jsx>{`
           .wheel-bounce {
             animation: wheelBounce 220ms cubic-bezier(0.2, 0.9, 0.2, 1);
@@ -300,8 +287,71 @@ export default function WheelPicker({
               transform: scale(1);
             }
           }
+
+          /* === 齒輪視覺 ===
+             這三層會營造「刻印在齒輪上」的感覺
+             --gearAngle 由 JS 根據 scrollTop 寫入
+          */
+          .gear-layer {
+            position: absolute;
+            inset: -28px; /* 放大一點，旋轉時不會露邊 */
+            background:
+              radial-gradient(circle at 50% 50%, rgba(14,165,233,0.16), rgba(255,255,255,0) 55%),
+              linear-gradient(180deg, rgba(2,132,199,0.08), rgba(255,255,255,0.02)),
+              linear-gradient(90deg, rgba(2,132,199,0.06), rgba(255,255,255,0.01));
+            transform: rotate(var(--gearAngle, 0deg));
+            transform-origin: 50% 50%;
+            filter: saturate(1.05);
+          }
+
+          /* 齒（用 conic-gradient 做刻度感） */
+          .gear-teeth {
+            position: absolute;
+            inset: -36px;
+            background:
+              repeating-conic-gradient(
+                from 0deg,
+                rgba(2,132,199,0.0) 0deg,
+                rgba(2,132,199,0.0) 10deg,
+                rgba(2,132,199,0.16) 11deg,
+                rgba(2,132,199,0.0) 12deg
+              );
+            mask-image: radial-gradient(circle at 50% 50%, transparent 0 36%, #000 52% 100%);
+            transform: rotate(calc(var(--gearAngle, 0deg) * 1.1));
+            transform-origin: 50% 50%;
+            opacity: 0.7;
+          }
+
+          /* 高光掃過：互動時更明顯，像金屬/玻璃波動 */
+          .gear-sheen {
+            position: absolute;
+            inset: -10px;
+            background:
+              linear-gradient(
+                120deg,
+                rgba(255,255,255,0) 0%,
+                rgba(255,255,255,0.55) 45%,
+                rgba(255,255,255,0) 70%
+              );
+            transform: translateX(-60%) rotate(0deg);
+            opacity: calc(0.18 + var(--gearPulse, 0) * 0.28);
+            animation: sheenMove 1.2s ease-in-out infinite;
+            mix-blend-mode: screen;
+          }
+
+          @keyframes sheenMove {
+            0% {
+              transform: translateX(-70%) rotate(8deg);
+            }
+            55% {
+              transform: translateX(70%) rotate(8deg);
+            }
+            100% {
+              transform: translateX(-70%) rotate(8deg);
+            }
+          }
         `}</style>
       </div>
     </div>
   );
-}
+                }
