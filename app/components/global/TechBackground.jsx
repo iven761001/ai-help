@@ -185,8 +185,8 @@ export default function TechBackground({ children }) {
         ctx.beginPath();
         ctx.moveTo(p.p0.x, p.p0.y);
         ctx.bezierCurveTo(p.p1.x, p.p1.y, p.p2.x, p.p2.y, p.p3.x, p.p3.y);
-        ctx.lineWidth = p.width;
-        ctx.strokeStyle = withAlpha(palette.trace, p.alpha);
+        ctx.lineWidth = p.width * 1.8;        // 原本太細
+        ctx.strokeStyle = "rgba(80,170,255,0.28)";
         ctx.stroke();
 
         // layer 2（微偏移，做出複線感）
@@ -197,8 +197,8 @@ export default function TechBackground({ children }) {
           p.p2.x + 0.6, p.p2.y - 0.4,
           p.p3.x + 0.6, p.p3.y - 0.4
         );
-        ctx.lineWidth = Math.max(0.9, p.width * 0.85);
-        ctx.strokeStyle = withAlpha(palette.trace2, p.alpha2);
+        ctx.lineWidth = Math.max(1.2, p.width * 1.4);
+        ctx.strokeStyle = "rgba(120,210,255,0.22)";
         ctx.stroke();
       }
 
