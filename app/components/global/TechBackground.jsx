@@ -220,7 +220,7 @@ export default function TechBackground({ children }) {
         // 外暈
         ctx.save();
         ctx.globalCompositeOperation = "lighter";
-        const rr = m.r * (1.2 + 0.4 * Math.sin(t * 2.0 + m.phase));
+        const rr = m.r * 1.6;
         const rg = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, rr * 6.5);
         rg.addColorStop(0, palette.glowSoft);
         rg.addColorStop(1, "rgba(0,0,0,0)");
