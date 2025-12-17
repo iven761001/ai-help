@@ -1,41 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 
-/**
- * TechBackground (方案A v1)
- * - 深色科技底（暗藍漸層 + vignette）
- * - 多條「曲線電路」路徑
- * - 光點沿路徑流動（不是整張背景在跑）
- * - 節點閃爍（微亮點）
- * - pointer-events: none，不影響操作
- */
+function clamp(n, a, b) {
+  return Math.max(a, Math.min(b, n));
+}
+
 export default function TechBackground({ children }) {
   const canvasRef = useRef(null);
   const rafRef = useRef(0);
   const stateRef = useRef({
-    dpr: 1,
     w: 0,
     h: 0,
+    dpr: 1,
     t0: 0,
-    paths: [],
-    movers: [],
-    nodes: []
+    last: 0,
+    reduced: false,
+    paused: false,
+    // generated
+    chips: [],
+    traces: [],
+    pulses: []
   });
-
-  // 顏色（可依你喜好調）
-  const palette = useMemo(
-    () => ({
-      bg0: "#050b18",
-      bg1: "#071733",
-      trace: "rgba(20,140,255,0.22)",      // 電路線基礎亮度
-      trace2: "rgba(110,210,255,0.18)",    // 第二層線
-      glow: "rgba(120,220,255,0.85)",      // 光點高光
-      glowSoft: "rgba(80,180,255,0.35)",   // 光點外暈
-      node: "rgba(255,255,255,0.65)"
-    }),
-    []
-  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -44,294 +30,384 @@ export default function TechBackground({ children }) {
     const ctx = canvas.getContext("2d", { alpha: true });
     if (!ctx) return;
 
-    const s = stateRef.current;
+    const mq =
+      typeof window !== "undefined" && window.matchMedia
+        ? window.matchMedia("(prefers-reduced-motion: reduce)")
+        : null;
 
-    const rand = (a, b) => a + Math.random() * (b - a);
-    const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-
-    // 建立曲線路徑（cubic bezier）
-    const makePath = (w, h) => {
-      // 起點 / 終點 以「四周」產生，避免同方向斜線感
-      const side = Math.floor(Math.random() * 4);
-      const side2 = (side + 1 + Math.floor(Math.random() * 3)) % 4;
-
-      const pickEdgePoint = (which) => {
-        if (which === 0) return { x: rand(-w * 0.1, w * 1.1), y: rand(-h * 0.05, h * 0.05) }; // top
-        if (which === 1) return { x: rand(w * 0.95, w * 1.05), y: rand(-h * 0.1, h * 1.1) }; // right
-        if (which === 2) return { x: rand(-w * 0.1, w * 1.1), y: rand(h * 0.95, h * 1.05) }; // bottom
-        return { x: rand(-w * 0.05, w * 0.05), y: rand(-h * 0.1, h * 1.1) }; // left
-      };
-
-      const p0 = pickEdgePoint(side);
-      const p3 = pickEdgePoint(side2);
-
-      // 控制點：往畫面中央偏，形成「彎折資料流」
-      const cx = w * 0.5;
-      const cy = h * 0.5;
-
-      const pull = rand(0.18, 0.42); // 拉向中心的程度
-      const p1 = {
-        x: p0.x + (cx - p0.x) * pull + rand(-w * 0.12, w * 0.12),
-        y: p0.y + (cy - p0.y) * pull + rand(-h * 0.12, h * 0.12)
-      };
-      const p2 = {
-        x: p3.x + (cx - p3.x) * pull + rand(-w * 0.12, w * 0.12),
-        y: p3.y + (cy - p3.y) * pull + rand(-h * 0.12, h * 0.12)
-      };
-
-      // 取樣點（讓光點沿著 polyline 走）
-      const samples = [];
-      const steps = 90 + Math.floor(Math.random() * 70);
-
-      let len = 0;
-      let prev = null;
-
-      for (let i = 0; i <= steps; i++) {
-        const t = i / steps;
-        const pt = cubicBezier(p0, p1, p2, p3, t);
-        if (prev) len += dist(prev, pt);
-        samples.push({ x: pt.x, y: pt.y, s: len });
-        prev = pt;
-      }
-
-      // 正規化 arc length
-      const total = samples[samples.length - 1].s || 1;
-      for (const it of samples) it.u = it.s / total;
-
-      return {
-        p0, p1, p2, p3,
-        samples,
-        total,
-        width: rand(1.0, 2.2),
-        alpha: rand(0.10, 0.25),
-        alpha2: rand(0.08, 0.18)
-      };
+    const setReduced = () => {
+      stateRef.current.reduced = !!mq?.matches;
     };
+    setReduced();
+    mq?.addEventListener?.("change", setReduced);
 
-    const regen = () => {
-      const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-      const w = window.innerWidth || 390;
-      const h = window.innerHeight || 800;
+    const onVis = () => {
+      stateRef.current.paused = document.hidden;
+      if (!document.hidden) {
+        stateRef.current.last = performance.now();
+        loop(performance.now());
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
 
-      s.dpr = dpr;
-      s.w = w;
-      s.h = h;
+    const resize = () => {
+      const dpr = clamp(window.devicePixelRatio || 1, 1, 2); // cap 2 to keep mobile smooth
+      const w = Math.max(1, window.innerWidth);
+      const h = Math.max(1, window.innerHeight);
+
+      stateRef.current.w = w;
+      stateRef.current.h = h;
+      stateRef.current.dpr = dpr;
 
       canvas.width = Math.floor(w * dpr);
       canvas.height = Math.floor(h * dpr);
       canvas.style.width = `${w}px`;
       canvas.style.height = `${h}px`;
-
-      // paths 數量：手機不要太多，穩 FPS
-      const pathCount = clamp(Math.floor((w * h) / 90000), 8, 14);
-      s.paths = Array.from({ length: pathCount }, () => makePath(w, h));
-
-      // movers：每條路徑 1~2 顆流光
-      s.movers = [];
-      s.paths.forEach((p) => {
-        const n = Math.random() < 0.45 ? 2 : 1;
-        for (let i = 0; i < n; i++) {
-          s.movers.push({
-            path: p,
-            u: Math.random(),
-            speed: rand(0.025, 0.06), // 每秒走多少比例
-            r: rand(2.6,4.2),
-            phase: rand(0, Math.PI * 2)
-          });
-        }
-      });
-
-      // nodes：節點閃爍
-      const nodeCount = clamp(Math.floor((w * h) / 28000), 18, 36);
-      s.nodes = Array.from({ length: nodeCount }, () => ({
-        x: rand(0.08 * w, 0.92 * w),
-        y: rand(0.12 * h, 0.88 * h),
-        r: rand(1.4, 2.4),
-        tw: rand(0.7, 1.6),
-        t: rand(0, 10)
-      }));
-    };
-
-    const draw = (ts) => {
-      if (!s.t0) s.t0 = ts;
-      const t = (ts - s.t0) / 1000;
-
-      const dpr = s.dpr;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      // 背景底（深藍漸層）
-      ctx.clearRect(0, 0, s.w, s.h);
-      const g = ctx.createLinearGradient(0, 0, 0, s.h);
-      g.addColorStop(0, palette.bg1);
-      g.addColorStop(1, palette.bg0);
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, s.w, s.h);
+      regen();
+      draw(performance.now()); // draw once immediately
+    };
 
-      // vignette（四周壓暗）
+    const rand = (a, b) => a + Math.random() * (b - a);
+
+    const regen = () => {
+      const s = stateRef.current;
+      const w = s.w;
+      const h = s.h;
+
+      // chips
+      const chipCount = clamp(Math.floor((w * h) / 65000), 10, 20);
+      const chips = Array.from({ length: chipCount }, () => {
+        const cw = rand(80, 150);
+        const ch = rand(55, 110);
+        const x = rand(40, w - cw - 40);
+        const y = rand(40, h - ch - 40);
+        return {
+          x,
+          y,
+          w: cw,
+          h: ch,
+          r: rand(14, 22),
+          // little pins density
+          pins: Math.floor(rand(10, 18))
+        };
+      });
+
+      // traces: poly-lines built from grid-ish steps
+      const grid = 28;
+      const traceCount = clamp(Math.floor((w * h) / 38000), 22, 46);
+      const traces = [];
+
+      const snap = (v) => Math.round(v / grid) * grid;
+
+      for (let i = 0; i < traceCount; i++) {
+        const startX = snap(rand(0.08 * w, 0.92 * w));
+        const startY = snap(rand(0.10 * h, 0.90 * h));
+        const steps = Math.floor(rand(6, 11));
+
+        const pts = [{ x: startX, y: startY }];
+        let x = startX;
+        let y = startY;
+
+        for (let k = 0; k < steps; k++) {
+          const dir = Math.floor(rand(0, 4)); // 0R 1L 2D 3U
+          const len = snap(rand(80, 220));
+
+          if (dir === 0) x += len;
+          if (dir === 1) x -= len;
+          if (dir === 2) y += len;
+          if (dir === 3) y -= len;
+
+          x = clamp(x, 20, w - 20);
+          y = clamp(y, 20, h - 20);
+
+          pts.push({ x, y });
+
+          // sometimes add a small branch point
+          if (Math.random() < 0.18) {
+            const bx = clamp(x + snap(rand(-140, 140)), 20, w - 20);
+            const by = clamp(y + snap(rand(-140, 140)), 20, h - 20);
+            traces.push({
+              pts: [{ x, y }, { x: bx, y: by }],
+              width: rand(1.0, 1.8),
+              glow: rand(0.12, 0.22)
+            });
+          }
+        }
+
+        traces.push({
+          pts,
+          width: rand(1.1, 2.2),
+          glow: rand(0.14, 0.26)
+        });
+      }
+
+      // pulses: moving dots along trace segments
+      const pulses = [];
+      const pulseCount = clamp(Math.floor(traces.length * 0.65), 14, 32);
+      for (let i = 0; i < pulseCount; i++) {
+        const tr = traces[Math.floor(Math.random() * traces.length)];
+        pulses.push({
+          traceIndex: traces.indexOf(tr),
+          seg: 0,
+          u: Math.random(), // progress within segment
+          speed: rand(0.18, 0.45),
+          size: rand(1.4, 2.4),
+          bright: rand(0.55, 0.9)
+        });
+      }
+
+      s.chips = chips;
+      s.traces = traces;
+      s.pulses = pulses;
+    };
+
+    const roundedRect = (c, x, y, w, h, r) => {
+      const rr = Math.min(r, w / 2, h / 2);
+      c.beginPath();
+      c.moveTo(x + rr, y);
+      c.arcTo(x + w, y, x + w, y + h, rr);
+      c.arcTo(x + w, y + h, x, y + h, rr);
+      c.arcTo(x, y + h, x, y, rr);
+      c.arcTo(x, y, x + w, y, rr);
+      c.closePath();
+    };
+
+    const drawGrid = () => {
+      const s = stateRef.current;
+      const w = s.w;
+      const h = s.h;
+
+      // subtle PCB grid
       ctx.save();
-      const vg = ctx.createRadialGradient(
-        s.w * 0.5, s.h * 0.45, Math.min(s.w, s.h) * 0.15,
-        s.w * 0.5, s.h * 0.55, Math.max(s.w, s.h) * 0.75
-      );
-      vg.addColorStop(0, "rgba(0,0,0,0)");
-      vg.addColorStop(1, "rgba(0,0,0,0.55)");
-      ctx.fillStyle = vg;
-      ctx.fillRect(0, 0, s.w, s.h);
+      ctx.globalAlpha = 0.14;
+      ctx.strokeStyle = "rgba(120,200,255,0.18)";
+      ctx.lineWidth = 1;
+
+      const step = 42;
+      for (let x = 0; x <= w; x += step) {
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, 0);
+        ctx.lineTo(x + 0.5, h);
+        ctx.stroke();
+      }
+      for (let y = 0; y <= h; y += step) {
+        ctx.beginPath();
+        ctx.moveTo(0, y + 0.5);
+        ctx.lineTo(w, y + 0.5);
+        ctx.stroke();
+      }
       ctx.restore();
+    };
 
-      // 先畫電路線（兩層）
-      for (const p of s.paths) {
-        // layer 1
-        ctx.beginPath();
-        ctx.moveTo(p.p0.x, p.p0.y);
-        ctx.bezierCurveTo(p.p1.x, p.p1.y, p.p2.x, p.p2.y, p.p3.x, p.p3.y);
-        ctx.lineWidth = p.width * 1.8;        // 原本太細
-        ctx.strokeStyle = "rgba(80,170,255,0.28)";
-        ctx.stroke();
+    const drawChips = () => {
+      const s = stateRef.current;
 
-        // layer 2（微偏移，做出複線感）
-        ctx.beginPath();
-        ctx.moveTo(p.p0.x + 0.6, p.p0.y - 0.4);
-        ctx.bezierCurveTo(
-          p.p1.x + 0.6, p.p1.y - 0.4,
-          p.p2.x + 0.6, p.p2.y - 0.4,
-          p.p3.x + 0.6, p.p3.y - 0.4
-        );
-        ctx.lineWidth = Math.max(1.2, p.width * 1.4);
-        ctx.strokeStyle = "rgba(120,210,255,0.22)";
-        ctx.stroke();
-      }
-
-      // 節點閃爍
-      for (const n of s.nodes) {
-        const tw = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin((t + n.t) * n.tw));
-        ctx.fillStyle = `rgba(255,255,255,${0.08 + tw * 0.18})`;
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, n.r + tw * 0.8, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // 流光：沿路徑流動（用 samples 找最近點）
-      for (const m of s.movers) {
-        const p = m.path;
-        const u = (m.u + t * m.speed) % 1;
-        const pt = sampleAt(p.samples, u);
-
-        // 外暈
+      for (const chip of s.chips) {
+        // chip body
         ctx.save();
-        ctx.globalCompositeOperation = "lighter";
-        const rr = m.r * 1.6;
-        const rg = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, rr * 6.5);
-        rg.addColorStop(0, palette.glowSoft);
-        rg.addColorStop(1, "rgba(0,0,0,0)");
-        ctx.fillStyle = rg;
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, rr * 6.5, 0, Math.PI * 2);
+        const grad = ctx.createLinearGradient(chip.x, chip.y, chip.x + chip.w, chip.y + chip.h);
+        grad.addColorStop(0, "rgba(10,20,35,0.72)");
+        grad.addColorStop(1, "rgba(18,35,55,0.78)");
+
+        roundedRect(ctx, chip.x, chip.y, chip.w, chip.h, chip.r);
+        ctx.fillStyle = grad;
         ctx.fill();
 
-        // 核心亮點
-        ctx.fillStyle = palette.glow;
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, rr, 0, Math.PI * 2);
-        ctx.fill();
+        // chip border glow
+        ctx.strokeStyle = "rgba(120,200,255,0.22)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // pins
+        ctx.globalAlpha = 0.28;
+        ctx.fillStyle = "rgba(140,220,255,0.55)";
+        const p = chip.pins;
+        for (let i = 0; i < p; i++) {
+          const t = (i + 0.5) / p;
+          const px = chip.x + t * chip.w;
+          ctx.fillRect(px - 1, chip.y - 4, 2, 3);
+          ctx.fillRect(px - 1, chip.y + chip.h + 1, 2, 3);
+        }
+        for (let i = 0; i < Math.floor(p * 0.7); i++) {
+          const t = (i + 0.5) / Math.floor(p * 0.7);
+          const py = chip.y + t * chip.h;
+          ctx.fillRect(chip.x - 4, py - 1, 3, 2);
+          ctx.fillRect(chip.x + chip.w + 1, py - 1, 3, 2);
+        }
+
         ctx.restore();
       }
-
-      rafRef.current = requestAnimationFrame(draw);
     };
 
-    // init & loop
-    regen();
-    rafRef.current = requestAnimationFrame(draw);
+    const drawTraces = () => {
+      const s = stateRef.current;
 
-    // resize
-    const onResize = () => regen();
-    window.addEventListener("resize", onResize);
+      // base traces
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      for (const tr of s.traces) {
+        ctx.beginPath();
+        ctx.moveTo(tr.pts[0].x, tr.pts[0].y);
+        for (let i = 1; i < tr.pts.length; i++) {
+          ctx.lineTo(tr.pts[i].x, tr.pts[i].y);
+        }
+
+        // base line
+        ctx.strokeStyle = "rgba(120,210,255,0.18)";
+        ctx.lineWidth = tr.width;
+        ctx.stroke();
+
+        // glow line
+        ctx.strokeStyle = `rgba(90,190,255,${tr.glow})`;
+        ctx.lineWidth = tr.width + 1.6;
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    };
+
+    const pointOnTrace = (trace, seg, u) => {
+      const a = trace.pts[seg];
+      const b = trace.pts[Math.min(seg + 1, trace.pts.length - 1)];
+      return { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u };
+    };
+
+    const drawPulses = (dt) => {
+      const s = stateRef.current;
+
+      ctx.save();
+      for (const p of s.pulses) {
+        const tr = s.traces[p.traceIndex];
+        if (!tr || tr.pts.length < 2) continue;
+
+        // advance
+        p.u += p.speed * dt;
+        while (p.u >= 1) {
+          p.u -= 1;
+          p.seg += 1;
+          if (p.seg >= tr.pts.length - 1) {
+            p.seg = 0;
+            p.u = Math.random() * 0.2;
+          }
+        }
+
+        const pos = pointOnTrace(tr, p.seg, p.u);
+
+        // glow dot
+        const r = p.size;
+        const g = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, r * 6);
+        g.addColorStop(0, `rgba(110,220,255,${0.85 * p.bright})`);
+        g.addColorStop(0.35, `rgba(80,190,255,${0.28 * p.bright})`);
+        g.addColorStop(1, "rgba(0,0,0,0)");
+
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, r * 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = `rgba(170,240,255,${0.7 * p.bright})`;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    };
+
+    const drawVignette = () => {
+      const s = stateRef.current;
+      const w = s.w;
+      const h = s.h;
+
+      ctx.save();
+      const g = ctx.createRadialGradient(w * 0.5, h * 0.35, 0, w * 0.5, h * 0.35, Math.max(w, h));
+      g.addColorStop(0, "rgba(0,0,0,0)");
+      g.addColorStop(1, "rgba(0,0,0,0.55)");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore();
+    };
+
+    const drawBase = () => {
+      const s = stateRef.current;
+      const w = s.w;
+      const h = s.h;
+
+      // deep PCB background
+      const bg = ctx.createLinearGradient(0, 0, w, h);
+      bg.addColorStop(0, "#020816");
+      bg.addColorStop(0.55, "#040f22");
+      bg.addColorStop(1, "#020610");
+
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, w, h);
+
+      // subtle noise speckles
+      ctx.save();
+      ctx.globalAlpha = 0.06;
+      ctx.fillStyle = "rgba(160,220,255,0.35)";
+      const specks = 140;
+      for (let i = 0; i < specks; i++) {
+        const x = Math.random() * w;
+        const y = Math.random() * h;
+        ctx.fillRect(x, y, 1, 1);
+      }
+      ctx.restore();
+    };
+
+    const draw = (now) => {
+      const s = stateRef.current;
+      const w = s.w;
+      const h = s.h;
+
+      ctx.clearRect(0, 0, w, h);
+      drawBase();
+      drawGrid();
+      drawChips();
+      drawTraces();
+      drawVignette();
+
+      // pulses only if not reduced-motion
+      if (!s.reduced) {
+        const dt = Math.min(0.05, Math.max(0.001, (now - s.last) / 1000));
+        drawPulses(dt);
+      }
+    };
+
+    const loop = (now) => {
+      if (stateRef.current.paused) return;
+      stateRef.current.last = now;
+      draw(now);
+      rafRef.current = requestAnimationFrame(loop);
+    };
+
+    resize();
+    stateRef.current.last = performance.now();
+    rafRef.current = requestAnimationFrame(loop);
+
+    window.addEventListener("resize", resize);
 
     return () => {
-      window.removeEventListener("resize", onResize);
+      window.removeEventListener("resize", resize);
+      document.removeEventListener("visibilitychange", onVis);
+      mq?.removeEventListener?.("change", setReduced);
       cancelAnimationFrame(rafRef.current);
     };
-  }, [palette]);
+  }, []);
 
   return (
-    <div className="relative min-h-screen">
-      {/* 背景 Canvas */}
+    <div className="min-h-screen w-full relative overflow-hidden">
       <canvas
         ref={canvasRef}
-        className="fixed inset-0 -z-10 pointer-events-none"
-        aria-hidden="true"
+        className="absolute inset-0 w-full h-full"
+        style={{
+          pointerEvents: "none"
+        }}
       />
-
-      {/* 讓前景更好讀：非常淡的霧面遮罩（可調透明度） */}
-      <div className="fixed inset-0 -z-10 pointer-events-none bg-black/5" />
-
-      {/* 前景內容 */}
       <div className="relative z-10">{children}</div>
     </div>
   );
 }
-
-/* ===== helpers ===== */
-
-function dist(a, b) {
-  const dx = a.x - b.x;
-  const dy = a.y - b.y;
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
-function cubicBezier(p0, p1, p2, p3, t) {
-  const u = 1 - t;
-  const tt = t * t;
-  const uu = u * u;
-  const uuu = uu * u;
-  const ttt = tt * t;
-
-  return {
-    x:
-      uuu * p0.x +
-      3 * uu * t * p1.x +
-      3 * u * tt * p2.x +
-      ttt * p3.x,
-    y:
-      uuu * p0.y +
-      3 * uu * t * p1.y +
-      3 * u * tt * p2.y +
-      ttt * p3.y
-  };
-}
-
-function sampleAt(samples, u) {
-  // samples 裡有 it.u (0..1)，用二分找
-  let lo = 0;
-  let hi = samples.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (samples[mid].u < u) lo = mid + 1;
-    else hi = mid;
-  }
-  const i = Math.max(1, lo);
-  const a = samples[i - 1];
-  const b = samples[i];
-  const span = (b.u - a.u) || 1e-6;
-  const k = (u - a.u) / span;
-  return {
-    x: a.x + (b.x - a.x) * k,
-    y: a.y + (b.y - a.y) * k
-  };
-}
-
-function withAlpha(rgba, alpha) {
-  // rgba 可能已含 alpha，這裡只做「乘上」的概念最簡化：
-  // 直接回傳原 rgba（你想更精準再做 parser）
-  // v1 先保持穩定就好
-  return rgba.replace(/rgba\(([^)]+)\)/, (m, inner) => {
-    const parts = inner.split(",").map((x) => x.trim());
-    const r = parts[0] ?? "0";
-    const g = parts[1] ?? "0";
-    const b = parts[2] ?? "0";
-    const a0 = parts[3] != null ? Number(parts[3]) : 1;
-    const a = Math.max(0, Math.min(1, a0 * alpha));
-    return `rgba(${r},${g},${b},${a})`;
-  });
-      }
