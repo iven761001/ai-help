@@ -142,7 +142,7 @@ export default function TechBackground({ children }) {
       });
 
       // nodes：節點閃爍
-      const nodeCount = clamp(Math.floor((w * h) / 28000), 18, 36））;
+      const nodeCount = clamp(Math.floor((w * h) / 28000), 18, 36）;
       s.nodes = Array.from({ length: nodeCount }, () => ({
         x: rand(0.08 * w, 0.92 * w),
         y: rand(0.12 * h, 0.88 * h),
