@@ -134,8 +134,8 @@ export default function TechBackground({ children }) {
           s.movers.push({
             path: p,
             u: Math.random(),
-            speed: rand(0.035, 0.085), // 每秒走多少比例
-            r: rand(1.8, 3.0),
+            speed: rand(0.025, 0.06), // 每秒走多少比例
+            r: rand(2.6,4.2),
             phase: rand(0, Math.PI * 2)
           });
         }
