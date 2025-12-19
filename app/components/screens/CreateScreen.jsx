@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import dynamic from "next/dynamic";
 import CompassCreator from "../CompassCreator/CompassCreator";
 import useDragRotate from "../../hooks/useDragRotate";
@@ -9,14 +10,17 @@ const Avatar3D = dynamic(() => import("../Avatar3D"), { ssr: false });
 export default function CreateScreen({ draft, setDraft, onDone }) {
   const { yaw, bind } = useDragRotate({ sensitivity: 0.01 });
 
+  // ✅ 底部 HUD 高度（由 CompassCreator 回報）
+  const [dockH, setDockH] = useState(320);
+
   return (
     <main className="min-h-screen flex flex-col">
-      {/* ===== 上方：角色世界（會自動讓位） ===== */}
+      {/* ===== 上方：角色世界（自動讓位給底部 HUD） ===== */}
       <section
         className="flex-1 flex items-center justify-center px-4 pt-6"
         style={{
-          // ✅ 讓位給底部 HUD（CompassCreator 會把高度寫到這個 CSS 變數）
-          paddingBottom: "calc(var(--creatorDockH, 320px) + 16px)"
+          // ✅ 讓位：HUD 高度 + safe-area + 一點空隙
+          paddingBottom: `calc(${dockH}px + env(safe-area-inset-bottom) + 16px)`
         }}
       >
         <div className="w-full max-w-sm">
@@ -38,29 +42,29 @@ export default function CreateScreen({ draft, setDraft, onDone }) {
                 {draft.nickname ? `「${draft.nickname}」` : "尚未命名"}
               </div>
               <div className="text-xs text-slate-300">
-                顏色：{avatarLabel(draft.color || draft.avatar)} ／
-                聲線：{voiceLabel(draft.voice)}
+                顏色：{avatarLabel(draft.color || draft.avatar)} ／ 聲線：
+                {voiceLabel(draft.voice)}
               </div>
-              <div className="text-[11px] text-slate-400">下方調整你的角色設定</div>
+              <div className="text-[11px] text-slate-400">
+                下方調整你的角色設定
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 你這個 section 可以留著或拿掉都行，
-         因為 CompassCreator 自己是 fixed，不會吃到這裡的布局 */}
-      <section
-        className="
-          relative
-          z-20
-          backdrop-blur-xl
-          bg-white/5
-          border-t border-white/10
-          shadow-[0_-20px_40px_rgba(0,0,0,0.45)]
-        "
-      >
-        <CompassCreator value={draft} onChange={setDraft} onDone={onDone} disabled={false} />
-      </section>
+      {/* ===== 底部 HUD（注意：CompassCreator 本身是 fixed，放哪裡都會固定在底部） ===== */}
+      <CompassCreator
+        value={draft}
+        onChange={setDraft}
+        onDone={onDone}
+        disabled={false}
+        onHeightChange={(h) => {
+          // ✅ 小保護：避免 0 或太小導致模型又被蓋
+          const safe = Math.max(240, Math.ceil(h || 0));
+          setDockH(safe);
+        }}
+      />
     </main>
   );
 }
