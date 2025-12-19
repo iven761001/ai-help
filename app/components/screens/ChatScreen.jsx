@@ -19,15 +19,15 @@ export default function ChatScreen({
   onBackToCreator
 }) {
   return (
-    <main className="min-h-screen flex items-center justify-center px-2 py-4 bg-transparent">
+    <main className="min-h-screen flex items-center justify-center px-2 py-4">
       <div
         className={cx(
-          "w-full max-w-4xl rounded-2xl shadow-lg flex flex-col md:flex-row overflow-hidden relative",
+          "w-full max-w-4xl rounded-2xl flex flex-col md:flex-row overflow-hidden glass-card",
           "border border-sky-200/40 bg-white/75 backdrop-blur"
         )}
       >
         {/* 左側角色 */}
-        <div className="md:w-1/3 bg-sky-50/40 backdrop-blur p-4 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-sky-100/60">
+        <div className="md:w-1/3 glass-soft p-4 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-white/10">
           <div className="w-full mb-3 flex items-center justify-center">
             <Avatar3D variant={user.avatar || "sky"} emotion={currentEmotion} />
           </div>
