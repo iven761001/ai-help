@@ -3,13 +3,9 @@
 export default function BindEmailScreen({ email, setEmail, onSubmit }) {
   return (
     <main className="min-h-screen flex items-center justify-center px-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-6 space-y-4">
-        <h1 className="text-2xl font-bold text-slate-800 text-center">
-          南膜工坊 AI 小管家
-        </h1>
-        <p className="text-sm text-slate-500 text-center">
-          先綁定你的 Email，接下來會幫你客製專屬的小管家角色。
-        </p>
+      <div className="w-full max-w-md rounded-2xl p-6 space-y-4 glass-card">
+        <h1 className="text-2xl font-bold text-on-dark text-center">南膜工坊 AI 小管家</h1>
+        <p className="text-sm text-on-dark-muted text-center">先綁定你的 Email，接下來會幫你客製專屬的小管家角色。</p>
 
         <form onSubmit={onSubmit} className="space-y-4 mt-4">
           <div>
