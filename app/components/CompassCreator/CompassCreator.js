@@ -26,7 +26,6 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
     []
   );
 
-  // 名字滾輪：給一批常用名 + 自訂
   const nameOptions = useMemo(
     () => [
       { id: "小護膜", label: "小護膜" },
@@ -40,15 +39,13 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
     []
   );
 
-  const [nameMode, setNameMode] = useState("__custom__"); // 目前滾輪選到哪個
+  const [nameMode, setNameMode] = useState("__custom__");
   const [customName, setCustomName] = useState(value?.nickname || "");
 
-  // 同步外部 value（避免回到創角時不同步）
   useEffect(() => {
     const nick = value?.nickname || "";
     setCustomName(nick);
 
-    // 如果 nickname 剛好是預設名，就把滾輪對到那個；否則對到 custom
     const hit = nameOptions.find((x) => x.id === nick);
     setNameMode(hit ? hit.id : "__custom__");
   }, [value?.nickname, nameOptions]);
@@ -58,10 +55,7 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
 
   const pickNameMode = (id) => {
     setNameMode(id);
-    if (id === "__custom__") {
-      // 不動 nickname，讓使用者自己輸入
-      return;
-    }
+    if (id === "__custom__") return;
     setCustomName(id);
     onChange?.({ ...value, nickname: id });
   };
@@ -84,15 +78,16 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
         className="pointer-events-auto mx-auto w-full max-w-4xl px-3 pb-[calc(env(safe-area-inset-bottom)+12px)]"
         style={{ WebkitTapHighlightColor: "transparent" }}
       >
-        {/* 外殼 */}
-        <div className="rounded-[28px] border border-sky-200/60 bg-white/75 backdrop-blur shadow-[0_-10px_40px_rgba(2,132,199,0.15)] overflow-hidden">
+        {/* 外殼：改成深色玻璃面板（吃 globals.css 的 .glass-wheel-panel） */}
+        <div className="glass-wheel-panel rounded-[28px] overflow-hidden">
+          {/* Header */}
           <div className="px-4 pt-4 pb-3">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-slate-800">
+                <div className="text-sm font-semibold text-white/90">
                   創角設定
                 </div>
-                <div className="text-[11px] text-slate-500">
+                <div className="text-[11px] text-white/55">
                   三個拉條都可以上下拖拉，會自動吸附到文字正中央
                 </div>
               </div>
@@ -100,15 +95,14 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
               <button
                 disabled={disabled || !canDone}
                 onClick={() => {
-                  // 最終把自訂名也寫回
                   if (nameMode === "__custom__") commitCustomName(customName);
                   onDone?.();
                 }}
                 className={cx(
                   "shrink-0 rounded-full px-4 py-2 text-sm font-medium transition",
                   disabled || !canDone
-                    ? "bg-slate-200 text-slate-500"
-                    : "bg-sky-600 text-white hover:bg-sky-700"
+                    ? "bg-white/15 text-white/40"
+                    : "bg-sky-500/90 text-white hover:bg-sky-400"
                 )}
               >
                 完成
@@ -146,11 +140,11 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
             />
           </div>
 
-          {/* 自訂名字輸入（只在選到自訂時出現） */}
+          {/* 自訂名字輸入（深色玻璃版本） */}
           {nameMode === "__custom__" && (
             <div className="px-4 pb-4">
-              <div className="rounded-2xl border border-sky-100 bg-white/70 px-3 py-3">
-                <div className="text-[11px] text-slate-500 mb-2">
+              <div className="rounded-2xl bg-white/8 border border-white/12 backdrop-blur px-3 py-3">
+                <div className="text-[11px] text-white/55 mb-2">
                   自訂名字（最多 20 字）
                 </div>
                 <div className="flex items-center gap-2">
@@ -160,9 +154,9 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
                     onBlur={() => commitCustomName(customName)}
                     placeholder="例如：小護膜、阿膜、浴室管家"
                     disabled={disabled}
-                    className="flex-1 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-400"
+                    className="flex-1 rounded-full border border-white/15 bg-white/10 text-white placeholder:text-white/35 px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-400"
                   />
-                  <div className="text-[11px] text-slate-400 pr-1">
+                  <div className="text-[11px] text-white/45 pr-1">
                     {Math.min((customName || "").length, 20)}/20
                   </div>
                 </div>
