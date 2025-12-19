@@ -22,12 +22,9 @@ export default function CreateScreen({ draft, setDraft, onDone }) {
 
         <div className="mt-6 flex items-center justify-center">
           <div className="w-full max-w-sm">
-            <div className="rounded-3xl bg-white/80 backdrop-blur shadow-lg border border-sky-100 p-3">
+            <div className="rounded-3xl p-3 glass-card">
               {/* 單手拖拉旋轉（預覽熊） */}
-              <div
-                className="aspect-square rounded-2xl bg-sky-50/50 flex items-center justify-center overflow-hidden"
-                {...bind}
-              >
+              <div className="aspect-square rounded-2xl glass-soft flex items-center justify-center overflow-hidden" {...bind}>
                 <Avatar3D
                   variant={draft.avatar || draft.color || "sky"}
                   emotion="idle"
