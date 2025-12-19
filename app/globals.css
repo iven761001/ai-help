@@ -81,3 +81,28 @@ body {
     opacity: 0.9;
   }
 }
+
+/* ===== Glass Card (for dark TechBackground) ===== */
+.glass-card {
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(140, 220, 255, 0.12);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* 讓內部小卡/區塊也不要有刺眼外框 */
+.glass-soft {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(140, 220, 255, 0.08);
+}
+
+/* 深色底的文字顏色輔助 */
+.text-on-dark {
+  color: rgba(255, 255, 255, 0.92);
+}
+.text-on-dark-muted {
+  color: rgba(255, 255, 255, 0.7);
+}
