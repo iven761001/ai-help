@@ -1,13 +1,19 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import WheelPicker from "./WheelPicker";
 
 function cx(...arr) {
   return arr.filter(Boolean).join(" ");
 }
 
-export default function CompassCreator({ value, onChange, onDone, disabled }) {
+export default function CompassCreator({
+  value,
+  onChange,
+  onDone,
+  disabled,
+  onHeightChange // ✅ 新增：回報高度給外層
+}) {
   const colors = useMemo(
     () => [
       { id: "sky", label: "天空藍 · 穩重專業" },
@@ -42,10 +48,35 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
   const [nameMode, setNameMode] = useState("__custom__");
   const [customName, setCustomName] = useState(value?.nickname || "");
 
+  // ✅ 量高度：抓「真正會變高」的殼
+  const shellRef = useRef(null);
+
+  useEffect(() => {
+    const el = shellRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+
+    const emit = () => {
+      const h = el.getBoundingClientRect().height || 0;
+      onHeightChange?.(h);
+    };
+
+    emit();
+    const ro = new ResizeObserver(() => {
+      // 避免同一幀多次觸發抖動
+      requestAnimationFrame(emit);
+    });
+    ro.observe(el);
+
+    window.addEventListener("resize", emit);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", emit);
+    };
+  }, [onHeightChange]);
+
   useEffect(() => {
     const nick = value?.nickname || "";
     setCustomName(nick);
-
     const hit = nameOptions.find((x) => x.id === nick);
     setNameMode(hit ? hit.id : "__custom__");
   }, [value?.nickname, nameOptions]);
@@ -73,21 +104,21 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
     !!(value?.nickname || customName).trim();
 
   return (
-    <div className="fixed left-0 right-0 bottom-0 z-[60] pointer-events-none"data-creator-panel>
+    <div className="fixed left-0 right-0 bottom-0 z-[60] pointer-events-none">
       <div
         className="pointer-events-auto mx-auto w-full max-w-4xl px-3 pb-[calc(env(safe-area-inset-bottom)+12px)]"
         style={{ WebkitTapHighlightColor: "transparent" }}
       >
-        {/* 外殼：改成深色玻璃面板（吃 globals.css 的 .glass-wheel-panel） */}
-        <div className="glass-wheel-panel rounded-[28px] overflow-hidden">
-          {/* Header */}
+        {/* ✅ 外殼（高度會變：wheel + 自訂輸入出現/消失） */}
+        <div
+          ref={shellRef}
+          className="rounded-[28px] border border-sky-200/30 bg-white/10 backdrop-blur-xl shadow-[0_-12px_50px_rgba(56,189,248,0.15)] overflow-hidden"
+        >
           <div className="px-4 pt-4 pb-3">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-white/90">
-                  創角設定
-                </div>
-                <div className="text-[11px] text-white/55">
+                <div className="text-sm font-semibold text-white">創角設定</div>
+                <div className="text-[11px] text-white/70">
                   三個拉條都可以上下拖拉，會自動吸附到文字正中央
                 </div>
               </div>
@@ -101,8 +132,8 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
                 className={cx(
                   "shrink-0 rounded-full px-4 py-2 text-sm font-medium transition",
                   disabled || !canDone
-                    ? "bg-white/15 text-white/40"
-                    : "bg-sky-500/90 text-white hover:bg-sky-400"
+                    ? "bg-white/20 text-white/60"
+                    : "bg-sky-500 text-white hover:bg-sky-400"
                 )}
               >
                 完成
@@ -110,7 +141,6 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
             </div>
           </div>
 
-          {/* 三欄並排 */}
           <div className="px-3 pb-4 grid grid-cols-3 gap-3">
             <WheelPicker
               title="① 顏色"
@@ -140,11 +170,10 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
             />
           </div>
 
-          {/* 自訂名字輸入（深色玻璃版本） */}
           {nameMode === "__custom__" && (
             <div className="px-4 pb-4">
-              <div className="rounded-2xl bg-white/8 border border-white/12 backdrop-blur px-3 py-3">
-                <div className="text-[11px] text-white/55 mb-2">
+              <div className="rounded-2xl border border-white/15 bg-white/10 px-3 py-3">
+                <div className="text-[11px] text-white/70 mb-2">
                   自訂名字（最多 20 字）
                 </div>
                 <div className="flex items-center gap-2">
@@ -154,9 +183,9 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
                     onBlur={() => commitCustomName(customName)}
                     placeholder="例如：小護膜、阿膜、浴室管家"
                     disabled={disabled}
-                    className="flex-1 rounded-full border border-white/15 bg-white/10 text-white placeholder:text-white/35 px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-400"
+                    className="flex-1 rounded-full border border-white/15 bg-black/10 text-white px-4 py-2 text-sm outline-none placeholder:text-white/40 focus:ring-2 focus:ring-sky-400"
                   />
-                  <div className="text-[11px] text-white/45 pr-1">
+                  <div className="text-[11px] text-white/60 pr-1">
                     {Math.min((customName || "").length, 20)}/20
                   </div>
                 </div>
