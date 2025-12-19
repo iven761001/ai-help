@@ -44,23 +44,18 @@ export default function WheelPicker({
     } catch {}
   };
 
-  // ✅ iOS 風格 + 更彎
+  // ✅ iOS 風格 + 更彎（深色版字色也要改）
   const applyIOSStyles = (scrollTop) => {
     const el = ref.current;
     if (!el) return;
 
     // --- 讓中央「齒輪紋理」跟著滾動旋轉 ---
-    // 一格轉幾度：越大越像齒輪咬合（建議 18~28）
     const DEG_PER_STEP = 22;
     const gearAngle = (scrollTop / itemHeight) * DEG_PER_STEP;
 
-    // 把角度寫進選取窗，CSS 會拿來 rotate()
     if (selectWinRef.current) {
       selectWinRef.current.style.setProperty("--gearAngle", `${gearAngle}deg`);
-      selectWinRef.current.style.setProperty(
-        "--gearPulse",
-        isInteracting ? "1" : "0"
-      );
+      selectWinRef.current.style.setProperty("--gearPulse", isInteracting ? "1" : "0");
     }
 
     const centerY = scrollTop + height / 2;
@@ -81,20 +76,23 @@ export default function WheelPicker({
       const fade = clamp(1 - ad, 0, 1);
 
       const scale = 0.86 + 0.18 * fade;
-      const opacity = 0.16 + 0.84 * Math.pow(fade, 1.9);
-      const blurPx = (1 - fade) * 1.5;
+      const opacity = 0.14 + 0.86 * Math.pow(fade, 1.9);
+      const blurPx = (1 - fade) * 1.65;
 
       const rotateX = nd * ROT;
       const translateZ = Z * fade;
 
       node.style.opacity = String(opacity);
       node.style.filter = `blur(${blurPx.toFixed(2)}px)`;
-      node.style.transform = `perspective(520px) rotateX(${rotateX.toFixed(
+      node.style.transform = `perspective(560px) rotateX(${rotateX.toFixed(
         2
       )}deg) translateZ(${translateZ.toFixed(1)}px) scale(${scale.toFixed(3)})`;
 
-      node.style.color = fade > 0.82 ? "rgb(15 23 42)" : "rgb(71 85 105)";
-      node.style.fontWeight = fade > 0.86 ? "700" : "500";
+      // ✅ 深色底字色：中心亮、外圍淡
+      node.style.color =
+        fade > 0.84 ? "rgba(255,255,255,0.92)" : "rgba(255,255,255,0.55)";
+      node.style.textShadow = fade > 0.84 ? "0 2px 12px rgba(56,189,248,0.28)" : "none";
+      node.style.fontWeight = fade > 0.88 ? "700" : "500";
     }
   };
 
@@ -199,38 +197,40 @@ export default function WheelPicker({
   };
 
   return (
-    <div className="rounded-2xl border border-sky-100 bg-sky-50/60 px-3 py-3">
+    // ✅ 深色晶片玻璃外殼（配合你已經在 globals.css 做的玻璃樣式）
+    <div className="glass-wheel rounded-2xl px-3 py-3">
       <div className="px-1">
-        <div className="text-xs font-semibold text-slate-700">{title}</div>
-        <div className="text-[11px] text-slate-500">{subtitle}</div>
+        <div className="text-xs font-semibold text-white/85">{title}</div>
+        <div className="text-[11px] text-white/50">{subtitle}</div>
       </div>
 
       <div className="mt-2 relative">
-        {/* 中央「齒輪視窗」：更像刻印在齒輪上轉動 */}
+        {/* 中央「齒輪視窗」：深色玻璃 + 電路光 */}
         <div
           ref={selectWinRef}
           className={cx(
-            "pointer-events-none absolute left-2 right-2 rounded-xl border transition",
-            isInteracting
-              ? "border-sky-300 bg-white/92 shadow-[0_0_0_1px_rgba(14,165,233,0.18),0_10px_25px_rgba(2,132,199,0.18)]"
-              : "border-sky-200 bg-white/85 shadow-sm",
+            "pointer-events-none absolute left-2 right-2 rounded-xl transition",
             bounce ? "wheel-bounce" : ""
           )}
           style={{
             top: pad,
             height: itemHeight,
-            overflow: "hidden"
+            overflow: "hidden",
+            border: "1px solid rgba(56,189,248,0.35)",
+            background: "rgba(2,6,23,0.58)",
+            boxShadow:
+              "0 0 0 1px rgba(56,189,248,0.12), 0 18px 40px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)"
           }}
         >
-          {/* 齒輪刻痕 / 金屬紋理 / 波動光 */}
           <div className="gear-layer" />
           <div className="gear-teeth" />
           <div className="gear-sheen" />
+          <div className="circuit-scan" />
         </div>
 
-        {/* 上下遮罩 */}
-        <div className="pointer-events-none absolute left-0 right-0 top-0 h-12 bg-gradient-to-b from-sky-50/95 to-transparent rounded-2xl" />
-        <div className="pointer-events-none absolute left-0 right-0 bottom-0 h-12 bg-gradient-to-t from-sky-50/95 to-transparent rounded-2xl" />
+        {/* 上下遮罩：深色版 */}
+        <div className="pointer-events-none absolute left-0 right-0 top-0 h-12 bg-gradient-to-b from-slate-950/80 to-transparent rounded-2xl" />
+        <div className="pointer-events-none absolute left-0 right-0 bottom-0 h-12 bg-gradient-to-t from-slate-950/80 to-transparent rounded-2xl" />
 
         <div
           ref={ref}
@@ -288,41 +288,37 @@ export default function WheelPicker({
             }
           }
 
-          /* === 齒輪視覺 ===
-             這三層會營造「刻印在齒輪上」的感覺
-             --gearAngle 由 JS 根據 scrollTop 寫入
-          */
+          /* === 齒輪視覺（深色晶片版） === */
           .gear-layer {
             position: absolute;
-            inset: -28px; /* 放大一點，旋轉時不會露邊 */
+            inset: -28px;
             background:
-              radial-gradient(circle at 50% 50%, rgba(14,165,233,0.16), rgba(255,255,255,0) 55%),
-              linear-gradient(180deg, rgba(2,132,199,0.08), rgba(255,255,255,0.02)),
-              linear-gradient(90deg, rgba(2,132,199,0.06), rgba(255,255,255,0.01));
+              radial-gradient(circle at 50% 50%, rgba(56,189,248,0.18), rgba(255,255,255,0) 58%),
+              linear-gradient(180deg, rgba(56,189,248,0.08), rgba(2,6,23,0.0)),
+              linear-gradient(90deg, rgba(56,189,248,0.07), rgba(2,6,23,0.0));
             transform: rotate(var(--gearAngle, 0deg));
             transform-origin: 50% 50%;
-            filter: saturate(1.05);
+            filter: saturate(1.1);
+            opacity: 0.95;
           }
 
-          /* 齒（用 conic-gradient 做刻度感） */
           .gear-teeth {
             position: absolute;
             inset: -36px;
             background:
               repeating-conic-gradient(
                 from 0deg,
-                rgba(2,132,199,0.0) 0deg,
-                rgba(2,132,199,0.0) 10deg,
-                rgba(2,132,199,0.16) 11deg,
-                rgba(2,132,199,0.0) 12deg
+                rgba(56,189,248,0.0) 0deg,
+                rgba(56,189,248,0.0) 10deg,
+                rgba(56,189,248,0.22) 11deg,
+                rgba(56,189,248,0.0) 12deg
               );
             mask-image: radial-gradient(circle at 50% 50%, transparent 0 36%, #000 52% 100%);
-            transform: rotate(calc(var(--gearAngle, 0deg) * 1.1));
+            transform: rotate(calc(var(--gearAngle, 0deg) * 1.12));
             transform-origin: 50% 50%;
-            opacity: 0.7;
+            opacity: 0.65;
           }
 
-          /* 高光掃過：互動時更明顯，像金屬/玻璃波動 */
           .gear-sheen {
             position: absolute;
             inset: -10px;
@@ -330,11 +326,11 @@ export default function WheelPicker({
               linear-gradient(
                 120deg,
                 rgba(255,255,255,0) 0%,
-                rgba(255,255,255,0.55) 45%,
+                rgba(255,255,255,0.45) 45%,
                 rgba(255,255,255,0) 70%
               );
             transform: translateX(-60%) rotate(0deg);
-            opacity: calc(0.18 + var(--gearPulse, 0) * 0.28);
+            opacity: calc(0.12 + var(--gearPulse, 0) * 0.26);
             animation: sheenMove 1.2s ease-in-out infinite;
             mix-blend-mode: screen;
           }
@@ -350,8 +346,42 @@ export default function WheelPicker({
               transform: translateX(-70%) rotate(8deg);
             }
           }
+
+          /* 晶片掃描線：讓選取窗有「電路在跑」的感覺 */
+          .circuit-scan {
+            position: absolute;
+            inset: 0;
+            background:
+              repeating-linear-gradient(
+                90deg,
+                rgba(56,189,248,0.0) 0px,
+                rgba(56,189,248,0.0) 22px,
+                rgba(56,189,248,0.10) 23px,
+                rgba(56,189,248,0.0) 26px
+              ),
+              repeating-linear-gradient(
+                0deg,
+                rgba(56,189,248,0.0) 0px,
+                rgba(56,189,248,0.0) 18px,
+                rgba(56,189,248,0.08) 19px,
+                rgba(56,189,248,0.0) 22px
+              );
+            opacity: 0.25;
+            transform: translateX(-20%);
+            animation: scanMove 1.6s linear infinite;
+            mix-blend-mode: screen;
+          }
+
+          @keyframes scanMove {
+            0% {
+              transform: translateX(-24%);
+            }
+            100% {
+              transform: translateX(24%);
+            }
+          }
         `}</style>
       </div>
     </div>
   );
-                }
+}
