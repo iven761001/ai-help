@@ -12,7 +12,13 @@ export default function CreateScreen({ draft, setDraft, onDone }) {
   return (
     <main className="min-h-screen flex flex-col">
       {/* ===== 上方：角色世界（會自動讓位） ===== */}
-      <section className="flex-1 flex items-center justify-center px-4 pt-6">
+      <section
+        className="flex-1 flex items-center justify-center px-4 pt-6"
+        style={{
+          // ✅ 讓位給底部 HUD（CompassCreator 會把高度寫到這個 CSS 變數）
+          paddingBottom: "calc(var(--creatorDockH, 320px) + 16px)"
+        }}
+      >
         <div className="w-full max-w-sm">
           <div className="glass-card rounded-3xl p-3">
             {/* 熊的預覽舞台 */}
@@ -35,15 +41,14 @@ export default function CreateScreen({ draft, setDraft, onDone }) {
                 顏色：{avatarLabel(draft.color || draft.avatar)} ／
                 聲線：{voiceLabel(draft.voice)}
               </div>
-              <div className="text-[11px] text-slate-400">
-                下方調整你的角色設定
-              </div>
+              <div className="text-[11px] text-slate-400">下方調整你的角色設定</div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* ===== 下方：角色控制面板（HUD） ===== */}
+      {/* 你這個 section 可以留著或拿掉都行，
+         因為 CompassCreator 自己是 fixed，不會吃到這裡的布局 */}
       <section
         className="
           relative
@@ -54,12 +59,7 @@ export default function CreateScreen({ draft, setDraft, onDone }) {
           shadow-[0_-20px_40px_rgba(0,0,0,0.45)]
         "
       >
-        <CompassCreator
-          value={draft}
-          onChange={setDraft}
-          onDone={onDone}
-          disabled={false}
-        />
+        <CompassCreator value={draft} onChange={setDraft} onDone={onDone} disabled={false} />
       </section>
     </main>
   );
