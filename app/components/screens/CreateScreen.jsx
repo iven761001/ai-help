@@ -10,7 +10,7 @@ export default function CreateScreen({ draft, setDraft, onDone }) {
   const { yaw, bind } = useDragRotate({ sensitivity: 0.01 });
 
   return (
-    <main className="min-h-screen bg-transparent">
+    <main className="min-h-screen">
       {/* 上方：角色預覽區（留底部空間給羅盤） */}
       <div className="px-4 pt-6 pb-40 max-w-4xl mx-auto">
         <h1 className="text-xl md:text-2xl font-bold text-slate-800 text-center">
