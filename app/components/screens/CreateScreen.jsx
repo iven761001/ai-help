@@ -1,7 +1,6 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState } from "react";
 import CompassCreator from "../CompassCreator/CompassCreator";
 import useDragRotate from "../../hooks/useDragRotate";
 
@@ -10,62 +9,58 @@ const Avatar3D = dynamic(() => import("../Avatar3D"), { ssr: false });
 export default function CreateScreen({ draft, setDraft, onDone }) {
   const { yaw, bind } = useDragRotate({ sensitivity: 0.01 });
 
-  // ✅ 由 CompassCreator 回報高度
-  const [bottomPad, setBottomPad] = useState(380);
-
   return (
-    <main
-      className="min-h-screen"
-      style={{
-        paddingBottom: `calc(${bottomPad}px + env(safe-area-inset-bottom))`
-      }}
-    >
-      <div className="px-4 pt-6 max-w-4xl mx-auto">
-        <h1 className="text-xl md:text-2xl font-bold text-white text-center">
-          客製你的專屬 AI 小管家
-        </h1>
-        <p className="text-xs md:text-sm text-white/70 text-center mt-2">
-          用底部介面依序選顏色、個性、名字。
-        </p>
+    <main className="min-h-screen flex flex-col">
+      {/* ===== 上方：角色世界（會自動讓位） ===== */}
+      <section className="flex-1 flex items-center justify-center px-4 pt-6">
+        <div className="w-full max-w-sm">
+          <div className="glass-card rounded-3xl p-3">
+            {/* 熊的預覽舞台 */}
+            <div
+              className="aspect-square rounded-2xl glass-soft flex items-center justify-center overflow-hidden"
+              {...bind}
+            >
+              <Avatar3D
+                variant={draft.avatar || draft.color || "sky"}
+                emotion="idle"
+                previewYaw={yaw}
+              />
+            </div>
 
-        <div className="mt-6 flex items-center justify-center">
-          <div className="w-full max-w-sm">
-            <div className="rounded-3xl p-3 glass-card">
-              <div
-                className="aspect-square rounded-2xl glass-soft flex items-center justify-center overflow-hidden"
-                {...bind}
-              >
-                <Avatar3D
-                  variant={draft.avatar || draft.color || "sky"}
-                  emotion="idle"
-                  previewYaw={yaw}
-                />
+            <div className="mt-3 space-y-1 px-2 pb-1 text-center">
+              <div className="text-sm font-semibold text-slate-100">
+                {draft.nickname ? `「${draft.nickname}」` : "尚未命名"}
               </div>
-
-              <div className="mt-3 space-y-1 px-2 pb-1">
-                <div className="text-sm font-semibold text-white">
-                  預覽：{draft.nickname ? `「${draft.nickname}」` : "尚未命名"}
-                </div>
-                <div className="text-xs text-white/70">
-                  顏色：{avatarLabel(draft.color || draft.avatar)}／聲線：
-                  {voiceLabel(draft.voice)}
-                </div>
-                <div className="text-[11px] text-white/50">
-                  完成後會自動進入對話模式
-                </div>
+              <div className="text-xs text-slate-300">
+                顏色：{avatarLabel(draft.color || draft.avatar)} ／
+                聲線：{voiceLabel(draft.voice)}
+              </div>
+              <div className="text-[11px] text-slate-400">
+                下方調整你的角色設定
               </div>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <CompassCreator
-        value={draft}
-        onChange={(v) => setDraft(v)}
-        onDone={onDone}
-        disabled={false}
-        onHeightChange={(h) => setBottomPad(Math.ceil(h + 16))} // ✅ 關鍵
-      />
+      {/* ===== 下方：角色控制面板（HUD） ===== */}
+      <section
+        className="
+          relative
+          z-20
+          backdrop-blur-xl
+          bg-white/5
+          border-t border-white/10
+          shadow-[0_-20px_40px_rgba(0,0,0,0.45)]
+        "
+      >
+        <CompassCreator
+          value={draft}
+          onChange={setDraft}
+          onDone={onDone}
+          disabled={false}
+        />
+      </section>
     </main>
   );
 }
