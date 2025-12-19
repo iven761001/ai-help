@@ -73,7 +73,7 @@ export default function CompassCreator({ value, onChange, onDone, disabled }) {
     !!(value?.nickname || customName).trim();
 
   return (
-    <div className="fixed left-0 right-0 bottom-0 z-[60] pointer-events-none">
+    <div className="fixed left-0 right-0 bottom-0 z-[60] pointer-events-none"data-creator-panel>
       <div
         className="pointer-events-auto mx-auto w-full max-w-4xl px-3 pb-[calc(env(safe-area-inset-bottom)+12px)]"
         style={{ WebkitTapHighlightColor: "transparent" }}
