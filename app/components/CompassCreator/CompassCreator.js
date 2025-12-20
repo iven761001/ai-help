@@ -12,7 +12,7 @@ export default function CompassCreator({
   onChange,
   onDone,
   disabled,
-  onHeightChange // ✅ 新增：回報高度給外層
+  onHeightChange
 }) {
   const colors = useMemo(
     () => [
@@ -48,29 +48,50 @@ export default function CompassCreator({
   const [nameMode, setNameMode] = useState("__custom__");
   const [customName, setCustomName] = useState(value?.nickname || "");
 
-  // ✅ 量高度：抓「真正會變高」的殼
-  const shellRef = useRef(null);
+  // ✅ 改成量「最外層 wrapper」，包含 safe-area padding
+  const wrapperRef = useRef(null);
 
   useEffect(() => {
-    const el = shellRef.current;
+    const el = wrapperRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
 
+    let raf1 = 0;
+    let raf2 = 0;
+    let t = 0;
+
     const emit = () => {
-      const h = el.getBoundingClientRect().height || 0;
+      const h = Math.round(el.getBoundingClientRect().height || 0);
       onHeightChange?.(h);
     };
 
-    emit();
-    const ro = new ResizeObserver(() => {
-      // 避免同一幀多次觸發抖動
-      requestAnimationFrame(emit);
-    });
+    const scheduleEmit = () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      if (t) window.clearTimeout(t);
+
+      raf1 = requestAnimationFrame(() => {
+        emit();
+        // 再補一拍：有些 Android 在內容展開（自訂輸入出現）會晚一點才計算完
+        raf2 = requestAnimationFrame(emit);
+        t = window.setTimeout(emit, 60);
+      });
+    };
+
+    scheduleEmit();
+
+    const ro = new ResizeObserver(scheduleEmit);
     ro.observe(el);
 
-    window.addEventListener("resize", emit);
+    window.addEventListener("resize", scheduleEmit);
+    window.addEventListener("orientationchange", scheduleEmit);
+
     return () => {
       ro.disconnect();
-      window.removeEventListener("resize", emit);
+      window.removeEventListener("resize", scheduleEmit);
+      window.removeEventListener("orientationchange", scheduleEmit);
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      if (t) window.clearTimeout(t);
     };
   }, [onHeightChange]);
 
@@ -104,16 +125,13 @@ export default function CompassCreator({
     !!(value?.nickname || customName).trim();
 
   return (
-    <div className="fixed left-0 right-0 bottom-0 z-[60] pointer-events-none">
+    <div className="pointer-events-none">
       <div
+        ref={wrapperRef}
         className="pointer-events-auto mx-auto w-full max-w-4xl px-3 pb-[calc(env(safe-area-inset-bottom)+12px)]"
         style={{ WebkitTapHighlightColor: "transparent" }}
       >
-        {/* ✅ 外殼（高度會變：wheel + 自訂輸入出現/消失） */}
-        <div
-          ref={shellRef}
-          className="rounded-[28px] border border-sky-200/30 bg-white/10 backdrop-blur-xl shadow-[0_-12px_50px_rgba(56,189,248,0.15)] overflow-hidden"
-        >
+        <div className="rounded-[28px] border border-sky-200/30 bg-white/10 backdrop-blur-xl shadow-[0_-12px_50px_rgba(56,189,248,0.15)] overflow-hidden">
           <div className="px-4 pt-4 pb-3">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -196,4 +214,4 @@ export default function CompassCreator({
       </div>
     </div>
   );
-}
+  }
