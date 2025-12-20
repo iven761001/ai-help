@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import dynamic from "next/dynamic";
+import { useEffect, useState } from "react";
 import CompassCreator from "../CompassCreator/CompassCreator";
 import useDragRotate from "../../hooks/useDragRotate";
 
@@ -10,22 +10,49 @@ const Avatar3D = dynamic(() => import("../Avatar3D"), { ssr: false });
 export default function CreateScreen({ draft, setDraft, onDone }) {
   const { yaw, bind } = useDragRotate({ sensitivity: 0.01 });
 
-  // ✅ 底部 HUD 高度（由 CompassCreator 回報）
-  const [dockH, setDockH] = useState(320);
+  const [hudH, setHudH] = useState(0); // HUD 真實高度（含 safe-area）
+  const [bottomInset, setBottomInset] = useState(0); // 鍵盤/視窗縮放造成的底部遮擋
+
+  // ✅ 鍵盤/視窗變化：用 visualViewport 算出底部被吃掉多少
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    const update = () => {
+      // innerHeight - visualViewport.height - offsetTop = 底部被遮擋
+      const inset = Math.max(
+        0,
+        Math.round(window.innerHeight - vv.height - vv.offsetTop)
+      );
+      setBottomInset(inset);
+    };
+
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    window.addEventListener("orientationchange", update);
+
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+      window.removeEventListener("orientationchange", update);
+    };
+  }, []);
+
+  // ✅ 世界區要永遠讓位：HUD 高度 + 鍵盤 inset + 一點間距
+  const worldPadBottom = Math.max(0, hudH + bottomInset + 18);
 
   return (
-    <main className="min-h-screen flex flex-col">
-      {/* ===== 上方：角色世界（自動讓位給底部 HUD） ===== */}
+    <main className="min-h-screen relative">
+      {/* ===== 上方：角色世界（會自動讓位） ===== */}
       <section
-        className="flex-1 flex items-center justify-center px-4 pt-6"
-        style={{
-          // ✅ 讓位：HUD 高度 + safe-area + 一點空隙
-          paddingBottom: `calc(${dockH}px + env(safe-area-inset-bottom) + 16px)`
-        }}
+        className="min-h-screen flex items-center justify-center px-4 pt-6"
+        style={{ paddingBottom: worldPadBottom }}
       >
         <div className="w-full max-w-sm">
           <div className="glass-card rounded-3xl p-3">
-            {/* 熊的預覽舞台 */}
             <div
               className="aspect-square rounded-2xl glass-soft flex items-center justify-center overflow-hidden"
               {...bind}
@@ -53,18 +80,22 @@ export default function CreateScreen({ draft, setDraft, onDone }) {
         </div>
       </section>
 
-      {/* ===== 底部 HUD（注意：CompassCreator 本身是 fixed，放哪裡都會固定在底部） ===== */}
-      <CompassCreator
-        value={draft}
-        onChange={setDraft}
-        onDone={onDone}
-        disabled={false}
-        onHeightChange={(h) => {
-          // ✅ 小保護：避免 0 或太小導致模型又被蓋
-          const safe = Math.max(240, Math.ceil(h || 0));
-          setDockH(safe);
+      {/* ===== 下方：HUD（固定在底部，鍵盤出現會上移） ===== */}
+      <div
+        className="fixed left-0 right-0 bottom-0 z-[80]"
+        style={{
+          transform: bottomInset ? `translateY(-${bottomInset}px)` : undefined,
+          willChange: "transform"
         }}
-      />
+      >
+        <CompassCreator
+          value={draft}
+          onChange={setDraft}
+          onDone={onDone}
+          disabled={false}
+          onHeightChange={setHudH}
+        />
+      </div>
     </main>
   );
 }
