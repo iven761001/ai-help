@@ -104,4 +104,10 @@ body {
   box-shadow: none !important;
 }
 
+
 /* 有些地方可能用到 overflow-hidden 的卡片容器，留著不影響 */
+.ui-frame {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
