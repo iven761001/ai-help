@@ -14,14 +14,7 @@ export default function TechBackground({ children }) {
     if (!ctx) return;
 
     let raf = 0;
-    const state = {
-      w: 0,
-      h: 0,
-      t: 0,
-      nodes: [],
-      lines: []
-    };
-
+    const state = { w: 0, h: 0, t: 0, nodes: [], lines: [] };
     const rand = (a, b) => a + Math.random() * (b - a);
     const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 
@@ -34,13 +27,11 @@ export default function TechBackground({ children }) {
       canvas.height = Math.floor(h * dpr);
       canvas.style.width = `${w}px`;
       canvas.style.height = `${h}px`;
-
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       state.w = w;
       state.h = h;
 
-      // nodes：節點閃爍
       const nodeCount = clamp(Math.floor((w * h) / 28000), 18, 36);
       state.nodes = Array.from({ length: nodeCount }, () => ({
         x: rand(0.08 * w, 0.92 * w),
@@ -50,22 +41,17 @@ export default function TechBackground({ children }) {
         s: rand(0.002, 0.006)
       }));
 
-      // lines：電路線段
       const lineCount = clamp(Math.floor((w * h) / 22000), 24, 54);
       state.lines = Array.from({ length: lineCount }, () => {
         const horizontal = Math.random() > 0.48;
         const x1 = rand(-0.1 * w, 1.1 * w);
         const y1 = rand(-0.1 * h, 1.1 * h);
-
         const len = rand(120, 420);
         const x2 = horizontal ? x1 + (Math.random() > 0.5 ? len : -len) : x1;
         const y2 = horizontal ? y1 : y1 + (Math.random() > 0.5 ? len : -len);
 
         return {
-          x1,
-          y1,
-          x2,
-          y2,
+          x1, y1, x2, y2,
           w: rand(1, 2),
           a: rand(0.05, 0.22),
           phase: rand(0, Math.PI * 2),
@@ -101,17 +87,11 @@ export default function TechBackground({ children }) {
       const { w, h } = state;
       state.t += 1;
 
-      // background base
       ctx.clearRect(0, 0, w, h);
 
-      // deep blue gradient
       const g = ctx.createRadialGradient(
-        w * 0.55,
-        h * 0.25,
-        40,
-        w * 0.5,
-        h * 0.55,
-        Math.max(w, h)
+        w * 0.55, h * 0.25, 40,
+        w * 0.5, h * 0.55, Math.max(w, h)
       );
       g.addColorStop(0, "rgba(10, 20, 35, 1)");
       g.addColorStop(0.35, "rgba(6, 14, 28, 1)");
@@ -121,7 +101,6 @@ export default function TechBackground({ children }) {
 
       drawGrid();
 
-      // circuit lines + moving pulse
       for (const ln of state.lines) {
         const pulse = (Math.sin(ln.phase + state.t * ln.speed) + 1) / 2;
 
@@ -134,7 +113,6 @@ export default function TechBackground({ children }) {
         ctx.lineTo(ln.x2, ln.y2);
         ctx.stroke();
 
-        // pulse dot
         ctx.globalAlpha = 0.22 + 0.35 * pulse;
         ctx.fillStyle = "rgba(120, 220, 255, 1)";
         const px = ln.x1 + (ln.x2 - ln.x1) * pulse;
@@ -145,7 +123,6 @@ export default function TechBackground({ children }) {
         ctx.restore();
       }
 
-      // nodes sparkle
       for (const n of state.nodes) {
         const tw = (Math.sin(state.t * n.s * 60) + 1) / 2;
         ctx.save();
@@ -162,7 +139,6 @@ export default function TechBackground({ children }) {
 
     resize();
     draw();
-
     window.addEventListener("resize", resize);
     return () => {
       cancelAnimationFrame(raf);
@@ -171,9 +147,16 @@ export default function TechBackground({ children }) {
   }, []);
 
   return (
-    <div className="relative min-h-screen w-full overflow-hidden">
-      <canvas ref={canvasRef} className="absolute inset-0" />
-      <div className="relative z-10 min-h-screen">{children}</div>
+    <div className="fixed inset-0">
+      {/* 背景 Canvas（永遠在最底層、也不吃點擊） */}
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0"
+        style={{ pointerEvents: "none" }}
+      />
+
+      {/* 內容（永遠在最上層） */}
+      <div className="absolute inset-0 z-10">{children}</div>
     </div>
   );
 }
