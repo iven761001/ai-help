@@ -24,18 +24,7 @@ export default function CreateScreen({ draft, setDraft, onDone }) {
       >
         <div className="w-full max-w-sm">
           {/* ✅ 卡片再往上挪一點（更靠上） */}
-          <div className="glass-card rounded-3xl p-3 -translate-y-2">
-            {/* 熊的預覽舞台（單手拖拉旋轉） */}
-            <div
-              className="aspect-square rounded-2xl glass-soft flex items-center justify-center overflow-hidden"
-              {...bind}
-            >
-              <Avatar3D
-                variant={draft.avatar || draft.color || "sky"}
-                emotion="idle"
-                previewYaw={yaw}
-              />
-            </div>
+
 
             <div className="mt-3 space-y-1 px-2 pb-1 text-center">
               <div className="text-sm font-semibold text-slate-100">
