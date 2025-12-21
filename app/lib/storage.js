@@ -1,10 +1,13 @@
-const KEY = "ai-helper-user";
+// app/lib/storage.js
+
+const KEY = "ai_helper_user_v1";
 
 export function loadUser() {
   if (typeof window === "undefined") return null;
   try {
-    const s = window.localStorage.getItem(KEY);
-    return s ? JSON.parse(s) : null;
+    const raw = window.localStorage.getItem(KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
   } catch {
     return null;
   }
