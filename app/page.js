@@ -1,22 +1,20 @@
 "use client";
 
+import { useState } from "react";
+import TechBackground from "./components/global/TechBackground";
+import BindEmailScreen from "./components/screens/BindEmailScreen";
+
 export default function Page() {
+  const [email, setEmail] = useState("");
+
+  const onSubmit = (e) => {
+    e.preventDefault();
+    alert("email=" + email);
+  };
+
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "#000",
-        color: "#00ff7f",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontSize: 36,
-        fontWeight: 800,
-        zIndex: 2147483647
-      }}
-    >
-      HELLO
-    </div>
+    <TechBackground>
+      <BindEmailScreen email={email} setEmail={setEmail} onSubmit={onSubmit} />
+    </TechBackground>
   );
 }
