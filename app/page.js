@@ -1,3 +1,5 @@
+return <div className="text-white p-6">HELLO</div>;
+
 // app/page.js
 "use client";
 
