@@ -111,3 +111,101 @@ body {
   border-color: transparent !important;
   box-shadow: none !important;
 }
+
+
+/* ===== TechBackground root ===== */
+.tech-bg-root {
+  min-height: 100dvh;
+  position: relative;
+  overflow: hidden;
+  --kb: 0px; /* JS 會動態寫入 */
+}
+
+.tech-bg-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(1200px 800px at 20% 10%, rgba(56,189,248,0.20), rgba(0,0,0,0) 60%),
+    radial-gradient(900px 700px at 90% 20%, rgba(59,130,246,0.14), rgba(0,0,0,0) 55%),
+    radial-gradient(900px 700px at 40% 90%, rgba(168,85,247,0.10), rgba(0,0,0,0) 55%),
+    linear-gradient(180deg, #070a12 0%, #050814 55%, #040612 100%);
+}
+
+.tech-bg-content {
+  position: relative;
+  z-index: 1;
+}
+
+/* 晶片格 */
+.chip-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+  background-size: 44px 44px;
+  opacity: 0.25;
+  transform: translateZ(0);
+}
+
+/* 電路走線（不同方向/密度，不會像壞掉斜線） */
+.chip-traces {
+  position: absolute;
+  inset: -20%;
+  background:
+    repeating-linear-gradient(90deg, rgba(56,189,248,0.0) 0 18px, rgba(56,189,248,0.06) 18px 19px, rgba(56,189,248,0.0) 19px 44px),
+    repeating-linear-gradient(0deg, rgba(56,189,248,0.0) 0 22px, rgba(56,189,248,0.05) 22px 23px, rgba(56,189,248,0.0) 23px 52px),
+    repeating-linear-gradient(45deg, rgba(99,102,241,0.0) 0 40px, rgba(99,102,241,0.04) 40px 41px, rgba(99,102,241,0.0) 41px 90px);
+  filter: blur(0.2px);
+  opacity: 0.55;
+}
+
+/* 光纖流動層 */
+.chip-glowflow {
+  position: absolute;
+  inset: -40%;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(56,189,248,0.22), rgba(0,0,0,0) 55%),
+    radial-gradient(circle at 70% 40%, rgba(56,189,248,0.18), rgba(0,0,0,0) 58%),
+    radial-gradient(circle at 55% 80%, rgba(99,102,241,0.14), rgba(0,0,0,0) 58%);
+  mix-blend-mode: screen;
+  filter: blur(18px);
+  animation: glowDrift 7.5s linear infinite;
+  opacity: 0.65;
+}
+
+@keyframes glowDrift {
+  0% { transform: translate3d(-3%, -2%, 0) scale(1); }
+  50% { transform: translate3d(3%, 2%, 0) scale(1.04); }
+  100% { transform: translate3d(-3%, -2%, 0) scale(1); }
+}
+
+.vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 40%, rgba(0,0,0,0) 0 55%, rgba(0,0,0,0.55) 100%);
+  opacity: 0.9;
+}
+
+/* ===== Glass UI ===== */
+.glass-card {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 18px 50px rgba(0,0,0,0.35);
+  border-radius: 24px;
+}
+
+.glass-soft {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Hide scrollbar */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
