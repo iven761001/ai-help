@@ -12,26 +12,21 @@ export default function HomePage() {
   const [phase, setPhase] = useState("loading"); // loading / bindEmail / create / chat
   const [user, setUser] = useState(null);
 
-  // 綁定 email
   const [email, setEmail] = useState("");
 
-  // 創角資料（交給 CreateScreen / CompassCreator）
   const [draft, setDraft] = useState({
     email: "",
-    element: "carbon", // ✅ 元素：carbon / silicon / germanium / tin / lead
     avatar: "sky",
     color: "sky",
     voice: "warm",
     nickname: ""
   });
 
-  // 聊天
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [currentEmotion, setCurrentEmotion] = useState("idle");
 
-  // init
   useEffect(() => {
     const saved = loadUser();
     if (saved) {
@@ -42,7 +37,6 @@ export default function HomePage() {
     }
   }, []);
 
-  // Email 綁定 -> 進創角
   const handleEmailSubmit = (e) => {
     e.preventDefault();
     if (!email) return;
@@ -50,16 +44,13 @@ export default function HomePage() {
     setPhase("create");
   };
 
-  // 創角完成 -> 進聊天室
   const handleDoneCreate = () => {
     const profile = {
       email: draft.email,
       nickname: (draft.nickname || "").trim(),
       avatar: draft.avatar || draft.color || "sky",
-      voice: draft.voice || "warm",
-      element: draft.element || "carbon" // ✅ 新增
+      voice: draft.voice || "warm"
     };
-
     if (!profile.nickname || !profile.email) return;
 
     setUser(profile);
@@ -82,7 +73,6 @@ export default function HomePage() {
     setPhase("chat");
   };
 
-  // 聊天送出
   const handleSend = async (e) => {
     e.preventDefault();
     if (!input.trim() || !user) return;
@@ -102,8 +92,7 @@ export default function HomePage() {
           nickname: user.nickname,
           email: user.email,
           avatar: user.avatar,
-          voice: user.voice,
-          element: user.element || "carbon" // ✅ 新增
+          voice: user.voice
         })
       });
 
@@ -127,74 +116,54 @@ export default function HomePage() {
     }
   };
 
-  // 從聊天室回到選角（帶回目前設定）
   const handleBackToCreator = () => {
     if (!user) return;
-
     setDraft((p) => ({
       ...p,
       email: user.email || p.email,
       nickname: user.nickname || p.nickname,
       voice: user.voice || p.voice,
       avatar: user.avatar || p.avatar,
-      color: user.avatar || p.color,
-      element: user.element || p.element || "carbon" // ✅ 新增
+      color: user.avatar || p.color
     }));
-
     setPhase("create");
   };
 
-  // ========== RENDER ==========
-
-  if (phase === "loading") {
-    return (
-      <TechBackground>
-        <main className="min-h-screen flex items-center justify-center">
-          <div className="text-sm text-white/70">小管家準備中⋯⋯</div>
-        </main>
-      </TechBackground>
-    );
-  }
-
-  if (phase === "bindEmail") {
-    return (
-      <TechBackground>
-        <BindEmailScreen email={email} setEmail={setEmail} onSubmit={handleEmailSubmit} />
-      </TechBackground>
-    );
-  }
-
-  if (phase === "create") {
-    return (
-      <TechBackground>
-        <CreateScreen draft={draft} setDraft={setDraft} onDone={handleDoneCreate} />
-      </TechBackground>
-    );
-  }
-
-  // chat
-  if (!user) {
-    return (
-      <TechBackground>
-        <main className="min-h-screen flex items-center justify-center">
-          <div className="text-sm text-white/70">資料載入中⋯⋯</div>
-        </main>
-      </TechBackground>
-    );
-  }
-
+  // ===== Render =====
   return (
     <TechBackground>
-      <ChatScreen
-        user={user}
-        messages={messages}
-        loading={loading}
-        input={input}
-        setInput={setInput}
-        onSend={handleSend}
-        currentEmotion={currentEmotion}
-        onBackToCreator={handleBackToCreator}
-      />
+      {phase === "loading" && (
+        <main className="min-h-[100dvh] flex items-center justify-center">
+          <div className="text-sm text-white/70">小管家準備中⋯⋯</div>
+        </main>
+      )}
+
+      {phase === "bindEmail" && (
+        <BindEmailScreen email={email} setEmail={setEmail} onSubmit={handleEmailSubmit} />
+      )}
+
+      {phase === "create" && (
+        <CreateScreen draft={draft} setDraft={setDraft} onDone={handleDoneCreate} />
+      )}
+
+      {phase === "chat" && user && (
+        <ChatScreen
+          user={user}
+          messages={messages}
+          loading={loading}
+          input={input}
+          setInput={setInput}
+          onSend={handleSend}
+          currentEmotion={currentEmotion}
+          onBackToCreator={handleBackToCreator}
+        />
+      )}
+
+      {phase === "chat" && !user && (
+        <main className="min-h-[100dvh] flex items-center justify-center">
+          <div className="text-sm text-white/70">資料載入中⋯⋯</div>
+        </main>
+      )}
     </TechBackground>
   );
 }
