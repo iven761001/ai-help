@@ -6,6 +6,7 @@ export default function CreateHUD({ draft, setDraft, onDone }) {
   return (
     <div
       className="
+        h-full
         rounded-[28px]
         bg-white/10
         backdrop-blur-xl
@@ -14,12 +15,10 @@ export default function CreateHUD({ draft, setDraft, onDone }) {
         overflow-hidden
       "
     >
-      <CompassCreator
-        value={draft}
-        onChange={setDraft}
-        onDone={onDone}
-        disabled={false}
-      />
+      {/* ✅ 固定 HUD 高度下，創角內容用內部捲動 */}
+      <div className="h-full overflow-y-auto no-scrollbar">
+        <CompassCreator value={draft} onChange={setDraft} onDone={onDone} disabled={false} />
+      </div>
     </div>
   );
 }
