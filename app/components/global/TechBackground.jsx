@@ -1,201 +1,178 @@
+// app/components/global/TechBackground.jsx
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
-
-function clamp(n, a, b) {
-  return Math.max(a, Math.min(b, n));
-}
+import { useEffect, useRef } from "react";
 
 export default function TechBackground({ children }) {
   const canvasRef = useRef(null);
-
-  const cfg = useMemo(
-    () => ({
-      // 深色玻璃底
-      baseA: "#05070c",
-      baseB: "#050a16",
-      // 電路冷光
-      glow: "rgba(90, 200, 255, 0.22)",
-      glow2: "rgba(140, 110, 255, 0.12)"
-    }),
-    []
-  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const ctx = canvas.getContext("2d");
-    let raf = 0;
-    let t0 = performance.now();
+    const ctx = canvas.getContext("2d", { alpha: true });
+    if (!ctx) return;
 
+    let raf = 0;
     const state = {
       w: 0,
       h: 0,
-      chips: [],
-      traces: []
+      t: 0,
+      nodes: [],
+      lines: []
     };
 
     const rand = (a, b) => a + Math.random() * (b - a);
+    const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 
     const resize = () => {
-      const w = Math.max(1, window.innerWidth);
-      const h = Math.max(1, window.innerHeight);
-      canvas.width = Math.floor(w * devicePixelRatio);
-      canvas.height = Math.floor(h * devicePixelRatio);
-      canvas.style.width = w + "px";
-      canvas.style.height = h + "px";
-      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       state.w = w;
       state.h = h;
 
-      // chips：像晶片區塊
-      const chipCount = clamp(Math.floor((w * h) / 90000), 8, 16);
-      state.chips = Array.from({ length: chipCount }, () => {
-        const cw = rand(120, 220);
-        const ch = rand(80, 160);
+      // nodes：節點閃爍
+      const nodeCount = clamp(Math.floor((w * h) / 28000), 18, 36);
+      state.nodes = Array.from({ length: nodeCount }, () => ({
+        x: rand(0.08 * w, 0.92 * w),
+        y: rand(0.12 * h, 0.88 * h),
+        r: rand(1.2, 2.6),
+        a: rand(0.12, 0.6),
+        s: rand(0.002, 0.006)
+      }));
+
+      // lines：電路線段
+      const lineCount = clamp(Math.floor((w * h) / 22000), 24, 54);
+      state.lines = Array.from({ length: lineCount }, () => {
+        const horizontal = Math.random() > 0.48;
+        const x1 = rand(-0.1 * w, 1.1 * w);
+        const y1 = rand(-0.1 * h, 1.1 * h);
+
+        const len = rand(120, 420);
+        const x2 = horizontal ? x1 + (Math.random() > 0.5 ? len : -len) : x1;
+        const y2 = horizontal ? y1 : y1 + (Math.random() > 0.5 ? len : -len);
+
         return {
-          x: rand(20, w - cw - 20),
-          y: rand(30, h - ch - 120),
-          w: cw,
-          h: ch,
-          r: rand(14, 24),
-          phase: rand(0, Math.PI * 2)
+          x1,
+          y1,
+          x2,
+          y2,
+          w: rand(1, 2),
+          a: rand(0.05, 0.22),
+          phase: rand(0, Math.PI * 2),
+          speed: rand(0.006, 0.012)
         };
       });
-
-      // traces：電路線
-      const traceCount = clamp(Math.floor((w * h) / 22000), 35, 90);
-      state.traces = Array.from({ length: traceCount }, () => {
-        const x0 = rand(0, w);
-        const y0 = rand(0, h);
-        const dir = Math.random() > 0.5 ? "h" : "v";
-        const len = rand(80, 260);
-        const speed = rand(10, 40);
-        return { x0, y0, dir, len, speed, p: rand(0, 1) };
-      });
     };
 
-    const roundRect = (x, y, w, h, r) => {
-      const rr = Math.min(r, w / 2, h / 2);
-      ctx.beginPath();
-      ctx.moveTo(x + rr, y);
-      ctx.arcTo(x + w, y, x + w, y + h, rr);
-      ctx.arcTo(x + w, y + h, x, y + h, rr);
-      ctx.arcTo(x, y + h, x, y, rr);
-      ctx.arcTo(x, y, x + w, y, rr);
-      ctx.closePath();
+    const drawGrid = () => {
+      const { w, h } = state;
+      ctx.save();
+      ctx.globalAlpha = 0.18;
+      ctx.strokeStyle = "rgba(80, 160, 220, 0.25)";
+      ctx.lineWidth = 1;
+
+      const step = 54;
+      for (let x = 0; x <= w; x += step) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+      for (let y = 0; y <= h; y += step) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+      ctx.restore();
     };
 
-    const draw = (now) => {
-      const w = state.w;
-      const h = state.h;
-      const dt = (now - t0) / 1000;
-      t0 = now;
+    const draw = () => {
+      const { w, h } = state;
+      state.t += 1;
 
-      // base gradient
-      const g = ctx.createLinearGradient(0, 0, w, h);
-      g.addColorStop(0, cfg.baseA);
-      g.addColorStop(1, cfg.baseB);
+      // background base
+      ctx.clearRect(0, 0, w, h);
+
+      // deep blue gradient
+      const g = ctx.createRadialGradient(
+        w * 0.55,
+        h * 0.25,
+        40,
+        w * 0.5,
+        h * 0.55,
+        Math.max(w, h)
+      );
+      g.addColorStop(0, "rgba(10, 20, 35, 1)");
+      g.addColorStop(0.35, "rgba(6, 14, 28, 1)");
+      g.addColorStop(1, "rgba(0, 0, 0, 1)");
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, w, h);
 
-      // chips
-      for (const c of state.chips) {
-        const pulse = 0.5 + 0.5 * Math.sin(now / 1200 + c.phase);
-        ctx.save();
-        roundRect(c.x, c.y, c.w, c.h, c.r);
-        ctx.fillStyle = `rgba(255,255,255,${0.03 + 0.02 * pulse})`;
-        ctx.fill();
+      drawGrid();
 
-        ctx.strokeStyle = `rgba(90,200,255,${0.10 + 0.06 * pulse})`;
-        ctx.lineWidth = 1;
+      // circuit lines + moving pulse
+      for (const ln of state.lines) {
+        const pulse = (Math.sin(ln.phase + state.t * ln.speed) + 1) / 2;
+
+        ctx.save();
+        ctx.globalAlpha = ln.a;
+        ctx.strokeStyle = "rgba(130, 200, 255, 1)";
+        ctx.lineWidth = ln.w;
+        ctx.beginPath();
+        ctx.moveTo(ln.x1, ln.y1);
+        ctx.lineTo(ln.x2, ln.y2);
         ctx.stroke();
 
-        // inner grid
-        ctx.globalAlpha = 0.35;
-        ctx.strokeStyle = "rgba(255,255,255,0.06)";
-        for (let i = 1; i <= 4; i++) {
-          const xx = c.x + (c.w * i) / 5;
-          ctx.beginPath();
-          ctx.moveTo(xx, c.y + 10);
-          ctx.lineTo(xx, c.y + c.h - 10);
-          ctx.stroke();
-        }
-        for (let i = 1; i <= 3; i++) {
-          const yy = c.y + (c.h * i) / 4;
-          ctx.beginPath();
-          ctx.moveTo(c.x + 10, yy);
-          ctx.lineTo(c.x + c.w - 10, yy);
-          ctx.stroke();
-        }
+        // pulse dot
+        ctx.globalAlpha = 0.22 + 0.35 * pulse;
+        ctx.fillStyle = "rgba(120, 220, 255, 1)";
+        const px = ln.x1 + (ln.x2 - ln.x1) * pulse;
+        const py = ln.y1 + (ln.y2 - ln.y1) * pulse;
+        ctx.beginPath();
+        ctx.arc(px, py, 1.6 + 1.8 * pulse, 0, Math.PI * 2);
+        ctx.fill();
         ctx.restore();
       }
 
-      // traces (moving light)
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      for (const tr of state.traces) {
-        tr.p += (dt * tr.speed) / 500;
-        if (tr.p > 1) tr.p -= 1;
-
-        const x1 = tr.dir === "h" ? tr.x0 + tr.len : tr.x0;
-        const y1 = tr.dir === "v" ? tr.y0 + tr.len : tr.y0;
-
-        // faint base trace
-        ctx.strokeStyle = "rgba(255,255,255,0.05)";
-        ctx.lineWidth = 1;
+      // nodes sparkle
+      for (const n of state.nodes) {
+        const tw = (Math.sin(state.t * n.s * 60) + 1) / 2;
+        ctx.save();
+        ctx.globalAlpha = n.a + tw * 0.35;
+        ctx.fillStyle = "rgba(170, 240, 255, 1)";
         ctx.beginPath();
-        ctx.moveTo(tr.x0, tr.y0);
-        ctx.lineTo(x1, y1);
-        ctx.stroke();
-
-        // bright moving head
-        const hx = tr.dir === "h" ? tr.x0 + tr.len * tr.p : tr.x0;
-        const hy = tr.dir === "v" ? tr.y0 + tr.len * tr.p : tr.y0;
-
-        const rg = ctx.createRadialGradient(hx, hy, 0, hx, hy, 18);
-        rg.addColorStop(0, cfg.glow);
-        rg.addColorStop(0.7, "rgba(90,200,255,0.0)");
-        ctx.fillStyle = rg;
-        ctx.fillRect(hx - 18, hy - 18, 36, 36);
-
-        ctx.strokeStyle = "rgba(90,200,255,0.26)";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(tr.x0, tr.y0);
-        ctx.lineTo(hx, hy);
-        ctx.stroke();
+        ctx.arc(n.x, n.y, n.r + tw * 1.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
       }
-
-      // subtle purple haze
-      const haze = ctx.createRadialGradient(w * 0.7, h * 0.25, 0, w * 0.7, h * 0.25, w * 0.6);
-      haze.addColorStop(0, cfg.glow2);
-      haze.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = haze;
-      ctx.fillRect(0, 0, w, h);
 
       raf = requestAnimationFrame(draw);
     };
 
     resize();
-    window.addEventListener("resize", resize);
-    raf = requestAnimationFrame(draw);
+    draw();
 
+    window.addEventListener("resize", resize);
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
     };
-  }, [cfg]);
+  }, []);
 
   return (
-    <div className="min-h-screen relative overflow-hidden">
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 -z-10"
-        style={{ display: "block" }}
-      />
+    <div className="relative min-h-screen w-full overflow-hidden">
+      <canvas ref={canvasRef} className="absolute inset-0" />
       <div className="relative z-10 min-h-screen">{children}</div>
     </div>
   );
