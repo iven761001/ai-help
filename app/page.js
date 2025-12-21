@@ -1,20 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 
 import BindEmailScreen from "./components/screens/BindEmailScreen";
 import CreateScreen from "./components/screens/CreateScreen";
 import ChatScreen from "./components/screens/ChatScreen";
+
 import TechBackground from "./components/global/TechBackground";
 import { loadUser, saveUser } from "./lib/storage";
+import useDragRotate from "./hooks/useDragRotate";
+
+// ✅ Avatar 永遠常駐在 page.js（世界層）
+const Avatar3D = dynamic(() => import("./components/Avatar3D"), { ssr: false });
 
 export default function HomePage() {
   const [phase, setPhase] = useState("loading"); // loading / bindEmail / create / chat
   const [user, setUser] = useState(null);
 
+  // bind email
   const [email, setEmail] = useState("");
 
-  // 創角資料（交給 CreateScreen）
+  // create draft
   const [draft, setDraft] = useState({
     email: "",
     avatar: "sky",
@@ -23,11 +30,14 @@ export default function HomePage() {
     nickname: ""
   });
 
-  // 聊天
+  // chat
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [currentEmotion, setCurrentEmotion] = useState("idle");
+
+  // ✅ 只有在創角時需要「單指旋轉預覽」
+  const { yaw, bind } = useDragRotate({ sensitivity: 0.01 });
 
   // init
   useEffect(() => {
@@ -136,18 +146,35 @@ export default function HomePage() {
     setPhase("create");
   };
 
+  // ✅ 世界層要顯示哪一隻熊？
+  const stageVariant = useMemo(() => {
+    if (phase === "create") return draft.avatar || draft.color || "sky";
+    if (phase === "chat") return user?.avatar || "sky";
+    return "sky";
+  }, [phase, draft.avatar, draft.color, user?.avatar]);
+
+  // ✅ 世界層要用哪個情緒？
+  const stageEmotion = useMemo(() => {
+    if (phase === "chat") return currentEmotion || "idle";
+    return "idle";
+  }, [phase, currentEmotion]);
+
+  // ✅ 世界層是否可旋轉（只有創角）
+  const stageYaw = phase === "create" ? yaw : 0;
+  const stageBind = phase === "create" ? bind : {};
+
   // loading
   if (phase === "loading") {
     return (
       <TechBackground>
         <main className="min-h-screen flex items-center justify-center">
-          <div className="text-sm text-slate-500">小管家準備中⋯⋯</div>
+          <div className="text-sm text-white/70">小管家準備中⋯⋯</div>
         </main>
       </TechBackground>
     );
   }
 
-  // bind email
+  // bindEmail（這頁不顯示熊也可以；你想顯示也行）
   if (phase === "bindEmail") {
     return (
       <TechBackground>
@@ -156,39 +183,49 @@ export default function HomePage() {
     );
   }
 
-  // create
-  if (phase === "create") {
-    return (
-      <TechBackground>
-        <CreateScreen draft={draft} setDraft={setDraft} onDone={handleDoneCreate} />
-      </TechBackground>
-    );
-  }
-
-  // chat guard
-  if (!user) {
-    return (
-      <TechBackground>
-        <main className="min-h-screen flex items-center justify-center">
-          <div className="text-sm text-slate-500">資料載入中⋯⋯</div>
-        </main>
-      </TechBackground>
-    );
-  }
-
-  // chat
+  // ✅ create / chat：進入「同一個世界」模式
   return (
     <TechBackground>
-      <ChatScreen
-        user={user}
-        messages={messages}
-        loading={loading}
-        input={input}
-        setInput={setInput}
-        onSend={handleSend}
-        currentEmotion={currentEmotion}
-        onBackToCreator={handleBackToCreator}
-      />
+      <main className="min-h-screen relative overflow-hidden">
+        {/* ===== 世界層：永遠常駐的熊（沉浸感核心） ===== */}
+        <div className="absolute inset-0 z-0 flex items-center justify-center px-4 pt-6 pb-44">
+          {/* pb-44：預留底部 HUD 空間，避免被蓋住 */}
+          <div
+            className="w-full max-w-sm aspect-square rounded-3xl glass-soft overflow-hidden"
+            {...stageBind}
+          >
+            <Avatar3D
+              variant={stageVariant}
+              emotion={stageEmotion}
+              previewYaw={stageYaw}
+            />
+          </div>
+        </div>
+
+        {/* ===== HUD 層：只換 UI，不換世界 ===== */}
+        <div className="absolute inset-0 z-10 pointer-events-none">
+          {phase === "create" && (
+            <div className="pointer-events-auto h-full">
+              <CreateScreen draft={draft} setDraft={setDraft} onDone={handleDoneCreate} />
+            </div>
+          )}
+
+          {phase === "chat" && (
+            <div className="pointer-events-auto h-full">
+              <ChatScreen
+                user={user}
+                messages={messages}
+                loading={loading}
+                input={input}
+                setInput={setInput}
+                onSend={handleSend}
+                currentEmotion={currentEmotion}
+                onBackToCreator={handleBackToCreator}
+              />
+            </div>
+          )}
+        </div>
+      </main>
     </TechBackground>
   );
 }
