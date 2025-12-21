@@ -1,27 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 
-import BindEmailScreen from "./components/screens/BindEmailScreen";
-import CreateScreen from "./components/screens/CreateScreen";
-import ChatScreen from "./components/screens/ChatScreen";
-
 import TechBackground from "./components/global/TechBackground";
-import { loadUser, saveUser } from "./lib/storage";
-import useDragRotate from "./hooks/useDragRotate";
+import BindEmailScreen from "./components/screens/BindEmailScreen";
 
-// ✅ Avatar 永遠常駐在 page.js（世界層）
+import CreateHUD from "./components/hud/CreateHUD";
+import ChatHUD from "./components/hud/ChatHUD";
+
+import useDragRotate from "./hooks/useDragRotate";
+import { loadUser, saveUser } from "./lib/storage";
+
 const Avatar3D = dynamic(() => import("./components/Avatar3D"), { ssr: false });
 
 export default function HomePage() {
   const [phase, setPhase] = useState("loading"); // loading / bindEmail / create / chat
-  const [user, setUser] = useState(null);
 
-  // bind email
+  const [user, setUser] = useState(null);
   const [email, setEmail] = useState("");
 
-  // create draft
+  // 創角資料（CreateHUD/CompassCreator 用）
   const [draft, setDraft] = useState({
     email: "",
     avatar: "sky",
@@ -30,35 +29,69 @@ export default function HomePage() {
     nickname: ""
   });
 
-  // chat
+  // 聊天
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
   const [currentEmotion, setCurrentEmotion] = useState("idle");
 
-  // ✅ 只有在創角時需要「單指旋轉預覽」
-  const { yaw, bind } = useDragRotate({ sensitivity: 0.01 });
+  // ===== 世界層：創角單手拖拉旋轉（只在 create 啟用） =====
+  const { yaw, bind, resetYaw } = useDragRotate({ sensitivity: 0.01 });
 
-  // init
+  // ===== HUD 量高度：世界層自動讓位，永遠不會蓋到熊 =====
+  const hudRef = useRef(null);
+  const [hudH, setHudH] = useState(320); // 先給個預設，避免初次閃動
+
+  useEffect(() => {
+    const el = hudRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+
+    const emit = () => {
+      const h = el.getBoundingClientRect().height || 0;
+      if (h > 0) setHudH(h);
+    };
+
+    emit();
+    const ro = new ResizeObserver(() => requestAnimationFrame(emit));
+    ro.observe(el);
+
+    window.addEventListener("resize", emit);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", emit);
+    };
+  }, []);
+
+  // ===== init =====
   useEffect(() => {
     const saved = loadUser();
     if (saved) {
       setUser(saved);
       setPhase("chat");
+      // 同步 draft，之後回去創角會帶到目前設定
+      setDraft((p) => ({
+        ...p,
+        email: saved.email || p.email,
+        nickname: saved.nickname || p.nickname,
+        voice: saved.voice || p.voice,
+        avatar: saved.avatar || p.avatar,
+        color: saved.avatar || p.color
+      }));
     } else {
       setPhase("bindEmail");
     }
   }, []);
 
-  // Email 綁定 -> 進創角
+  // Email -> create
   const handleEmailSubmit = (e) => {
     e.preventDefault();
     if (!email) return;
     setDraft((p) => ({ ...p, email }));
+    resetYaw?.();
     setPhase("create");
   };
 
-  // 創角完成 -> 進聊天室
+  // create done -> chat
   const handleDoneCreate = () => {
     const profile = {
       email: draft.email,
@@ -85,18 +118,33 @@ export default function HomePage() {
       }
     ]);
 
+    setCurrentEmotion("idle");
     setPhase("chat");
   };
 
-  // 聊天送出
-  const handleSend = async (e) => {
-    e.preventDefault();
-    if (!input.trim() || !user) return;
+  // chat -> create（保留沉浸：熊不變，只換 HUD）
+  const handleBackToCreator = () => {
+    if (!user) return;
+    setDraft((p) => ({
+      ...p,
+      email: user.email || p.email,
+      nickname: user.nickname || p.nickname,
+      voice: user.voice || p.voice,
+      avatar: user.avatar || p.avatar,
+      color: user.avatar || p.color
+    }));
+    resetYaw?.();
+    setPhase("create");
+  };
 
-    const userMessage = { role: "user", content: input.trim() };
+  // 發送聊天
+  const handleSend = async (text) => {
+    if (!text.trim() || !user) return;
+    const content = text.trim();
+
+    const userMessage = { role: "user", content };
     setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setLoading(true);
+    setSending(true);
     setCurrentEmotion("thinking");
 
     try {
@@ -104,7 +152,7 @@ export default function HomePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: userMessage.content,
+          message: content,
           nickname: user.nickname,
           email: user.email,
           avatar: user.avatar,
@@ -118,7 +166,6 @@ export default function HomePage() {
         content: data.reply || "不好意思，我剛剛有點當機，再問我一次可以嗎？"
       };
       setMessages((prev) => [...prev, reply]);
-
       setCurrentEmotion(data.emotion ? data.emotion : "idle");
     } catch (err) {
       console.error(err);
@@ -128,42 +175,24 @@ export default function HomePage() {
       ]);
       setCurrentEmotion("idle");
     } finally {
-      setLoading(false);
+      setSending(false);
     }
   };
 
-  // 從聊天室回到選角（帶回目前設定）
-  const handleBackToCreator = () => {
-    if (!user) return;
-    setDraft((p) => ({
-      ...p,
-      email: user.email || p.email,
-      nickname: user.nickname || p.nickname,
-      voice: user.voice || p.voice,
-      avatar: user.avatar || p.avatar,
-      color: user.avatar || p.color
-    }));
-    setPhase("create");
-  };
-
-  // ✅ 世界層要顯示哪一隻熊？
-  const stageVariant = useMemo(() => {
-    if (phase === "create") return draft.avatar || draft.color || "sky";
+  // ===== 世界層要顯示哪個熊 =====
+  const variant = useMemo(() => {
     if (phase === "chat") return user?.avatar || "sky";
-    return "sky";
-  }, [phase, draft.avatar, draft.color, user?.avatar]);
+    return draft.avatar || draft.color || "sky";
+  }, [phase, user?.avatar, draft.avatar, draft.color]);
 
-  // ✅ 世界層要用哪個情緒？
-  const stageEmotion = useMemo(() => {
+  const emotion = useMemo(() => {
     if (phase === "chat") return currentEmotion || "idle";
     return "idle";
   }, [phase, currentEmotion]);
 
-  // ✅ 世界層是否可旋轉（只有創角）
-  const stageYaw = phase === "create" ? yaw : 0;
-  const stageBind = phase === "create" ? bind : {};
+  const allowRotate = phase === "create";
 
-  // loading
+  // ===== render =====
   if (phase === "loading") {
     return (
       <TechBackground>
@@ -174,7 +203,6 @@ export default function HomePage() {
     );
   }
 
-  // bindEmail（這頁不顯示熊也可以；你想顯示也行）
   if (phase === "bindEmail") {
     return (
       <TechBackground>
@@ -183,49 +211,95 @@ export default function HomePage() {
     );
   }
 
-  // ✅ create / chat：進入「同一個世界」模式
   return (
     <TechBackground>
-      <main className="min-h-screen relative overflow-hidden">
-        {/* ===== 世界層：永遠常駐的熊（沉浸感核心） ===== */}
-        <div className="absolute inset-0 z-0 flex items-center justify-center px-4 pt-6 pb-44">
-          {/* pb-44：預留底部 HUD 空間，避免被蓋住 */}
-          <div
-            className="w-full max-w-sm aspect-square rounded-3xl glass-soft overflow-hidden"
-            {...stageBind}
-          >
-            <Avatar3D
-              variant={stageVariant}
-              emotion={stageEmotion}
-              previewYaw={stageYaw}
-            />
-          </div>
-        </div>
+      {/* ===== 最外層：世界 + HUD ===== */}
+      <div className="min-h-screen w-full relative">
+        {/* ===== 世界層（熊只 render 這一次） ===== */}
+        <section
+          className="w-full flex items-center justify-center px-4 pt-6"
+          style={{
+            // 讓位給 HUD：永遠不會被蓋到
+            paddingBottom: `calc(${hudH}px + env(safe-area-inset-bottom))`
+          }}
+        >
+          <div className="w-full max-w-sm">
+            <div
+              className="glass-card rounded-3xl p-3"
+              style={{ WebkitTapHighlightColor: "transparent" }}
+            >
+              <div
+                className="aspect-square rounded-2xl glass-soft flex items-center justify-center overflow-hidden"
+                {...(allowRotate ? bind : {})}
+              >
+                <Avatar3D
+                  variant={variant}
+                  emotion={emotion}
+                  previewYaw={allowRotate ? yaw : 0}
+                />
+              </div>
 
-        {/* ===== HUD 層：只換 UI，不換世界 ===== */}
-        <div className="absolute inset-0 z-10 pointer-events-none">
-          {phase === "create" && (
-            <div className="pointer-events-auto h-full">
-              <CreateScreen draft={draft} setDraft={setDraft} onDone={handleDoneCreate} />
+              {/* 世界層文字（可依你喜好再調） */}
+              <div className="mt-3 space-y-1 px-2 pb-1 text-center">
+                <div className="text-sm font-semibold text-white">
+                  {phase === "create"
+                    ? draft.nickname
+                      ? `「${draft.nickname}」`
+                      : "尚未命名"
+                    : user?.nickname || ""}
+                </div>
+                {phase === "create" ? (
+                  <div className="text-xs text-white/70">
+                    顏色：{avatarLabel(draft.color || draft.avatar)} ／ 聲線：
+                    {voiceLabel(draft.voice)}
+                  </div>
+                ) : (
+                  <div className="text-xs text-white/70">
+                    你的專屬鍍膜＆清潔顧問（可直接問問題）
+                  </div>
+                )}
+              </div>
             </div>
-          )}
+          </div>
+        </section>
 
-          {phase === "chat" && (
-            <div className="pointer-events-auto h-full">
-              <ChatScreen
+        {/* ===== HUD 層（量高度用） ===== */}
+        <section
+          ref={hudRef}
+          className="fixed left-0 right-0 bottom-0 z-[80]"
+          style={{
+            paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)"
+          }}
+        >
+          <div className="mx-auto w-full max-w-4xl px-3">
+            {phase === "create" ? (
+              <CreateHUD draft={draft} setDraft={setDraft} onDone={handleDoneCreate} />
+            ) : (
+              <ChatHUD
                 user={user}
                 messages={messages}
-                loading={loading}
+                sending={sending}
                 input={input}
                 setInput={setInput}
                 onSend={handleSend}
-                currentEmotion={currentEmotion}
                 onBackToCreator={handleBackToCreator}
               />
-            </div>
-          )}
-        </div>
-      </main>
+            )}
+          </div>
+        </section>
+      </div>
     </TechBackground>
   );
 }
+
+function avatarLabel(id) {
+  if (id === "mint") return "薄荷綠";
+  if (id === "purple") return "紫色";
+  return "天空藍";
+}
+
+function voiceLabel(id) {
+  if (id === "calm") return "冷靜條理";
+  if (id === "energetic") return "活潑有精神";
+  return "溫暖親切";
+                     }
