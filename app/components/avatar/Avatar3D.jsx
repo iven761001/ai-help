@@ -1,12 +1,21 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { elementProfiles, stateToAnimParams, clamp as clamp01 } from "../lib/elementProfiles";
+import { getProfile } from "../../lib/elementProfiles";
 
-/** 透明底電路貼圖 */
-function makeCircuitTexture({ size = 512, seed = 1, glow = "#65d9ff" }) {
+function hexToRgba(hex, a) {
+  const h = hex.replace("#", "");
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const bigint = parseInt(full, 16);
+  const r = (bigint >> 16) & 255;
+  const g = (bigint >> 8) & 255;
+  const b = bigint & 255;
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+// 電路貼圖（chip/lattice/prism/liquid/haze 目前都先用不同 seed / 亮度做區分，後續再升級 shader）
+function makeCircuitTexture({ size = 512, seed = 1, glow = "#65d9ff", density = 1.0 }) {
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
@@ -29,10 +38,10 @@ function makeCircuitTexture({ size = 512, seed = 1, glow = "#65d9ff" }) {
     let x = x0;
     let y = y0;
 
-    const steps = 9 + Math.floor(rand() * 10);
+    const steps = Math.floor((8 + rand() * 12) * density);
     for (let k = 0; k < steps; k++) {
       const dir = Math.floor(rand() * 4);
-      const len = 20 + Math.floor(rand() * 85);
+      const len = (18 + rand() * 90) * (0.8 + 0.4 * density);
 
       if (dir === 0) x += len;
       if (dir === 1) x -= len;
@@ -46,7 +55,7 @@ function makeCircuitTexture({ size = 512, seed = 1, glow = "#65d9ff" }) {
       if (rand() < 0.55) {
         ctx.stroke();
         ctx.beginPath();
-        ctx.arc(x, y, 2.2 + rand() * 3.2, 0, Math.PI * 2);
+        ctx.arc(x, y, 2.0 + rand() * 3.0, 0, Math.PI * 2);
         ctx.fillStyle = "rgba(255,255,255,0.85)";
         ctx.fill();
         ctx.beginPath();
@@ -56,79 +65,54 @@ function makeCircuitTexture({ size = 512, seed = 1, glow = "#65d9ff" }) {
     ctx.stroke();
   };
 
-  const lines = 45;
+  const lines = Math.floor(40 * density);
   for (let i = 0; i < lines; i++) {
     const x0 = rand() * size;
     const y0 = rand() * size;
-    ctx.lineWidth = 1.4 + rand() * 2.6;
-    const a = 0.55 + rand() * 0.35;
+    ctx.lineWidth = 1.2 + rand() * 2.4;
+    const a = 0.45 + rand() * 0.35;
     ctx.strokeStyle = hexToRgba(glow, a);
     drawPath(x0, y0);
-  }
-
-  for (let i = 0; i < 120; i++) {
-    const x = rand() * size;
-    const y = rand() * size;
-    const len = 8 + rand() * 28;
-    const horizontal = rand() > 0.5;
-    ctx.lineWidth = 1 + rand() * 1.6;
-    ctx.strokeStyle = hexToRgba(glow, 0.35 + rand() * 0.35);
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(horizontal ? x + len : x, horizontal ? y : y + len);
-    ctx.stroke();
   }
 
   return canvas;
 }
 
-function hexToRgba(hex, a) {
-  const h = hex.replace("#", "");
-  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
-  const bigint = parseInt(full, 16);
-  const r = (bigint >> 16) & 255;
-  const g = (bigint >> 8) & 255;
-  const b = bigint & 255;
-  return `rgba(${r},${g},${b},${a})`;
-}
-
-/** 角色本體：帶電路的玻璃小熊 */
-function TechGlassBear({
-  glassColor,
-  glowColor,
-  emotion,
-  element = "carbon",
-  isDragging,
-  previewRotationY
+function TechBear({
+  variant,
+  emotion = "idle",
+  previewYaw = 0
 }) {
   const groupRef = useRef();
   const emotionRef = useRef(emotion);
-  const elementRef = useRef(element);
-  const dragRef = useRef(isDragging);
-  const previewRotRef = useRef(previewRotationY);
+  const yawRef = useRef(previewYaw);
   const texRef = useRef(null);
 
-  useEffect(() => {
-    emotionRef.current = emotion;
-  }, [emotion]);
+  useEffect(() => { emotionRef.current = emotion; }, [emotion]);
+  useEffect(() => { yawRef.current = previewYaw; }, [previewYaw]);
 
-  useEffect(() => {
-    elementRef.current = element;
-  }, [element]);
-
-  useEffect(() => {
-    dragRef.current = isDragging;
-  }, [isDragging]);
-
-  useEffect(() => {
-    previewRotRef.current = previewRotationY;
-  }, [previewRotationY]);
+  const profile = useMemo(() => getProfile(variant), [variant]);
+  const glassColor = profile.glassColor;
+  const glowColor = profile.glowColor;
 
   const circuitCanvas = useMemo(() => {
     if (typeof document === "undefined") return null;
-    const seed = glowColor === "#4fffd2" ? 7 : glowColor === "#b26bff" ? 13 : 3;
-    return makeCircuitTexture({ seed, glow: glowColor });
-  }, [glowColor]);
+    const baseSeed =
+      profile.id === "carbon" ? 19 :
+      profile.id === "silicon" ? 7 :
+      profile.id === "germanium" ? 13 :
+      profile.id === "tin" ? 23 :
+      profile.id === "lead" ? 29 : 3;
+
+    const density =
+      profile.style === "chip" ? 1.15 :
+      profile.style === "lattice" ? 0.9 :
+      profile.style === "prism" ? 1.0 :
+      profile.style === "liquid" ? 1.05 :
+      profile.style === "haze" ? 0.75 : 1.0;
+
+    return makeCircuitTexture({ seed: baseSeed, glow: glowColor, density });
+  }, [glowColor, profile]);
 
   useEffect(() => {
     if (!circuitCanvas) return;
@@ -147,77 +131,77 @@ function TechGlassBear({
       texRef.current = { THREE, tex, lineOpacity: 0.55 };
     })();
 
-    return () => {
-      disposed = true;
-    };
+    return () => { disposed = true; };
   }, [circuitCanvas]);
 
-  const glassMaterialProps = useMemo(
-    () => ({
+  const glassMaterialProps = useMemo(() => {
+    const m = profile.material || {};
+    return {
       color: glassColor,
-      roughness: 0.08,
+      roughness: m.roughness ?? 0.08,
       metalness: 0.0,
-      transmission: 0.92,
+      transmission: m.transmission ?? 0.92,
       thickness: 1.7,
-      ior: 1.48,
+      ior: m.ior ?? 1.48,
       clearcoat: 1.0,
       clearcoatRoughness: 0.12
-    }),
-    [glassColor]
-  );
+    };
+  }, [glassColor, profile]);
 
   useFrame(({ clock }) => {
     if (!groupRef.current) return;
 
     const t = clock.getElapsedTime();
     const emo = emotionRef.current;
-    const el = elementRef.current;
-    const dragging = dragRef.current;
 
-    // 永遠套用「單指旋轉預覽」的 yaw
-    groupRef.current.rotation.y = previewRotRef.current || 0;
+    // 旋轉預覽（手指拖）
+    groupRef.current.rotation.y = yawRef.current || 0;
 
-    // 拖拉時：停掉其它晃動，避免看起來亂飄
-    if (dragging) {
-      groupRef.current.position.y = 0;
-      groupRef.current.rotation.x = 0;
-      groupRef.current.rotation.z = 0;
-      groupRef.current.scale.set(1, 1, 1);
+    // 情緒 → 動作倍率（不破壞元素的 base motion）
+    const base = profile.motion || { bob: 0.05, wobble: 0.06, pulse: 0.02, speed: 1.3 };
+    let bobAmp = base.bob;
+    let wobble = base.wobble;
+    let pulse = base.pulse;
+    let speed = base.speed;
 
-      if (texRef.current?.tex) {
-        texRef.current.tex.offset.x = (t * 0.045) % 1;
-        texRef.current.tex.offset.y = (t * 0.03) % 1;
-      }
-      return;
+    if (emo === "happy") {
+      bobAmp *= 1.8;
+      wobble *= 2.2;
+      pulse *= 2.2;
+      speed *= 1.6;
+      if (texRef.current) texRef.current.lineOpacity = 0.82;
+    } else if (emo === "thinking") {
+      bobAmp *= 1.2;
+      wobble *= 1.4;
+      pulse *= 1.2;
+      speed *= 1.2;
+      if (texRef.current) texRef.current.lineOpacity = 0.68;
+    } else if (emo === "sorry") {
+      bobAmp *= 0.7;
+      wobble *= 0.7;
+      pulse *= 0.6;
+      speed *= 0.85;
+      if (texRef.current) texRef.current.lineOpacity = 0.38;
+    } else {
+      if (texRef.current) texRef.current.lineOpacity = 0.55;
     }
 
-    const profile = elementProfiles[el] || elementProfiles.carbon;
-    const { bobAmp, bobSpeed, wobble, pulse, lineOpacity } = stateToAnimParams(emo, profile);
+    groupRef.current.position.y = Math.sin(t * speed) * bobAmp;
+    groupRef.current.rotation.z = Math.sin(t * speed) * wobble * 0.16;
+    groupRef.current.rotation.x = Math.sin(t * speed * 0.85) * wobble * 0.12;
 
-    groupRef.current.position.y = Math.sin(t * bobSpeed) * bobAmp;
-    groupRef.current.rotation.z = Math.sin(t * bobSpeed) * wobble * 0.16;
-    groupRef.current.rotation.x = Math.sin(t * bobSpeed * 0.85) * wobble * 0.12;
-
-    const s = 1 + Math.sin(t * (bobSpeed + 0.7)) * pulse;
-    groupRef.current.scale.set(
-      s,
-      1 - pulse * 0.35 + Math.cos(t * bobSpeed) * pulse * 0.25,
-      s
-    );
+    const s = 1 + Math.sin(t * (speed + 0.7)) * pulse;
+    groupRef.current.scale.set(s, 1 - pulse * 0.35 + Math.cos(t * speed) * pulse * 0.25, s);
 
     if (texRef.current?.tex) {
       texRef.current.tex.offset.x = (t * 0.045) % 1;
       texRef.current.tex.offset.y = (t * 0.03) % 1;
-      texRef.current.lineOpacity = clamp01(lineOpacity, 0, 1);
     }
   });
 
   const CircuitSurface = ({ geo, pos, rot }) => {
     const [ready, setReady] = useState(false);
-    useEffect(() => {
-      if (texRef.current?.tex) setReady(true);
-    }, [circuitCanvas]);
-
+    useEffect(() => { if (texRef.current?.tex) setReady(true); }, [circuitCanvas]);
     if (!ready) return null;
 
     const { THREE, tex } = texRef.current;
@@ -277,67 +261,19 @@ function TechGlassBear({
         <meshPhysicalMaterial {...glassMaterialProps} />
       </mesh>
 
-      {/* 電路表面 */}
-      <CircuitSurface
-        pos={[0, -0.15, 0]}
-        rot={[0, 0, 0]}
-        geo={<capsuleGeometry args={[0.505, 0.655, 10, 18]} />}
-      />
-      <CircuitSurface
-        pos={[0, 0.55, 0]}
-        rot={[0, 0, 0]}
-        geo={<sphereGeometry args={[0.425, 28, 28]} />}
-      />
-      <CircuitSurface
-        pos={[-0.32, 0.88, 0]}
-        rot={[0, 0, 0]}
-        geo={<sphereGeometry args={[0.185, 22, 22]} />}
-      />
-      <CircuitSurface
-        pos={[0.32, 0.88, 0]}
-        rot={[0, 0, 0]}
-        geo={<sphereGeometry args={[0.185, 22, 22]} />}
-      />
-      <CircuitSurface
-        pos={[-0.6, 0.12, 0]}
-        rot={[0, 0, 0.35]}
-        geo={<capsuleGeometry args={[0.175, 0.355, 8, 16]} />}
-      />
-      <CircuitSurface
-        pos={[0.6, 0.12, 0]}
-        rot={[0, 0, -0.35]}
-        geo={<capsuleGeometry args={[0.175, 0.355, 8, 16]} />}
-      />
-      <CircuitSurface
-        pos={[-0.25, -0.72, 0]}
-        rot={[0, 0, 0.08]}
-        geo={<capsuleGeometry args={[0.205, 0.355, 8, 16]} />}
-      />
-      <CircuitSurface
-        pos={[0.25, -0.72, 0]}
-        rot={[0, 0, -0.08]}
-        geo={<capsuleGeometry args={[0.205, 0.355, 8, 16]} />}
-      />
-
-      {/* 高光 */}
-      <mesh position={[0.02, -0.05, 0.33]} rotation={[0, 0, 0.1]}>
-        <sphereGeometry args={[0.22, 18, 18]} />
-        <meshPhysicalMaterial
-          color={"#ffffff"}
-          roughness={0.05}
-          metalness={0}
-          transmission={0.96}
-          thickness={0.2}
-          ior={1.5}
-          opacity={0.18}
-          transparent
-        />
-      </mesh>
+      <CircuitSurface pos={[0, -0.15, 0]} rot={[0, 0, 0]} geo={<capsuleGeometry args={[0.505, 0.655, 10, 18]} />} />
+      <CircuitSurface pos={[0, 0.55, 0]} rot={[0, 0, 0]} geo={<sphereGeometry args={[0.425, 28, 28]} />} />
+      <CircuitSurface pos={[-0.32, 0.88, 0]} rot={[0, 0, 0]} geo={<sphereGeometry args={[0.185, 22, 22]} />} />
+      <CircuitSurface pos={[0.32, 0.88, 0]} rot={[0, 0, 0]} geo={<sphereGeometry args={[0.185, 22, 22]} />} />
+      <CircuitSurface pos={[-0.6, 0.12, 0]} rot={[0, 0, 0.35]} geo={<capsuleGeometry args={[0.175, 0.355, 8, 16]} />} />
+      <CircuitSurface pos={[0.6, 0.12, 0]} rot={[0, 0, -0.35]} geo={<capsuleGeometry args={[0.175, 0.355, 8, 16]} />} />
+      <CircuitSurface pos={[-0.25, -0.72, 0]} rot={[0, 0, 0.08]} geo={<capsuleGeometry args={[0.205, 0.355, 8, 16]} />} />
+      <CircuitSurface pos={[0.25, -0.72, 0]} rot={[0, 0, -0.08]} geo={<capsuleGeometry args={[0.205, 0.355, 8, 16]} />} />
     </group>
   );
 }
 
-function Scene({ glassColor, glowColor, emotion, element, isDragging, previewRotationY }) {
+function Scene({ variant, emotion, previewYaw }) {
   return (
     <Canvas
       camera={{ position: [0, 0.25, 3.2], fov: 45 }}
@@ -347,238 +283,15 @@ function Scene({ glassColor, glowColor, emotion, element, isDragging, previewRot
       <directionalLight position={[6, 8, 6]} intensity={1.25} />
       <pointLight position={[-6, 2, 8]} intensity={0.9} />
       <pointLight position={[0, -2, 3]} intensity={0.35} />
-
-      <TechGlassBear
-        glassColor={glassColor}
-        glowColor={glowColor}
-        emotion={emotion}
-        element={element}
-        isDragging={isDragging}
-        previewRotationY={previewRotationY}
-      />
+      <TechBear variant={variant} emotion={emotion} previewYaw={previewYaw} />
     </Canvas>
   );
 }
 
-function getBoxSize(emotion, vw) {
-  const baseW = Math.max(130, Math.min(170, Math.floor(vw * 0.36)));
-  const baseH = Math.floor(baseW * 1.28);
-
-  let k = 1.0;
-  if (emotion === "happy") k = 1.08;
-  else if (emotion === "thinking") k = 1.03;
-  else if (emotion === "sorry") k = 0.98;
-
-  return { w: Math.round(baseW * k), h: Math.round(baseH * k) };
-}
-
-/**
- * mode="inline"   : 創角（嵌入）
- * mode="floating" : 聊天（浮動）
- *
- * ✅ 新增 props: element
- */
-export default function Avatar3D({
-  variant = "sky",
-  emotion = "idle",
-  element = "carbon",
-  mode = "inline",
-  previewYaw = 0
-}) {
-  const glassMap = {
-    sky: "#7fdcff",
-    mint: "#6fffd6",
-    purple: "#d3a8ff"
-  };
-
-  const glowMap = {
-    sky: "#65d9ff",
-    mint: "#4fffd2",
-    purple: "#b26bff"
-  };
-
-  const glassColor = glassMap[variant] || glassMap.sky;
-  const glowColor = glowMap[variant] || glowMap.sky;
-
-  // inline：創角預覽（你用 useDragRotate 傳 previewYaw）
-  if (mode === "inline") {
-    return (
-      <div className="w-full h-full">
-        <Scene
-          glassColor={glassColor}
-          glowColor={glowColor}
-          emotion={emotion}
-          element={element}
-          isDragging={false}
-          previewRotationY={previewYaw || 0}
-        />
-      </div>
-    );
-  }
-
-  const [mounted, setMounted] = useState(false);
-  const [pos, setPos] = useState({ x: 16, y: 120 });
-  const [box, setBox] = useState({ w: 170, h: 220 });
-
-  // 兩指拖拉
-  const [twoFingerDrag, setTwoFingerDrag] = useState(false);
-  // 單指旋轉預覽
-  const [previewRotY, setPreviewRotY] = useState(0);
-
-  const touchModeRef = useRef("none"); // "rotate" | "drag" | "none"
-  const startRef = useRef({ x: 0, y: 0, rotY: 0, posX: 0, posY: 0 });
-
-  useEffect(() => {
-    setMounted(true);
-    if (typeof window === "undefined") return;
-
-    setBox(getBoxSize(emotion, window.innerWidth || 390));
-
-    const onResize = () => {
-      setBox(getBoxSize(emotion, window.innerWidth || 390));
-    };
-    window.addEventListener("resize", onResize);
-
-    const saved = window.localStorage.getItem("floating-techbear-pos");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (typeof parsed.x === "number" && typeof parsed.y === "number") {
-          setPos(parsed);
-        }
-      } catch {}
-    } else {
-      const h = window.innerHeight || 800;
-      setPos({ x: 16, y: h - 240 });
-    }
-
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    setBox(getBoxSize(emotion, window.innerWidth || 390));
-  }, [emotion]);
-
-  const onTouchStart = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const touches = e.touches;
-    if (!touches || touches.length === 0) return;
-
-    if (touches.length >= 2) {
-      touchModeRef.current = "drag";
-      setTwoFingerDrag(true);
-
-      const midX = (touches[0].clientX + touches[1].clientX) / 2;
-      const midY = (touches[0].clientY + touches[1].clientY) / 2;
-
-      startRef.current = { ...startRef.current, x: midX, y: midY, posX: pos.x, posY: pos.y };
-      return;
-    }
-
-    touchModeRef.current = "rotate";
-    setTwoFingerDrag(false);
-
-    startRef.current = {
-      ...startRef.current,
-      x: touches[0].clientX,
-      y: touches[0].clientY,
-      rotY: previewRotY
-    };
-  };
-
-  const onTouchMove = (e) => {
-    if (e.cancelable) e.preventDefault();
-    e.stopPropagation();
-
-    const touches = e.touches;
-    if (!touches || touches.length === 0) return;
-
-    if (touches.length >= 2 && touchModeRef.current !== "drag") {
-      touchModeRef.current = "drag";
-      setTwoFingerDrag(true);
-
-      const midX = (touches[0].clientX + touches[1].clientX) / 2;
-      const midY = (touches[0].clientY + touches[1].clientY) / 2;
-
-      startRef.current = { ...startRef.current, x: midX, y: midY, posX: pos.x, posY: pos.y };
-    }
-
-    if (touchModeRef.current === "rotate") {
-      const dx = touches[0].clientX - startRef.current.x;
-      setPreviewRotY(startRef.current.rotY + dx * 0.01);
-      return;
-    }
-
-    if (touchModeRef.current === "drag") {
-      const midX = (touches[0].clientX + touches[1].clientX) / 2;
-      const midY = (touches[0].clientY + touches[1].clientY) / 2;
-
-      const dx = midX - startRef.current.x;
-      const dy = midY - startRef.current.y;
-
-      const width = window.innerWidth || 400;
-      const height = window.innerHeight || 800;
-
-      let x = startRef.current.posX + dx;
-      let y = startRef.current.posY + dy;
-
-      const maxX = width - box.w;
-      const maxY = height - box.h;
-
-      if (x < 0) x = 0;
-      if (y < 0) y = 0;
-      if (x > maxX) x = maxX;
-      if (y > maxY) y = maxY;
-
-      setPos({ x, y });
-    }
-  };
-
-  const onTouchEnd = () => {
-    const mode = touchModeRef.current;
-    touchModeRef.current = "none";
-    setTwoFingerDrag(false);
-
-    if (mode === "drag") {
-      try {
-        window.localStorage.setItem("floating-techbear-pos", JSON.stringify(pos));
-      } catch {}
-    }
-  };
-
-  if (!mounted) return null;
-
-  const node = (
-    <div
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-      onTouchCancel={onTouchEnd}
-      style={{
-        position: "fixed",
-        left: pos.x,
-        top: pos.y,
-        width: box.w,
-        height: box.h,
-        zIndex: 9999,
-        touchAction: "none",
-        pointerEvents: "auto",
-        overflow: "visible"
-      }}
-    >
-      <Scene
-        glassColor={glassColor}
-        glowColor={glowColor}
-        emotion={emotion}
-        element={element}
-        isDragging={twoFingerDrag}
-        previewRotationY={previewRotY}
-      />
+export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw = 0 }) {
+  return (
+    <div className="w-full h-full">
+      <Scene variant={variant} emotion={emotion} previewYaw={previewYaw} />
     </div>
   );
-
-  return createPortal(node, document.body);
-  }
+}
