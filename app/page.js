@@ -8,7 +8,7 @@ import CreateScreen from "./components/screens/CreateScreen";
 import TechBackground from "./components/global/TechBackground";
 import { loadUser, saveUser } from "./lib/storage";
 
-const Avatar3D = dynamic(() => import("./components/Avatar3D"), { ssr: false });
+const Avatar3D = dynamic(() => import("./components/avatar/Avatar3D"), { ssr: false });
 
 function cx(...arr) {
   return arr.filter(Boolean).join(" ");
