@@ -18,16 +18,14 @@ export default function ChatHUD({
   const scrollerRef = useRef(null);
   const stickToBottomRef = useRef(true);
 
-  // 判斷使用者是否在底部附近
   const updateStickState = () => {
     const el = scrollerRef.current;
     if (!el) return;
-    const threshold = 80; // px：距離底部小於這個就算「在底部」
+    const threshold = 90;
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
     stickToBottomRef.current = dist < threshold;
   };
 
-  // 新訊息：若使用者在底部附近 → 自動滑到底
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
@@ -43,23 +41,24 @@ export default function ChatHUD({
     const text = input;
     setInput("");
     await onSend(text);
-    // 發送後視為要看最新訊息
     stickToBottomRef.current = true;
   };
 
   return (
     <div
       className="
+        h-full
         rounded-[28px]
         bg-white/10
         backdrop-blur-xl
         border border-white/15
         shadow-[0_-12px_50px_rgba(56,189,248,0.15)]
         overflow-hidden
+        flex flex-col
       "
     >
-      {/* Header */}
-      <div className="px-4 pt-4 pb-3 flex items-center justify-between gap-3">
+      {/* Header（固定） */}
+      <div className="px-4 pt-4 pb-3 flex items-center justify-between gap-3 shrink-0">
         <div className="min-w-0">
           <div className="text-sm font-semibold text-white truncate">
             {user?.nickname || "你的 AI 小管家"}
@@ -93,11 +92,11 @@ export default function ChatHUD({
         </button>
       </div>
 
-      {/* Messages */}
+      {/* Messages（可捲、吃掉剩餘高度） */}
       <div
         ref={scrollerRef}
         onScroll={updateStickState}
-        className="px-4 pb-3 max-h-[44vh] overflow-y-auto no-scrollbar"
+        className="px-4 pb-3 overflow-y-auto no-scrollbar flex-1"
         style={{ overscrollBehavior: "contain" }}
       >
         {messages.length === 0 && (
@@ -137,8 +136,8 @@ export default function ChatHUD({
         </div>
       </div>
 
-      {/* Input */}
-      <form onSubmit={submit} className="px-4 pb-4 pt-2 border-t border-white/10">
+      {/* Input（固定，不會被訊息擠走） */}
+      <form onSubmit={submit} className="px-4 pb-4 pt-2 border-t border-white/10 shrink-0">
         <div className="flex items-center gap-2">
           <input
             value={input}
