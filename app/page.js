@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 
+import TechBackground from "./components/global/TechBackground";
 import BindEmailScreen from "./components/screens/BindEmailScreen";
 import CreateScreen from "./components/screens/CreateScreen";
 import ChatScreen from "./components/screens/ChatScreen";
-import TechBackground from "./components/global/TechBackground";
 import { loadUser, saveUser } from "./lib/storage";
 
 export default function HomePage() {
@@ -16,8 +16,8 @@ export default function HomePage() {
 
   const [draft, setDraft] = useState({
     email: "",
-    avatar: "sky",
-    color: "sky",
+    avatar: "silicon",  // ✅ 預設先給矽（晶片電路感）
+    color: "silicon",
     voice: "warm",
     nickname: ""
   });
@@ -27,6 +27,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false);
   const [currentEmotion, setCurrentEmotion] = useState("idle");
 
+  // init
   useEffect(() => {
     const saved = loadUser();
     if (saved) {
@@ -37,6 +38,7 @@ export default function HomePage() {
     }
   }, []);
 
+  // Email 綁定 -> 創角
   const handleEmailSubmit = (e) => {
     e.preventDefault();
     if (!email) return;
@@ -44,11 +46,12 @@ export default function HomePage() {
     setPhase("create");
   };
 
+  // 創角完成 -> 進聊天室
   const handleDoneCreate = () => {
     const profile = {
       email: draft.email,
       nickname: (draft.nickname || "").trim(),
-      avatar: draft.avatar || draft.color || "sky",
+      avatar: draft.avatar || draft.color || "silicon",
       voice: draft.voice || "warm"
     };
     if (!profile.nickname || !profile.email) return;
@@ -73,6 +76,7 @@ export default function HomePage() {
     setPhase("chat");
   };
 
+  // 聊天送出
   const handleSend = async (e) => {
     e.preventDefault();
     if (!input.trim() || !user) return;
@@ -102,7 +106,6 @@ export default function HomePage() {
         content: data.reply || "不好意思，我剛剛有點當機，再問我一次可以嗎？"
       };
       setMessages((prev) => [...prev, reply]);
-
       setCurrentEmotion(data.emotion ? data.emotion : "idle");
     } catch (err) {
       console.error(err);
@@ -116,6 +119,7 @@ export default function HomePage() {
     }
   };
 
+  // 從聊天室回到選角
   const handleBackToCreator = () => {
     if (!user) return;
     setDraft((p) => ({
@@ -129,11 +133,10 @@ export default function HomePage() {
     setPhase("create");
   };
 
-  // ===== Render =====
   return (
     <TechBackground>
       {phase === "loading" && (
-        <main className="min-h-[100dvh] flex items-center justify-center">
+        <main className="min-h-screen flex items-center justify-center">
           <div className="text-sm text-white/70">小管家準備中⋯⋯</div>
         </main>
       )}
@@ -160,7 +163,7 @@ export default function HomePage() {
       )}
 
       {phase === "chat" && !user && (
-        <main className="min-h-[100dvh] flex items-center justify-center">
+        <main className="min-h-screen flex items-center justify-center">
           <div className="text-sm text-white/70">資料載入中⋯⋯</div>
         </main>
       )}
