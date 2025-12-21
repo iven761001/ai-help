@@ -2,210 +2,42 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 保底：避免手機上橫向爆版 */
-html,
+/* 基礎 */
+html, body {
+  height: 100%;
+}
+
 body {
-  max-width: 100%;
+  margin: 0;
+  color: rgb(226 232 240); /* slate-200 */
+  background: #05070c;
   overflow-x: hidden;
 }
 
-/* 保底：避免預設 margin 把 layout 推歪 */
-body {
-  margin: 0;
-}
-
-/* === UI 滾輪用：隱藏 scrollbar，保留滑動 === */
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-.no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-
-/* === 科技背景：晶片底 === */
-.bg-chip {
-  background:
-    radial-gradient(1200px 800px at 15% 25%, rgba(40, 140, 255, 0.18), rgba(0,0,0,0) 55%),
-    radial-gradient(900px 700px at 85% 35%, rgba(60, 220, 255, 0.12), rgba(0,0,0,0) 55%),
-    linear-gradient(180deg, rgba(3, 6, 14, 0.94), rgba(4, 8, 18, 0.94)),
-    repeating-linear-gradient(0deg, rgba(120, 190, 255, 0.06) 0px, rgba(120, 190, 255, 0.06) 1px, rgba(0,0,0,0) 1px, rgba(0,0,0,0) 32px),
-    repeating-linear-gradient(90deg, rgba(120, 190, 255, 0.045) 0px, rgba(120, 190, 255, 0.045) 1px, rgba(0,0,0,0) 1px, rgba(0,0,0,0) 36px);
-  filter: saturate(1.05) contrast(1.05);
-}
-
-/* === 藍色光纖流動層（更像光纖，不是整片斜線） === */
-.bg-fiber {
-  /* 1) 兩條主光帶（慢慢漂） */
-  background:
-    radial-gradient(900px 260px at 20% 55%, rgba(90, 210, 255, 0.22), rgba(0,0,0,0) 70%),
-    radial-gradient(900px 260px at 78% 48%, rgba(70, 180, 255, 0.18), rgba(0,0,0,0) 72%),
-
-    /* 2) 細光纖線（不再 repeating 大斜線，而是很細、很淡） */
-    repeating-linear-gradient(
-      115deg,
-      rgba(120, 220, 255, 0) 0px,
-      rgba(120, 220, 255, 0) 26px,
-      rgba(120, 220, 255, 0.06) 27px,
-      rgba(120, 220, 255, 0) 31px
-    ),
-
-    /* 3) 光點（像資料在跑） */
-    radial-gradient(circle at 12% 62%, rgba(120,220,255,0.30) 0 1px, transparent 2px),
-    radial-gradient(circle at 26% 34%, rgba(120,220,255,0.22) 0 1px, transparent 2px),
-    radial-gradient(circle at 48% 58%, rgba(120,220,255,0.26) 0 1px, transparent 2px),
-    radial-gradient(circle at 66% 30%, rgba(120,220,255,0.22) 0 1px, transparent 2px),
-    radial-gradient(circle at 84% 66%, rgba(120,220,255,0.30) 0 1px, transparent 2px);
-
-  mix-blend-mode: screen;
-  opacity: 0.95;
-
-  /* ✅ 不要整片滑動，改成多軸慢漂移 */
-  background-size: 160% 160%, 160% 160%, 220% 220%, 600px 600px, 680px 680px, 720px 720px, 760px 760px, 800px 800px;
-  animation: fiberDrift 9s ease-in-out infinite;
-  filter: blur(0.15px);
-}
-
-@keyframes fiberDrift {
-  0% {
-    background-position: 0% 50%, 100% 50%, 0% 0%, 0 0, 0 0, 0 0, 0 0, 0 0;
-    opacity: 0.9;
-  }
-  50% {
-    background-position: 35% 55%, 65% 45%, 30% 25%, 40px -30px, -60px 20px, 30px 50px, -20px -40px, 50px 10px;
-    opacity: 1;
-  }
-  100% {
-    background-position: 0% 50%, 100% 50%, 0% 0%, 0 0, 0 0, 0 0, 0 0, 0 0;
-    opacity: 0.9;
-  }
-}
-
-/* =========================
-   Make all UI "frames" transparent
-   ========================= */
-
-
-/* 你目前用來做卡片外框的玻璃樣式：直接變透明 */
-.glass-card,
-.glass-soft {
-  background: transparent !important;
-  border-color: transparent !important;
-  box-shadow: none !important;
-}
-
-/* 如果你有用到這種 Tailwind 組合的外框（border + bg + shadow）
-   也一併「變透明」：避免還有殘影框框 */
-.frame-transparent,
-.panel-transparent {
-  background: transparent !important;
-  border-color: transparent !important;
-  box-shadow: none !important;
-}
-
-
-/* 有些地方可能用到 overflow-hidden 的卡片容器，留著不影響 */
-.ui-frame {
-  background: transparent !important;
-  border-color: transparent !important;
-  box-shadow: none !important;
-}
-
-
-/* ===== TechBackground root ===== */
-.tech-bg-root {
-  min-height: 100dvh;
-  position: relative;
-  overflow: hidden;
-  --kb: 0px; /* JS 會動態寫入 */
-}
-
-.tech-bg-canvas {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(1200px 800px at 20% 10%, rgba(56,189,248,0.20), rgba(0,0,0,0) 60%),
-    radial-gradient(900px 700px at 90% 20%, rgba(59,130,246,0.14), rgba(0,0,0,0) 55%),
-    radial-gradient(900px 700px at 40% 90%, rgba(168,85,247,0.10), rgba(0,0,0,0) 55%),
-    linear-gradient(180deg, #070a12 0%, #050814 55%, #040612 100%);
-}
-
-.tech-bg-content {
-  position: relative;
-  z-index: 1;
-}
-
-/* 晶片格 */
-.chip-grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
-  background-size: 44px 44px;
-  opacity: 0.25;
-  transform: translateZ(0);
-}
-
-/* 電路走線（不同方向/密度，不會像壞掉斜線） */
-.chip-traces {
-  position: absolute;
-  inset: -20%;
-  background:
-    repeating-linear-gradient(90deg, rgba(56,189,248,0.0) 0 18px, rgba(56,189,248,0.06) 18px 19px, rgba(56,189,248,0.0) 19px 44px),
-    repeating-linear-gradient(0deg, rgba(56,189,248,0.0) 0 22px, rgba(56,189,248,0.05) 22px 23px, rgba(56,189,248,0.0) 23px 52px),
-    repeating-linear-gradient(45deg, rgba(99,102,241,0.0) 0 40px, rgba(99,102,241,0.04) 40px 41px, rgba(99,102,241,0.0) 41px 90px);
-  filter: blur(0.2px);
-  opacity: 0.55;
-}
-
-/* 光纖流動層 */
-.chip-glowflow {
-  position: absolute;
-  inset: -40%;
-  background:
-    radial-gradient(circle at 20% 30%, rgba(56,189,248,0.22), rgba(0,0,0,0) 55%),
-    radial-gradient(circle at 70% 40%, rgba(56,189,248,0.18), rgba(0,0,0,0) 58%),
-    radial-gradient(circle at 55% 80%, rgba(99,102,241,0.14), rgba(0,0,0,0) 58%);
-  mix-blend-mode: screen;
-  filter: blur(18px);
-  animation: glowDrift 7.5s linear infinite;
-  opacity: 0.65;
-}
-
-@keyframes glowDrift {
-  0% { transform: translate3d(-3%, -2%, 0) scale(1); }
-  50% { transform: translate3d(3%, 2%, 0) scale(1.04); }
-  100% { transform: translate3d(-3%, -2%, 0) scale(1); }
-}
-
-.vignette {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 50% 40%, rgba(0,0,0,0) 0 55%, rgba(0,0,0,0.55) 100%);
-  opacity: 0.9;
-}
-
-/* ===== Glass UI ===== */
+/* 透明玻璃卡（你喜歡的那種） */
 .glass-card {
   background: rgba(255,255,255,0.06);
   border: 1px solid rgba(255,255,255,0.10);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  box-shadow: 0 18px 50px rgba(0,0,0,0.35);
-  border-radius: 24px;
+  box-shadow: 0 18px 60px rgba(0,0,0,0.45);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .glass-soft {
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.08);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
-/* Hide scrollbar */
-.no-scrollbar::-webkit-scrollbar { display: none; }
+/* 讓 input 在深色背景可讀 */
+input, textarea {
+  color: rgb(226 232 240);
+}
+input::placeholder, textarea::placeholder {
+  color: rgba(226,232,240,0.45);
+}
+
+/* 無滾輪條 */
+.no-scrollbar::-webkit-scrollbar { width: 0px; height: 0px; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
