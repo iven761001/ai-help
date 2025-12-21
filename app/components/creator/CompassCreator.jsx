@@ -20,7 +20,7 @@ export default function CompassCreator({
   onDone,
   disabled,
   onHeightChange,
-  mode = "fixed" // ✅ 新增：fixed / embedded
+  mode = "embedded" // ✅ 新增：fixed / embedded
 }) {
   const colors = useMemo(
     () => [
