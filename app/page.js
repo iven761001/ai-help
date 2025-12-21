@@ -1,39 +1,35 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import dynamic from "next/dynamic";
+import { useEffect, useState } from "react";
 
-import TechBackground from "./components/global/TechBackground";
 import BindEmailScreen from "./components/screens/BindEmailScreen";
-import CreateHUD from "./components/hud/CreateHUD";
-import ChatHUD from "./components/hud/ChatHUD";
-
-import useDragRotate from "./hooks/useDragRotate";
+import CreateScreen from "./components/screens/CreateScreen";
+import ChatScreen from "./components/screens/ChatScreen";
+import TechBackground from "./components/global/TechBackground";
 import { loadUser, saveUser } from "./lib/storage";
-
-const Avatar3D = dynamic(() => import("./components/Avatar3D"), { ssr: false });
 
 export default function HomePage() {
   const [phase, setPhase] = useState("loading"); // loading / bindEmail / create / chat
-
   const [user, setUser] = useState(null);
+
+  // 綁定 email
   const [email, setEmail] = useState("");
 
+  // 創角資料（交給 CreateScreen / CompassCreator）
   const [draft, setDraft] = useState({
     email: "",
+    element: "carbon", // ✅ 元素：carbon / silicon / germanium / tin / lead
     avatar: "sky",
     color: "sky",
     voice: "warm",
     nickname: ""
   });
 
+  // 聊天
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
-  const [sending, setSending] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [currentEmotion, setCurrentEmotion] = useState("idle");
-
-  // 世界層：創角才允許拖熊
-  const { yaw, bind, resetYaw } = useDragRotate({ sensitivity: 0.01 });
 
   // init
   useEffect(() => {
@@ -41,36 +37,29 @@ export default function HomePage() {
     if (saved) {
       setUser(saved);
       setPhase("chat");
-      setDraft((p) => ({
-        ...p,
-        email: saved.email || p.email,
-        nickname: saved.nickname || p.nickname,
-        voice: saved.voice || p.voice,
-        avatar: saved.avatar || p.avatar,
-        color: saved.avatar || p.color
-      }));
     } else {
       setPhase("bindEmail");
     }
   }, []);
 
-  // Email -> create
+  // Email 綁定 -> 進創角
   const handleEmailSubmit = (e) => {
     e.preventDefault();
     if (!email) return;
     setDraft((p) => ({ ...p, email }));
-    resetYaw?.();
     setPhase("create");
   };
 
-  // create done -> chat
+  // 創角完成 -> 進聊天室
   const handleDoneCreate = () => {
     const profile = {
       email: draft.email,
       nickname: (draft.nickname || "").trim(),
       avatar: draft.avatar || draft.color || "sky",
-      voice: draft.voice || "warm"
+      voice: draft.voice || "warm",
+      element: draft.element || "carbon" // ✅ 新增
     };
+
     if (!profile.nickname || !profile.email) return;
 
     setUser(profile);
@@ -90,33 +79,18 @@ export default function HomePage() {
       }
     ]);
 
-    setCurrentEmotion("idle");
     setPhase("chat");
   };
 
-  // chat -> create
-  const handleBackToCreator = () => {
-    if (!user) return;
-    setDraft((p) => ({
-      ...p,
-      email: user.email || p.email,
-      nickname: user.nickname || p.nickname,
-      voice: user.voice || p.voice,
-      avatar: user.avatar || p.avatar,
-      color: user.avatar || p.color
-    }));
-    resetYaw?.();
-    setPhase("create");
-  };
+  // 聊天送出
+  const handleSend = async (e) => {
+    e.preventDefault();
+    if (!input.trim() || !user) return;
 
-  // 發送聊天
-  const handleSend = async (text) => {
-    if (!text.trim() || !user) return;
-    const content = text.trim();
-
-    const userMessage = { role: "user", content };
+    const userMessage = { role: "user", content: input.trim() };
     setMessages((prev) => [...prev, userMessage]);
-    setSending(true);
+    setInput("");
+    setLoading(true);
     setCurrentEmotion("thinking");
 
     try {
@@ -124,11 +98,12 @@ export default function HomePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: content,
+          message: userMessage.content,
           nickname: user.nickname,
           email: user.email,
           avatar: user.avatar,
-          voice: user.voice
+          voice: user.voice,
+          element: user.element || "carbon" // ✅ 新增
         })
       });
 
@@ -138,6 +113,7 @@ export default function HomePage() {
         content: data.reply || "不好意思，我剛剛有點當機，再問我一次可以嗎？"
       };
       setMessages((prev) => [...prev, reply]);
+
       setCurrentEmotion(data.emotion ? data.emotion : "idle");
     } catch (err) {
       console.error(err);
@@ -147,22 +123,28 @@ export default function HomePage() {
       ]);
       setCurrentEmotion("idle");
     } finally {
-      setSending(false);
+      setLoading(false);
     }
   };
 
-  // 世界層要顯示哪個熊
-  const variant = useMemo(() => {
-    if (phase === "chat") return user?.avatar || "sky";
-    return draft.avatar || draft.color || "sky";
-  }, [phase, user?.avatar, draft.avatar, draft.color]);
+  // 從聊天室回到選角（帶回目前設定）
+  const handleBackToCreator = () => {
+    if (!user) return;
 
-  const emotion = useMemo(() => {
-    if (phase === "chat") return currentEmotion || "idle";
-    return "idle";
-  }, [phase, currentEmotion]);
+    setDraft((p) => ({
+      ...p,
+      email: user.email || p.email,
+      nickname: user.nickname || p.nickname,
+      voice: user.voice || p.voice,
+      avatar: user.avatar || p.avatar,
+      color: user.avatar || p.color,
+      element: user.element || p.element || "carbon" // ✅ 新增
+    }));
 
-  const allowRotate = phase === "create";
+    setPhase("create");
+  };
+
+  // ========== RENDER ==========
 
   if (phase === "loading") {
     return (
@@ -182,105 +164,37 @@ export default function HomePage() {
     );
   }
 
+  if (phase === "create") {
+    return (
+      <TechBackground>
+        <CreateScreen draft={draft} setDraft={setDraft} onDone={handleDoneCreate} />
+      </TechBackground>
+    );
+  }
+
+  // chat
+  if (!user) {
+    return (
+      <TechBackground>
+        <main className="min-h-screen flex items-center justify-center">
+          <div className="text-sm text-white/70">資料載入中⋯⋯</div>
+        </main>
+      </TechBackground>
+    );
+  }
+
   return (
     <TechBackground>
-      <div
-        className="min-h-screen w-full relative"
-        style={{
-          // ✅ 統一 HUD 高度（創角/聊天同高）
-          // 你想更高/更矮就改這行
-          "--hudH": "clamp(320px, 42vh, 420px)"
-        }}
-      >
-        {/* ===== 世界層（熊只 render 一次） ===== */}
-        <section
-          className="w-full flex items-center justify-center px-4 pt-4"
-          style={{
-            // ✅ 永遠讓位給 HUD，完全不會蓋到熊
-            paddingBottom: "calc(var(--hudH) + env(safe-area-inset-bottom) + 12px)"
-          }}
-        >
-          <div className="w-full max-w-sm">
-            <div className="glass-card rounded-3xl p-3" style={{ WebkitTapHighlightColor: "transparent" }}>
-              <div
-                className="aspect-square rounded-2xl glass-soft flex items-center justify-center overflow-hidden"
-                {...(allowRotate ? bind : {})}
-              >
-                <Avatar3D variant={variant} emotion={emotion} previewYaw={allowRotate ? yaw : 0} />
-              </div>
-
-              <div className="mt-3 space-y-1 px-2 pb-1 text-center">
-                <div className="text-sm font-semibold text-white">
-                  {phase === "create"
-                    ? draft.nickname
-                      ? `「${draft.nickname}」`
-                      : "尚未命名"
-                    : user?.nickname || ""}
-                </div>
-
-                {phase === "create" ? (
-                  <div className="text-xs text-white/70">
-                    顏色：{avatarLabel(draft.color || draft.avatar)} ／ 聲線：{voiceLabel(draft.voice)}
-                  </div>
-                ) : (
-                  <div className="text-xs text-white/70">
-                    你的專屬鍍膜＆清潔顧問（可直接問問題）
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ===== HUD 層（固定高度 + 轉場） ===== */}
-        <section
-          className="fixed left-0 right-0 bottom-0 z-[80]"
-          style={{
-            height: "var(--hudH)",
-            paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)"
-          }}
-        >
-          <div className="mx-auto w-full max-w-4xl px-3 h-full">
-            {/* 疊兩層：用 class 做轉場 */}
-            <div className="relative h-full">
-              <div className={hudLayerClass(phase === "create")} aria-hidden={phase !== "create"}>
-                <CreateHUD draft={draft} setDraft={setDraft} onDone={handleDoneCreate} />
-              </div>
-
-              <div className={hudLayerClass(phase === "chat")} aria-hidden={phase !== "chat"}>
-                <ChatHUD
-                  user={user}
-                  messages={messages}
-                  sending={sending}
-                  input={input}
-                  setInput={setInput}
-                  onSend={handleSend}
-                  onBackToCreator={handleBackToCreator}
-                />
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
+      <ChatScreen
+        user={user}
+        messages={messages}
+        loading={loading}
+        input={input}
+        setInput={setInput}
+        onSend={handleSend}
+        currentEmotion={currentEmotion}
+        onBackToCreator={handleBackToCreator}
+      />
     </TechBackground>
   );
 }
-
-function hudLayerClass(active) {
-  return [
-    "absolute inset-0",
-    "transition-all duration-300 ease-out",
-    active ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 translate-y-3 pointer-events-none"
-  ].join(" ");
-}
-
-function avatarLabel(id) {
-  if (id === "mint") return "薄荷綠";
-  if (id === "purple") return "紫色";
-  return "天空藍";
-}
-function voiceLabel(id) {
-  if (id === "calm") return "冷靜條理";
-  if (id === "energetic") return "活潑有精神";
-  return "溫暖親切";
-                }
