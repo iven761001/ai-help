@@ -82,25 +82,26 @@ body {
   }
 }
 
-/* ===== Glass Card (for dark TechBackground) ===== */
-/* ===== Glass UI (for dark tech background) ===== */
+/* =========================
+   Make all UI "frames" transparent
+   ========================= */
 
-.glass-card {
-  background: rgba(255, 255, 255, 0.10);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow:
-    0 20px 60px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.10);
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-}
 
+/* 你目前用來做卡片外框的玻璃樣式：直接變透明 */
+.glass-card,
 .glass-soft {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  box-shadow:
-    0 12px 40px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(12px) saturate(120%);
-  -webkit-backdrop-filter: blur(12px) saturate(120%);
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
 }
+
+/* 如果你有用到這種 Tailwind 組合的外框（border + bg + shadow）
+   也一併「變透明」：避免還有殘影框框 */
+.frame-transparent,
+.panel-transparent {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+/* 有些地方可能用到 overflow-hidden 的卡片容器，留著不影響 */
