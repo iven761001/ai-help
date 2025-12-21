@@ -1,22 +1,23 @@
 // app/page.js
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 
 import TechBackground from "./components/global/TechBackground";
 import BindEmailScreen from "./components/screens/BindEmailScreen";
-
 import AvatarStage from "./components/AvatarStage";
-import CompassCreator from "./components/CompassCreator";
 import ChatHUD from "./components/ChatHUD";
+import CompassCreator from "./components/CompassCreator";
 
 import { loadUser, saveUser } from "./lib/storage";
 
-export default function Page() {
-  const [phase, setPhase] = useState("loading"); // loading | bindEmail | create | chat
-  const [hudH, setHudH] = useState(320);
+const Avatar3D = dynamic(() => import("./components/Avatar3D"), { ssr: false });
 
+export default function HomePage() {
+  const [phase, setPhase] = useState("loading"); // loading | bindEmail | create | chat
   const [email, setEmail] = useState("");
+  const [user, setUser] = useState(null);
 
   const [draft, setDraft] = useState({
     email: "",
@@ -26,45 +27,52 @@ export default function Page() {
     nickname: ""
   });
 
-  const [user, setUser] = useState(null);
-
   const [messages, setMessages] = useState([]);
-  const [sending, setSending] = useState(false);
   const [input, setInput] = useState("");
-  const [emotion, setEmotion] = useState("idle");
+  const [sending, setSending] = useState(false);
+  const [currentEmotion, setCurrentEmotion] = useState("idle");
 
-  // init
+  // ✅ init：保證一定會落在 bindEmail / chat
   useEffect(() => {
-  try {
-    const saved = loadUser();
-    console.log("[init] saved:", saved);
+    try {
+      const saved = loadUser();
+      console.log("[init] saved =", saved);
 
-    if (saved?.email && saved?.nickname) {
-      setUser(saved);
-      setPhase("chat");
-      setMessages([
-        { role: "assistant", content: `嗨，我是「${saved.nickname}」。\n\n有問題都可以直接問我～` }
-      ]);
-    } else {
+      if (saved?.email && saved?.nickname) {
+        setUser(saved);
+        setDraft((p) => ({
+          ...p,
+          email: saved.email,
+          nickname: saved.nickname,
+          avatar: saved.avatar || "sky",
+          color: saved.avatar || "sky",
+          voice: saved.voice || "warm"
+        }));
+        setMessages([
+          {
+            role: "assistant",
+            content: `嗨，我是「${saved.nickname}」。\n\n有任何鍍膜/清潔問題都可以直接問我～`
+          }
+        ]);
+        setPhase("chat");
+      } else {
+        setPhase("bindEmail");
+      }
+    } catch (e) {
+      console.log("[init] error =", e);
       setPhase("bindEmail");
     }
-  } catch (e) {
-    console.log("[init] error:", e);
-    setPhase("bindEmail");
-  }
-}, []);
-    
-  // Email -> create
-  const submitEmail = (e) => {
+  }, []);
+
+  const handleEmailSubmit = (e) => {
     e.preventDefault();
-    const e1 = (email || "").trim();
-    if (!e1) return;
-    setDraft((p) => ({ ...p, email: e1 }));
+    const v = (email || "").trim();
+    if (!v) return;
+    setDraft((p) => ({ ...p, email: v }));
     setPhase("create");
   };
 
-  // Create done -> chat
-  const doneCreate = () => {
+  const handleDoneCreate = () => {
     const profile = {
       email: (draft.email || "").trim(),
       nickname: (draft.nickname || "").trim(),
@@ -82,18 +90,16 @@ export default function Page() {
         content: `嗨，我是「${profile.nickname}」。\n\n之後有浴室、廚房、地板、玻璃鍍膜與清潔的問題，都可以直接問我～`
       }
     ]);
-
     setPhase("chat");
   };
 
-  // chat send
-  const sendChat = async (text) => {
+  const onSend = async (text) => {
     if (!user) return;
 
-    const userMsg = { role: "user", content: text };
-    setMessages((p) => [...p, userMsg]);
+    const userMessage = { role: "user", content: text };
+    setMessages((prev) => [...prev, userMessage]);
     setSending(true);
-    setEmotion("thinking");
+    setCurrentEmotion("thinking");
 
     try {
       const res = await fetch("/api/chat", {
@@ -109,27 +115,25 @@ export default function Page() {
       });
 
       const data = await res.json();
-      setMessages((p) => [
-        ...p,
-        { role: "assistant", content: data.reply || "不好意思，我剛剛有點當機，再問我一次可以嗎？" }
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: data.reply || "我剛剛有點當機，再問我一次可以嗎？" }
       ]);
-      setEmotion(data.emotion || "idle");
+      setCurrentEmotion(data.emotion || "idle");
     } catch (err) {
       console.error(err);
-      setMessages((p) => [
-        ...p,
-        { role: "assistant", content: "現在系統好像有點忙碌，稍後再試一次看看～" }
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "現在系統有點忙碌，稍後再試一次看看～" }
       ]);
-      setEmotion("idle");
+      setCurrentEmotion("idle");
     } finally {
       setSending(false);
     }
   };
 
-  // back to creator
-  const backToCreator = () => {
+  const onBackToCreator = () => {
     if (!user) return;
-
     setDraft((p) => ({
       ...p,
       email: user.email || p.email,
@@ -138,113 +142,71 @@ export default function Page() {
       avatar: user.avatar || p.avatar,
       color: user.avatar || p.color
     }));
-
     setPhase("create");
   };
 
-  // HUD height (讓舞台自動讓位)
-  const onHudHeight = (h) => {
-    const safe = Math.max(260, Math.min(520, Math.floor(h || 0)));
-    setHudH(safe);
-    if (typeof document !== "undefined") {
-      document.documentElement.style.setProperty("--hudH", `${safe}px`);
-    }
-  };
-
-  // loading
-  if (phase === "loading") {
-    return (
-      <TechBackground>
-        <main className="min-h-screen flex items-center justify-center">
-          <div className="text-sm text-white/70">小管家準備中⋯⋯</div>
-        </main>
-      </TechBackground>
-    );
-  }
-
-  // bind email
-  if (phase === "bindEmail") {
-    return (
-      <TechBackground>
-        <BindEmailScreen email={email} setEmail={setEmail} onSubmit={submitEmail} />
-      </TechBackground>
-    );
-  }
-
-  // create + chat（同一舞台，下面換 HUD）
-  const mode = phase === "chat" ? "chat" : "create";
-  const stageVariant = useMemo(() => {
-    if (mode === "chat") return user?.avatar || "sky";
-    return draft?.avatar || draft?.color || "sky";
-  }, [mode, user?.avatar, draft?.avatar, draft?.color]);
-
   return (
     <TechBackground>
-      <main className="min-h-screen relative overflow-hidden">
-        {/* 舞台：底部用 paddingBottom 讓位給 HUD 高度 */}
-        <div
-          className="absolute inset-0"
-          style={{
-            paddingBottom: `calc(${hudH}px + env(safe-area-inset-bottom))`
-          }}
-        >
-          <AvatarStage
-            mode={mode}
-            draft={draft}
-            user={user}
-            emotion={sending ? "thinking" : emotion}
-            variant={stageVariant}
-            onHudHeight={onHudHeight}
-          />
+      {/* ✅ Debug：你如果還是看不到 UI，至少這行一定會出現 */}
+      <div className="fixed top-2 left-2 z-[9999] text-[11px] text-white/80">
+        phase: {phase}
+      </div>
+
+      {phase === "loading" && (
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-sm text-white/70">載入中…</div>
         </div>
+      )}
 
-        {/* HUD：固定在底部，轉場換內容 */}
-        <div
-          className="absolute left-0 right-0 bottom-0"
-          style={{
-            paddingBottom: "env(safe-area-inset-bottom)"
-          }}
-        >
-          {phase === "create" && (
-            <div
-              style={{
-                transform: "translateY(0px)",
-                transition: "transform 260ms ease"
-              }}
-            >
-              <CompassCreator
-                value={draft}
-                onChange={setDraft}
-                onDone={doneCreate}
-                disabled={false}
-                onHeightChange={onHudHeight}
-              />
-            </div>
-          )}
+      {phase === "bindEmail" && (
+        <BindEmailScreen email={email} setEmail={setEmail} onSubmit={handleEmailSubmit} />
+      )}
 
-          {phase === "chat" && (
-            <div className="mx-auto w-full max-w-4xl px-3 pb-[12px]">
-              <div
-                className="h-[calc(var(--hudH,320px))]"
-                style={{
-                  height: `${hudH}px`
-                }}
-              >
-                <ChatHUD
-                  user={user}
-                  messages={messages}
-                  sending={sending}
-                  input={input}
-                  setInput={setInput}
-                  onSend={sendChat}
-                  onBackToCreator={backToCreator}
-                  onHeightChange={onHudHeight}
-                />
+      {/* 下面這兩個畫面先放著（你後面要的 create/chat 轉場） */}
+      {phase === "create" && (
+        <div className="min-h-screen flex flex-col">
+          <div className="flex-1 relative">
+            <AvatarStage>
+              <Avatar3D variant={draft.avatar || draft.color || "sky"} emotion="idle" />
+              <div className="absolute bottom-5 left-0 right-0 text-center text-white/85">
+                <div className="text-sm font-semibold">
+                  {draft.nickname ? `「${draft.nickname}」` : "尚未命名"}
+                </div>
+                <div className="text-[11px] text-white/60">
+                  顏色：{draft.color} ／ 聲線：{draft.voice}
+                </div>
               </div>
-            </div>
-          )}
+            </AvatarStage>
+          </div>
+
+          {/* 轉輪 HUD */}
+          <div className="relative z-20">
+            <CompassCreator value={draft} onChange={setDraft} onDone={handleDoneCreate} disabled={false} />
+          </div>
         </div>
-      </main>
+      )}
+
+      {phase === "chat" && user && (
+        <div className="min-h-screen flex flex-col">
+          <div className="flex-1 relative">
+            <AvatarStage>
+              <Avatar3D variant={user.avatar || "sky"} emotion={currentEmotion} />
+            </AvatarStage>
+          </div>
+
+          <div className="h-[46vh] px-3 pb-[calc(env(safe-area-inset-bottom)+12px)]">
+            <ChatHUD
+              user={user}
+              messages={messages}
+              sending={sending}
+              input={input}
+              setInput={setInput}
+              onSend={onSend}
+              onBackToCreator={onBackToCreator}
+            />
+          </div>
+        </div>
+      )}
     </TechBackground>
   );
-    }
+}
