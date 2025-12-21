@@ -35,22 +35,25 @@ export default function Page() {
 
   // init
   useEffect(() => {
+  try {
     const saved = loadUser();
+    console.log("[init] saved:", saved);
+
     if (saved?.email && saved?.nickname) {
       setUser(saved);
       setPhase("chat");
-
       setMessages([
-        {
-          role: "assistant",
-          content: `嗨，我是「${saved.nickname}」。\n\n之後有浴室、廚房、地板、玻璃鍍膜與清潔的問題，都可以直接問我～`
-        }
+        { role: "assistant", content: `嗨，我是「${saved.nickname}」。\n\n有問題都可以直接問我～` }
       ]);
     } else {
       setPhase("bindEmail");
     }
-  }, []);
-
+  } catch (e) {
+    console.log("[init] error:", e);
+    setPhase("bindEmail");
+  }
+}, []);
+    
   // Email -> create
   const submitEmail = (e) => {
     e.preventDefault();
