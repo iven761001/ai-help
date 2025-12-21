@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { useEffect, useRef } from "react";
+
+const Avatar3D = dynamic(() => import("../Avatar3D"), { ssr: false });
 
 function cx(...arr) {
   return arr.filter(Boolean).join(" ");
 }
-
-// ✅ 跟 CreateScreen 完全同高度
-const HUD_H = 360;
 
 export default function ChatScreen({
   user,
@@ -16,192 +16,148 @@ export default function ChatScreen({
   input,
   setInput,
   onSend,
-  currentEmotion, // 可留著
+  currentEmotion,
   onBackToCreator
 }) {
   const listRef = useRef(null);
-
-  const [isAtBottom, setIsAtBottom] = useState(true);
-  const showJump = useMemo(() => !isAtBottom && messages.length > 0, [isAtBottom, messages.length]);
-
-  const scrollToBottom = (behavior = "smooth") => {
-    const el = listRef.current;
-    if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior });
-  };
+  const stickToBottomRef = useRef(true);
 
   // 判斷使用者是否在底部
-  useEffect(() => {
+  const onScroll = () => {
     const el = listRef.current;
     if (!el) return;
+    const threshold = 24;
+    stickToBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+  };
 
-    let raf = 0;
-    const onScroll = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        const threshold = 80;
-        const atBottom = el.scrollHeight - (el.scrollTop + el.clientHeight) <= threshold;
-        setIsAtBottom(atBottom);
-      });
-    };
-
-    el.addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
-
-    return () => {
-      cancelAnimationFrame(raf);
-      el.removeEventListener("scroll", onScroll);
-    };
-  }, []);
-
-  // 新訊息來：只有在底部才滑到底
+  // 新訊息時：只有在「本來就在底部」才自動捲
   useEffect(() => {
-    if (isAtBottom) requestAnimationFrame(() => scrollToBottom("smooth"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages.length]);
-
-  // thinking bubble：同樣遵守規則
-  useEffect(() => {
-    if (loading && isAtBottom) requestAnimationFrame(() => scrollToBottom("smooth"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading]);
+    if (!listRef.current) return;
+    if (stickToBottomRef.current) {
+      listRef.current.scrollTop = listRef.current.scrollHeight;
+    }
+  }, [messages, loading]);
 
   return (
     <main className="min-h-screen flex flex-col">
-      {/* 上方留空：熊在 page.js 的世界層 */}
-      <div style={{ height: `calc(100vh - ${HUD_H}px)` }} />
+      {/* ===== 上方：角色世界（延續） ===== */}
+      <section className="flex-1 flex items-center justify-center px-4 pt-6">
+        <div className="w-full max-w-sm">
+          <div className="glass-card rounded-3xl p-3">
+            <div className="aspect-square rounded-2xl glass-soft flex items-center justify-center overflow-hidden">
+              <Avatar3D
+                variant={user.avatar || "sky"}
+                element={user.element || "carbon"}   // ✅ 元素
+                emotion={currentEmotion}
+              />
+            </div>
 
-      {/* ===== 下方聊天 HUD（固定高度）===== */}
+            <div className="mt-3 text-center">
+              <div className="text-sm font-semibold text-slate-100">
+                {user.nickname}
+              </div>
+              <div className="text-[11px] text-slate-400">
+                你的專屬 AI 小管家
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ===== 中段：聊天卷軸 ===== */}
       <section
-        className="relative z-20"
-        style={{
-          height: `${HUD_H}px`
-        }}
+        ref={listRef}
+        onScroll={onScroll}
+        className="
+          flex-1 overflow-y-auto px-4 space-y-2
+          pb-28
+        "
+      >
+        {messages.map((m, idx) => (
+          <div
+            key={idx}
+            className={cx(
+              "flex",
+              m.role === "user" ? "justify-end" : "justify-start"
+            )}
+          >
+            <div
+              className={cx(
+                "max-w-[78%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap",
+                m.role === "user"
+                  ? "bg-sky-500/90 text-white rounded-br-none"
+                  : "bg-white/10 text-slate-100 rounded-bl-none backdrop-blur"
+              )}
+            >
+              {m.content}
+            </div>
+          </div>
+        ))}
+
+        {loading && (
+          <div className="text-xs text-slate-400">
+            {user.nickname} 思考中⋯⋯
+          </div>
+        )}
+      </section>
+
+      {/* ===== 底部：輸入 HUD ===== */}
+      <form
+        onSubmit={onSend}
+        className="
+          fixed left-0 right-0 bottom-0 z-30
+          px-3 pb-[calc(env(safe-area-inset-bottom)+12px)]
+        "
       >
         <div
           className="
-            h-full
-            backdrop-blur-xl bg-white/5
-            border-t border-white/10
-            shadow-[0_-20px_40px_rgba(0,0,0,0.45)]
-            flex flex-col
+            mx-auto max-w-4xl
+            rounded-full
+            bg-white/10 backdrop-blur-xl
+            border border-white/15
+            flex gap-2 p-2
           "
         >
-          {/* 回到選角按鈕（貼在 HUD 上緣） */}
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="輸入想問的問題…"
+            disabled={loading}
+            className="
+              flex-1 bg-transparent text-white
+              px-3 py-2 text-sm outline-none
+              placeholder:text-white/40
+            "
+          />
           <button
-            type="button"
-            onClick={onBackToCreator}
-            aria-label="回到選角"
-            className="absolute z-[200] right-4 -top-16
-                       h-12 w-12 rounded-full bg-sky-500 text-white shadow-lg
-                       active:scale-95 transition flex items-center justify-center"
-            style={{ WebkitTapHighlightColor: "transparent" }}
+            type="submit"
+            disabled={loading}
+            className="
+              shrink-0 rounded-full px-4 py-2
+              bg-sky-500 text-white text-sm
+              disabled:opacity-50
+            "
           >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M15 18l-6-6 6-6"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+            發送
           </button>
-
-          {/* 訊息區（在 HUD 內滾動） */}
-          <div className="relative flex-1 px-4 pt-4 pb-2 overflow-hidden">
-            <div
-              ref={listRef}
-              className="h-full overflow-y-auto pr-1"
-              style={{ WebkitOverflowScrolling: "touch" }}
-            >
-              {messages.length === 0 && (
-                <div className="text-xs text-white/60 text-center mt-6 whitespace-pre-wrap">
-                  跟 {user?.nickname || "小管家"} 打聲招呼吧！{"\n"}
-                  可以問：「浴室玻璃有水垢要怎麼清？」、
-                  「鍍膜後幾天不能用什麼清潔劑？」
-                </div>
-              )}
-
-              <div className="space-y-2 pb-2">
-                {messages.map((m, idx) => (
-                  <div
-                    key={idx}
-                    className={cx("flex", m.role === "user" ? "justify-end" : "justify-start")}
-                  >
-                    <div
-                      className={cx(
-                        "max-w-[82%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap",
-                        m.role === "user"
-                          ? "bg-sky-500 text-white rounded-br-none"
-                          : "bg-white/10 text-white/90 rounded-bl-none border border-white/10"
-                      )}
-                    >
-                      {m.content}
-                    </div>
-                  </div>
-                ))}
-
-                {loading && (
-                  <div className="flex justify-start">
-                    <div className="bg-white/10 text-white/70 text-xs px-3 py-2 rounded-2xl rounded-bl-none border border-white/10">
-                      {user?.nickname || "小管家"} 思考中⋯⋯
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* 回到底部 */}
-            {showJump && (
-              <button
-                type="button"
-                onClick={() => scrollToBottom("smooth")}
-                className="
-                  absolute right-3 bottom-3
-                  rounded-full px-3 py-2 text-xs
-                  bg-sky-500/90 text-white
-                  shadow-lg border border-white/10
-                  active:scale-95 transition
-                "
-              >
-                ⬇︎ 新訊息
-              </button>
-            )}
-          </div>
-
-          {/* 輸入列（固定在 HUD 底部） */}
-          <form
-            onSubmit={(e) => {
-              onSend?.(e);
-              requestAnimationFrame(() => {
-                if (isAtBottom) scrollToBottom("smooth");
-              });
-            }}
-            className="px-4 pb-[calc(env(safe-area-inset-bottom)+14px)] pt-2 flex gap-2"
-          >
-            <input
-              type="text"
-              className="
-                flex-1 rounded-full px-4 py-3 text-sm outline-none
-                bg-black/20 text-white placeholder:text-white/40
-                border border-white/15 focus:ring-2 focus:ring-sky-400
-              "
-              placeholder="輸入想問的問題，例如：地板有黃漬，要怎麼清比較安全？"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              disabled={loading}
-            />
-            <button
-              type="submit"
-              className="bg-sky-500 hover:bg-sky-400 text-white text-sm px-5 py-3 rounded-full disabled:opacity-60"
-              disabled={loading}
-            >
-              發送
-            </button>
-          </form>
         </div>
-      </section>
+      </form>
+
+      {/* ===== 回到選角 ===== */}
+      <button
+        onClick={onBackToCreator}
+        className="
+          fixed right-4 bottom-28 z-40
+          h-12 w-12 rounded-full
+          bg-sky-500 text-white
+          flex items-center justify-center
+          shadow-lg active:scale-95
+        "
+        aria-label="回到選角"
+      >
+        ←
+      </button>
     </main>
   );
 }
