@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { Canvas, useFrame } from "@react-three/fiber";
+import { elementProfiles, stateToAnimParams, clamp as clamp01 } from "../lib/elementProfiles";
 
 /** 透明底電路貼圖 */
 function makeCircuitTexture({ size = 512, seed = 1, glow = "#65d9ff" }) {
@@ -92,9 +93,17 @@ function hexToRgba(hex, a) {
 }
 
 /** 角色本體：帶電路的玻璃小熊 */
-function TechGlassBear({ glassColor, glowColor, emotion, isDragging, previewRotationY }) {
+function TechGlassBear({
+  glassColor,
+  glowColor,
+  emotion,
+  element = "carbon",
+  isDragging,
+  previewRotationY
+}) {
   const groupRef = useRef();
   const emotionRef = useRef(emotion);
+  const elementRef = useRef(element);
   const dragRef = useRef(isDragging);
   const previewRotRef = useRef(previewRotationY);
   const texRef = useRef(null);
@@ -102,6 +111,10 @@ function TechGlassBear({ glassColor, glowColor, emotion, isDragging, previewRota
   useEffect(() => {
     emotionRef.current = emotion;
   }, [emotion]);
+
+  useEffect(() => {
+    elementRef.current = element;
+  }, [element]);
 
   useEffect(() => {
     dragRef.current = isDragging;
@@ -158,12 +171,13 @@ function TechGlassBear({ glassColor, glowColor, emotion, isDragging, previewRota
 
     const t = clock.getElapsedTime();
     const emo = emotionRef.current;
+    const el = elementRef.current;
     const dragging = dragRef.current;
 
-    // 單指旋轉預覽：永遠套用 previewRotationY
+    // 永遠套用「單指旋轉預覽」的 yaw
     groupRef.current.rotation.y = previewRotRef.current || 0;
 
-    // 兩指拖拉時：停掉其它晃動，避免看起來亂飄
+    // 拖拉時：停掉其它晃動，避免看起來亂飄
     if (dragging) {
       groupRef.current.position.y = 0;
       groupRef.current.rotation.x = 0;
@@ -177,31 +191,8 @@ function TechGlassBear({ glassColor, glowColor, emotion, isDragging, previewRota
       return;
     }
 
-    let bobAmp = 0.02;
-    let bobSpeed = 1.0;
-    let wobble = 0.04;
-    let pulse = 0.015;
-    let lineOpacity = 0.55;
-
-    if (emo === "happy") {
-      bobAmp = 0.1;
-      bobSpeed = 2.6;
-      wobble = 0.14;
-      pulse = 0.06;
-      lineOpacity = 0.82;
-    } else if (emo === "thinking") {
-      bobAmp = 0.05;
-      bobSpeed = 1.6;
-      wobble = 0.07;
-      pulse = 0.02;
-      lineOpacity = 0.68;
-    } else if (emo === "sorry") {
-      bobAmp = 0.012;
-      bobSpeed = 0.85;
-      wobble = 0.035;
-      pulse = 0.01;
-      lineOpacity = 0.38;
-    }
+    const profile = elementProfiles[el] || elementProfiles.carbon;
+    const { bobAmp, bobSpeed, wobble, pulse, lineOpacity } = stateToAnimParams(emo, profile);
 
     groupRef.current.position.y = Math.sin(t * bobSpeed) * bobAmp;
     groupRef.current.rotation.z = Math.sin(t * bobSpeed) * wobble * 0.16;
@@ -217,7 +208,7 @@ function TechGlassBear({ glassColor, glowColor, emotion, isDragging, previewRota
     if (texRef.current?.tex) {
       texRef.current.tex.offset.x = (t * 0.045) % 1;
       texRef.current.tex.offset.y = (t * 0.03) % 1;
-      texRef.current.lineOpacity = lineOpacity;
+      texRef.current.lineOpacity = clamp01(lineOpacity, 0, 1);
     }
   });
 
@@ -346,7 +337,7 @@ function TechGlassBear({ glassColor, glowColor, emotion, isDragging, previewRota
   );
 }
 
-function Scene({ glassColor, glowColor, emotion, isDragging, previewRotationY }) {
+function Scene({ glassColor, glowColor, emotion, element, isDragging, previewRotationY }) {
   return (
     <Canvas
       camera={{ position: [0, 0.25, 3.2], fov: 45 }}
@@ -361,6 +352,7 @@ function Scene({ glassColor, glowColor, emotion, isDragging, previewRotationY })
         glassColor={glassColor}
         glowColor={glowColor}
         emotion={emotion}
+        element={element}
         isDragging={isDragging}
         previewRotationY={previewRotationY}
       />
@@ -384,11 +376,12 @@ function getBoxSize(emotion, vw) {
  * mode="inline"   : 創角（嵌入）
  * mode="floating" : 聊天（浮動）
  *
- * ✅ 新增 previewYaw：讓 inline 也能吃到「單指拖拉旋轉」的角度
+ * ✅ 新增 props: element
  */
 export default function Avatar3D({
   variant = "sky",
   emotion = "idle",
+  element = "carbon",
   mode = "inline",
   previewYaw = 0
 }) {
@@ -407,7 +400,7 @@ export default function Avatar3D({
   const glassColor = glassMap[variant] || glassMap.sky;
   const glowColor = glowMap[variant] || glowMap.sky;
 
-  // ✅ inline：吃得到外部傳入的 previewYaw
+  // inline：創角預覽（你用 useDragRotate 傳 previewYaw）
   if (mode === "inline") {
     return (
       <div className="w-full h-full">
@@ -415,8 +408,9 @@ export default function Avatar3D({
           glassColor={glassColor}
           glowColor={glowColor}
           emotion={emotion}
+          element={element}
           isDragging={false}
-          previewRotationY={previewYaw}
+          previewRotationY={previewYaw || 0}
         />
       </div>
     );
@@ -426,21 +420,13 @@ export default function Avatar3D({
   const [pos, setPos] = useState({ x: 16, y: 120 });
   const [box, setBox] = useState({ w: 170, h: 220 });
 
-  // ✅ 兩指拖拉時用
+  // 兩指拖拉
   const [twoFingerDrag, setTwoFingerDrag] = useState(false);
-
-  // ✅ 單指旋轉預覽
+  // 單指旋轉預覽
   const [previewRotY, setPreviewRotY] = useState(0);
 
-  // 觸控追蹤
   const touchModeRef = useRef("none"); // "rotate" | "drag" | "none"
-  const startRef = useRef({
-    x: 0,
-    y: 0,
-    rotY: 0,
-    posX: 0,
-    posY: 0
-  });
+  const startRef = useRef({ x: 0, y: 0, rotY: 0, posX: 0, posY: 0 });
 
   useEffect(() => {
     setMounted(true);
@@ -474,7 +460,6 @@ export default function Avatar3D({
     setBox(getBoxSize(emotion, window.innerWidth || 390));
   }, [emotion]);
 
-  // ✅ 手勢：單指旋轉 / 兩指拖拉
   const onTouchStart = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -482,7 +467,6 @@ export default function Avatar3D({
     const touches = e.touches;
     if (!touches || touches.length === 0) return;
 
-    // 兩指：拖拉移動
     if (touches.length >= 2) {
       touchModeRef.current = "drag";
       setTwoFingerDrag(true);
@@ -490,17 +474,10 @@ export default function Avatar3D({
       const midX = (touches[0].clientX + touches[1].clientX) / 2;
       const midY = (touches[0].clientY + touches[1].clientY) / 2;
 
-      startRef.current = {
-        ...startRef.current,
-        x: midX,
-        y: midY,
-        posX: pos.x,
-        posY: pos.y
-      };
+      startRef.current = { ...startRef.current, x: midX, y: midY, posX: pos.x, posY: pos.y };
       return;
     }
 
-    // 單指：旋轉預覽
     touchModeRef.current = "rotate";
     setTwoFingerDrag(false);
 
@@ -519,31 +496,23 @@ export default function Avatar3D({
     const touches = e.touches;
     if (!touches || touches.length === 0) return;
 
-    // 若中途變兩指 → 切拖拉
     if (touches.length >= 2 && touchModeRef.current !== "drag") {
       touchModeRef.current = "drag";
       setTwoFingerDrag(true);
+
       const midX = (touches[0].clientX + touches[1].clientX) / 2;
       const midY = (touches[0].clientY + touches[1].clientY) / 2;
-      startRef.current = {
-        ...startRef.current,
-        x: midX,
-        y: midY,
-        posX: pos.x,
-        posY: pos.y
-      };
+
+      startRef.current = { ...startRef.current, x: midX, y: midY, posX: pos.x, posY: pos.y };
     }
 
     if (touchModeRef.current === "rotate") {
-      // 單指旋轉：水平移動 → 旋轉 Y
       const dx = touches[0].clientX - startRef.current.x;
-      const rot = startRef.current.rotY + dx * 0.01;
-      setPreviewRotY(rot);
+      setPreviewRotY(startRef.current.rotY + dx * 0.01);
       return;
     }
 
     if (touchModeRef.current === "drag") {
-      // 兩指拖拉：用兩指中點移動容器位置
       const midX = (touches[0].clientX + touches[1].clientX) / 2;
       const midY = (touches[0].clientY + touches[1].clientY) / 2;
 
@@ -553,14 +522,11 @@ export default function Avatar3D({
       const width = window.innerWidth || 400;
       const height = window.innerHeight || 800;
 
-      const boxW = box.w;
-      const boxH = box.h;
-
       let x = startRef.current.posX + dx;
       let y = startRef.current.posY + dy;
 
-      const maxX = width - boxW;
-      const maxY = height - boxH;
+      const maxX = width - box.w;
+      const maxY = height - box.h;
 
       if (x < 0) x = 0;
       if (y < 0) y = 0;
@@ -568,7 +534,6 @@ export default function Avatar3D({
       if (y > maxY) y = maxY;
 
       setPos({ x, y });
-      return;
     }
   };
 
@@ -578,9 +543,9 @@ export default function Avatar3D({
     setTwoFingerDrag(false);
 
     if (mode === "drag") {
-      if (typeof window !== "undefined") {
+      try {
         window.localStorage.setItem("floating-techbear-pos", JSON.stringify(pos));
-      }
+      } catch {}
     }
   };
 
@@ -608,6 +573,7 @@ export default function Avatar3D({
         glassColor={glassColor}
         glowColor={glowColor}
         emotion={emotion}
+        element={element}
         isDragging={twoFingerDrag}
         previewRotationY={previewRotY}
       />
@@ -615,4 +581,4 @@ export default function Avatar3D({
   );
 
   return createPortal(node, document.body);
-          }
+  }
