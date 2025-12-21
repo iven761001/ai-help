@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "南膜工坊 AI 小管家",
-  description: "AI 鍍膜與清潔顧問"
+  title: "AI Helper",
+  description: "AI角色互動系統"
 };
 
 export default function RootLayout({ children }) {
