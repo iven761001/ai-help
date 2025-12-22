@@ -1,69 +1,59 @@
 // app/components/AvatarStage.jsx
 "use client";
 
-import dynamic from "next/dynamic";
-import useDragRotate from "../hooks/useDragRotate";
-
-// 你現在 Avatar3D 是純 React 畫圖，不需要 dynamic 也行
-// 但保留 dynamic 可避免你之後換 three.js 時 SSR 出事
-const Avatar3D = dynamic(() => import("./Avatar3D"), { ssr: false });
+import { Suspense, useMemo } from "react";
+import { Canvas } from "@react-three/fiber";
+import { Environment, ContactShadows, OrbitControls } from "@react-three/drei";
+import Avatar3D from "./Avatar3D";
 
 export default function AvatarStage({
-  user,
+  variant = "sky",
   emotion = "idle",
-  className = "",
-  disableDrag = false
+  previewYaw = 0,
+  interactive = true
 }) {
-  const { yaw, bind } = useDragRotate({ sensitivity: 0.01 });
-
-  const variant = user?.avatar || user?.color || "sky";
-  const nickname = user?.nickname || "尚未命名";
+  // 背景透明：讓你外層 TechBackground 可以透出來
+  const camera = useMemo(() => ({ position: [0, 1.2, 3.2], fov: 40 }), []);
 
   return (
-    <div className={className}>
-      {/* 舞台卡 */}
-      <div className="glass-card rounded-3xl p-3">
-        {/* ✅ 熊舞台：一定要 relative + overflow-hidden */}
-        <div className="relative aspect-square rounded-2xl glass-soft overflow-hidden">
-          {/* 熊本體 */}
-          <div className="absolute inset-0">
-            <Avatar3D variant={variant} emotion={emotion} previewYaw={yaw} />
-          </div>
+    <div className="w-full h-full">
+      <Canvas
+        camera={camera}
+        gl={{ alpha: true, antialias: true }}
+        style={{ background: "transparent" }}
+      >
+        {/* 光 */}
+        <ambientLight intensity={0.7} />
+        <directionalLight position={[3, 5, 2]} intensity={1.2} />
+        <directionalLight position={[-3, 2, -2]} intensity={0.6} />
 
-          {/* ✅ 手勢捕捉層：確保拖拉事件一定吃得到 */}
-          {!disableDrag && (
-            <div
-              className="absolute inset-0 z-10"
-              style={{
-                touchAction: "none", // ✅ 關鍵：不讓瀏覽器把拖拉當成捲動
-                WebkitUserSelect: "none",
-                userSelect: "none"
-              }}
-              {...bind}
-            />
-          )}
-        </div>
+        <Suspense fallback={null}>
+          <group position={[0, -0.25, 0]}>
+            <Avatar3D variant={variant} emotion={emotion} previewYaw={previewYaw} />
+          </group>
 
-        {/* 文字區 */}
-        <div className="mt-3 space-y-1 px-2 pb-1 text-center">
-          <div className="text-sm font-semibold text-white">{nickname}</div>
-          <div className="text-xs text-white/70">
-            顏色：{labelColor(user?.color || user?.avatar)} ／ 聲線：
-            {labelVoice(user?.voice)}
-          </div>
-        </div>
-      </div>
+          {/* 地面陰影：立體感關鍵 */}
+          <ContactShadows
+            opacity={0.35}
+            scale={6}
+            blur={2.2}
+            far={6}
+            resolution={256}
+            position={[0, -1.05, 0]}
+          />
+
+          {/* 環境光場：立體質感加倍 */}
+          <Environment preset="city" />
+        </Suspense>
+
+        {/* ✅ 先鎖住使用者直接用 Orbit 控制，避免跟你手勢旋轉打架
+            但保留備用：如果你要測試可先打開 enableRotate */}
+        <OrbitControls
+          enabled={false}
+          enableZoom={false}
+          enablePan={false}
+        />
+      </Canvas>
     </div>
   );
-}
-
-function labelColor(id) {
-  if (id === "mint") return "薄荷綠";
-  if (id === "purple") return "紫色";
-  return "天空藍";
-}
-function labelVoice(id) {
-  if (id === "calm") return "冷靜條理";
-  if (id === "energetic") return "活潑有精神";
-  return "溫暖親切";
 }
