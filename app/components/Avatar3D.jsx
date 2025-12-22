@@ -2,116 +2,71 @@
 "use client";
 
 import * as THREE from "three";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { useGLTF, useAnimations } from "@react-three/drei";
 
-export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw = 0 }) {
-  const { bodyMat, faceMat } = useMemo(() => {
-    const color =
-      variant === "mint" ? new THREE.Color("#6ff0c8") :
-      variant === "purple" ? new THREE.Color("#c79cff") :
-      new THREE.Color("#7cc7ff");
+export default function Avatar3D({ variant="sky", emotion="idle", previewYaw=0 }) {
+  const group = useRef(null);
+  const { scene, animations } = useGLTF("/models/bear_rigged.glb");
+  const { actions, mixer } = useAnimations(animations, group);
 
-    // 身體：偏玻璃/果凍
-    const bodyMat = new THREE.MeshPhysicalMaterial({
-      color,
-      roughness: 0.25,
-      metalness: 0.0,
-      transmission: 0.45,   // 透光感
-      thickness: 1.0,
-      clearcoat: 0.65,
-      clearcoatRoughness: 0.2,
-      opacity: 0.92,
-      transparent: true
-    });
-
-    // 臉：更霧、更白
-    const faceMat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color("#eaf6ff"),
-      roughness: 0.6,
-      metalness: 0.0,
-      opacity: 0.85,
-      transparent: true
-    });
-
-    return { bodyMat, faceMat };
+  // 顏色（如果模型材質允許可染色）
+  const tint = useMemo(() => {
+    if (variant === "mint") return new THREE.Color("#6ff0c8");
+    if (variant === "purple") return new THREE.Color("#c79cff");
+    return new THREE.Color("#7cc7ff");
   }, [variant]);
 
-  // ✅ 頭身分離旋轉（你要的）
-  const bodyYaw = previewYaw * 0.45; // 身體較慢
-  const headYaw = previewYaw * 0.95; // 頭比較靈
+  useEffect(() => {
+    // 嘗試把模型所有 Mesh 染色（不破壞貼圖就不要硬染）
+    scene.traverse((o) => {
+      if (o.isMesh && o.material && o.material.color) {
+        o.material = o.material.clone();
+        o.material.color.lerp(tint, 0.35);
+        o.castShadow = true;
+        o.receiveShadow = true;
+      }
+    });
+  }, [scene, tint]);
 
-  // 情緒（先保留，之後接動畫用）
-  const mood =
-    emotion === "thinking" ? "thinking" :
-    emotion === "happy" ? "happy" :
-    emotion === "sad" ? "sad" :
-    "idle";
+  useEffect(() => {
+    // ✅ 自動播放：優先找 idle/talk/happy，找不到就播第一個
+    const names = Object.keys(actions || {});
+    if (!names.length) return;
+
+    const pick =
+      actions["idle"] ||
+      actions["Idle"] ||
+      actions["talk"] ||
+      actions["Talk"] ||
+      actions[names[0]];
+
+    if (!pick) return;
+
+    pick.reset().fadeIn(0.2).play();
+    return () => {
+      pick.fadeOut(0.15);
+    };
+  }, [actions, emotion]);
+
+  // ✅ 頭身分離（骨架版做法）：
+  // 最標準是找到 Head bone，單獨改它的 rotation.y
+  // 但骨頭命名每個模型不同，所以先做「整體 yaw」
+  const yaw = previewYaw * 0.6;
+
+  useEffect(() => {
+    if (!group.current) return;
+    group.current.rotation.y = yaw;
+  }, [yaw]);
+
+  // 如果你告訴我你模型 Head bone 叫什麼（例如 "Head" / "mixamorigHead"）
+  // 我可以幫你把「頭轉更大、身體轉更小」完全做到骨架級別。
 
   return (
-    <group>
-      {/* 身體群組 */}
-      <group rotation={[0, bodyYaw, 0]}>
-        {/* 身體 */}
-        <mesh position={[0, 0.15, 0]} material={bodyMat} castShadow receiveShadow>
-          <capsuleGeometry args={[0.55, 0.85, 10, 18]} />
-        </mesh>
-
-        {/* 手 */}
-        <mesh position={[-0.7, 0.25, 0]} material={bodyMat} castShadow>
-          <capsuleGeometry args={[0.18, 0.55, 8, 14]} />
-        </mesh>
-        <mesh position={[0.7, 0.25, 0]} material={bodyMat} castShadow>
-          <capsuleGeometry args={[0.18, 0.55, 8, 14]} />
-        </mesh>
-
-        {/* 腳 */}
-        <mesh position={[-0.22, -0.55, 0.18]} material={bodyMat} castShadow>
-          <capsuleGeometry args={[0.18, 0.22, 8, 14]} />
-        </mesh>
-        <mesh position={[0.22, -0.55, 0.18]} material={bodyMat} castShadow>
-          <capsuleGeometry args={[0.18, 0.22, 8, 14]} />
-        </mesh>
-      </group>
-
-      {/* 頭群組（獨立旋轉） */}
-      <group position={[0, 0.75, 0.08]} rotation={[0, headYaw, 0]}>
-        {/* 頭 */}
-        <mesh material={bodyMat} castShadow>
-          <sphereGeometry args={[0.52, 22, 18]} />
-        </mesh>
-
-        {/* 耳朵 */}
-        <mesh position={[-0.42, 0.33, -0.08]} material={bodyMat} castShadow>
-          <sphereGeometry args={[0.22, 18, 14]} />
-        </mesh>
-        <mesh position={[0.42, 0.33, -0.08]} material={bodyMat} castShadow>
-          <sphereGeometry args={[0.22, 18, 14]} />
-        </mesh>
-
-        {/* 臉罩 */}
-        <mesh position={[0, -0.05, 0.35]} material={faceMat}>
-          <sphereGeometry args={[0.38, 18, 14]} />
-        </mesh>
-
-        {/* 眼睛 */}
-        <mesh position={[-0.16, 0.06, 0.67]}>
-          <sphereGeometry args={[0.05, 16, 12]} />
-          <meshStandardMaterial color="#1b2430" roughness={0.4} />
-        </mesh>
-        <mesh position={[0.16, 0.06, 0.67]}>
-          <sphereGeometry args={[0.05, 16, 12]} />
-          <meshStandardMaterial color="#1b2430" roughness={0.4} />
-        </mesh>
-
-        {/* 鼻子 */}
-        <mesh position={[0, -0.08, 0.72]}>
-          <sphereGeometry args={[0.07, 16, 12]} />
-          <meshStandardMaterial color="#2a3642" roughness={0.3} />
-        </mesh>
-      </group>
-
-      {/* 之後你要做動畫狀態機用（先留著） */}
-      <group userData={{ mood }} />
+    <group ref={group}>
+      <primitive object={scene} />
     </group>
   );
 }
+
+useGLTF.preload("/models/bear_rigged.glb");
