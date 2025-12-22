@@ -1,219 +1,117 @@
 // app/components/Avatar3D.jsx
 "use client";
 
-export default function Avatar3D({
-  variant = "sky",
-  emotion = "idle",
-  previewYaw = 0
-}) {
-  // 顏色
-  const color =
-    variant === "mint"
-      ? "rgba(120, 255, 210, 0.75)"
-      : variant === "purple"
-      ? "rgba(210, 170, 255, 0.75)"
-      : "rgba(160, 220, 255, 0.78)";
+import * as THREE from "three";
+import { useMemo } from "react";
 
-  // 情緒文字（可留著）
+export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw = 0 }) {
+  const { bodyMat, faceMat } = useMemo(() => {
+    const color =
+      variant === "mint" ? new THREE.Color("#6ff0c8") :
+      variant === "purple" ? new THREE.Color("#c79cff") :
+      new THREE.Color("#7cc7ff");
+
+    // 身體：偏玻璃/果凍
+    const bodyMat = new THREE.MeshPhysicalMaterial({
+      color,
+      roughness: 0.25,
+      metalness: 0.0,
+      transmission: 0.45,   // 透光感
+      thickness: 1.0,
+      clearcoat: 0.65,
+      clearcoatRoughness: 0.2,
+      opacity: 0.92,
+      transparent: true
+    });
+
+    // 臉：更霧、更白
+    const faceMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color("#eaf6ff"),
+      roughness: 0.6,
+      metalness: 0.0,
+      opacity: 0.85,
+      transparent: true
+    });
+
+    return { bodyMat, faceMat };
+  }, [variant]);
+
+  // ✅ 頭身分離旋轉（你要的）
+  const bodyYaw = previewYaw * 0.45; // 身體較慢
+  const headYaw = previewYaw * 0.95; // 頭比較靈
+
+  // 情緒（先保留，之後接動畫用）
   const mood =
-    emotion === "thinking"
-      ? "思考中…"
-      : emotion === "happy"
-      ? "開心"
-      : emotion === "sad"
-      ? "難過"
-      : "待機";
-
-  // 旋轉角度（關鍵）
-  const bodyYaw = previewYaw * 22; // 身體：穩定
-  const headYaw = previewYaw * 55; // 頭部：明顯
+    emotion === "thinking" ? "thinking" :
+    emotion === "happy" ? "happy" :
+    emotion === "sad" ? "sad" :
+    "idle";
 
   return (
-    <div className="w-full h-full flex items-center justify-center">
-      {/* 整體舞台 */}
-      <div
-        className="relative"
-        style={{
-          width: "78%",
-          height: "78%",
-          transform: `
-            perspective(900px)
-            rotateX(6deg)
-            rotateY(${bodyYaw}deg)
-          `,
-          transition: "transform 160ms ease"
-        }}
-      >
-        {/* ===== 身體 ===== */}
-        <div
-          style={{
-            position: "absolute",
-            inset: "18% 12% 8% 12%",
-            borderRadius: "42%",
-            background: color,
-            border: "1px solid rgba(255,255,255,0.22)",
-            boxShadow: "0 18px 40px rgba(0,0,0,0.35)"
-          }}
-        />
+    <group>
+      {/* 身體群組 */}
+      <group rotation={[0, bodyYaw, 0]}>
+        {/* 身體 */}
+        <mesh position={[0, 0.15, 0]} material={bodyMat} castShadow receiveShadow>
+          <capsuleGeometry args={[0.55, 0.85, 10, 18]} />
+        </mesh>
 
-        {/* 手臂 */}
-        <div
-          style={{
-            position: "absolute",
-            width: "20%",
-            height: "38%",
-            left: "-6%",
-            top: "36%",
-            borderRadius: 999,
-            background: color,
-            opacity: 0.9
-          }}
-        />
-        <div
-          style={{
-            position: "absolute",
-            width: "20%",
-            height: "38%",
-            right: "-6%",
-            top: "36%",
-            borderRadius: 999,
-            background: color,
-            opacity: 0.9
-          }}
-        />
+        {/* 手 */}
+        <mesh position={[-0.7, 0.25, 0]} material={bodyMat} castShadow>
+          <capsuleGeometry args={[0.18, 0.55, 8, 14]} />
+        </mesh>
+        <mesh position={[0.7, 0.25, 0]} material={bodyMat} castShadow>
+          <capsuleGeometry args={[0.18, 0.55, 8, 14]} />
+        </mesh>
 
         {/* 腳 */}
-        <div
-          style={{
-            position: "absolute",
-            width: "22%",
-            height: "14%",
-            left: "32%",
-            bottom: "0%",
-            borderRadius: 999,
-            background: color
-          }}
-        />
-        <div
-          style={{
-            position: "absolute",
-            width: "22%",
-            height: "14%",
-            right: "32%",
-            bottom: "0%",
-            borderRadius: 999,
-            background: color
-          }}
-        />
+        <mesh position={[-0.22, -0.55, 0.18]} material={bodyMat} castShadow>
+          <capsuleGeometry args={[0.18, 0.22, 8, 14]} />
+        </mesh>
+        <mesh position={[0.22, -0.55, 0.18]} material={bodyMat} castShadow>
+          <capsuleGeometry args={[0.18, 0.22, 8, 14]} />
+        </mesh>
+      </group>
 
-        {/* ===== 頭部（獨立旋轉） ===== */}
-        <div
-          style={{
-            position: "absolute",
-            top: "0%",
-            left: "12%",
-            right: "12%",
-            height: "42%",
-            transform: `rotateY(${headYaw}deg)`,
-            transformOrigin: "50% 65%",
-            transition: "transform 120ms ease"
-          }}
-        >
-          {/* 頭 */}
-          <div
-            style={{
-              position: "absolute",
-              inset: "18% 0 0 0",
-              borderRadius: "48%",
-              background: color,
-              border: "1px solid rgba(255,255,255,0.25)"
-            }}
-          />
+      {/* 頭群組（獨立旋轉） */}
+      <group position={[0, 0.75, 0.08]} rotation={[0, headYaw, 0]}>
+        {/* 頭 */}
+        <mesh material={bodyMat} castShadow>
+          <sphereGeometry args={[0.52, 22, 18]} />
+        </mesh>
 
-          {/* 耳朵 */}
-          <div
-            style={{
-              position: "absolute",
-              width: "28%",
-              height: "28%",
-              left: "-8%",
-              top: "6%",
-              borderRadius: 999,
-              background: color
-            }}
-          />
-          <div
-            style={{
-              position: "absolute",
-              width: "28%",
-              height: "28%",
-              right: "-8%",
-              top: "6%",
-              borderRadius: 999,
-              background: color
-            }}
-          />
+        {/* 耳朵 */}
+        <mesh position={[-0.42, 0.33, -0.08]} material={bodyMat} castShadow>
+          <sphereGeometry args={[0.22, 18, 14]} />
+        </mesh>
+        <mesh position={[0.42, 0.33, -0.08]} material={bodyMat} castShadow>
+          <sphereGeometry args={[0.22, 18, 14]} />
+        </mesh>
 
-          {/* 臉 */}
-          <div
-            style={{
-              position: "absolute",
-              left: "22%",
-              right: "22%",
-              top: "44%",
-              height: "34%",
-              borderRadius: "999px",
-              background: "rgba(255,255,255,0.35)"
-            }}
-          />
+        {/* 臉罩 */}
+        <mesh position={[0, -0.05, 0.35]} material={faceMat}>
+          <sphereGeometry args={[0.38, 18, 14]} />
+        </mesh>
 
-          {/* 眼睛 */}
-          <div
-            style={{
-              position: "absolute",
-              width: 6,
-              height: 6,
-              background: "rgba(0,0,0,0.45)",
-              borderRadius: 999,
-              left: "40%",
-              top: "54%"
-            }}
-          />
-          <div
-            style={{
-              position: "absolute",
-              width: 6,
-              height: 6,
-              background: "rgba(0,0,0,0.45)",
-              borderRadius: 999,
-              right: "40%",
-              top: "54%"
-            }}
-          />
+        {/* 眼睛 */}
+        <mesh position={[-0.16, 0.06, 0.67]}>
+          <sphereGeometry args={[0.05, 16, 12]} />
+          <meshStandardMaterial color="#1b2430" roughness={0.4} />
+        </mesh>
+        <mesh position={[0.16, 0.06, 0.67]}>
+          <sphereGeometry args={[0.05, 16, 12]} />
+          <meshStandardMaterial color="#1b2430" roughness={0.4} />
+        </mesh>
 
-          {/* 鼻子 */}
-          <div
-            style={{
-              position: "absolute",
-              width: 10,
-              height: 8,
-              background: "rgba(0,0,0,0.35)",
-              borderRadius: "50%",
-              left: "50%",
-              top: "62%",
-              transform: "translateX(-50%)"
-            }}
-          />
-        </div>
+        {/* 鼻子 */}
+        <mesh position={[0, -0.08, 0.72]}>
+          <sphereGeometry args={[0.07, 16, 12]} />
+          <meshStandardMaterial color="#2a3642" roughness={0.3} />
+        </mesh>
+      </group>
 
-        {/* 情緒文字 */}
-        <div
-          className="absolute left-1/2 -translate-x-1/2 bottom-[-34px] text-[11px] text-white/60"
-          style={{ whiteSpace: "nowrap" }}
-        >
-          {mood}
-        </div>
-      </div>
-    </div>
+      {/* 之後你要做動畫狀態機用（先留著） */}
+      <group userData={{ mood }} />
+    </group>
   );
 }
