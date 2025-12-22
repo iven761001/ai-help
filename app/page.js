@@ -21,6 +21,7 @@ export default function Page() {
 
   // 角色資料（email / color/avatar / voice / nickname）
   const [user, setUser] = useState({
+    
     email: "",
     avatar: "sky",
     color: "sky",
