@@ -2,51 +2,57 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import useDragRotate from "../hooks/useDragRotate";
 
+// 你現在 Avatar3D 是純 React 畫圖，不需要 dynamic 也行
+// 但保留 dynamic 可避免你之後換 three.js 時 SSR 出事
 const Avatar3D = dynamic(() => import("./Avatar3D"), { ssr: false });
 
 export default function AvatarStage({
-  mode, // "create" | "chat"
-  draft,
   user,
   emotion = "idle",
-  onHudHeight
+  className = "",
+  disableDrag = false
 }) {
-  const name = mode === "chat" ? user?.nickname : draft?.nickname;
-  const variant = mode === "chat" ? user?.avatar : (draft?.avatar || draft?.color);
+  const { yaw, bind } = useDragRotate({ sensitivity: 0.01 });
+
+  const variant = user?.avatar || user?.color || "sky";
+  const nickname = user?.nickname || "尚未命名";
 
   return (
-    <div className="relative w-full h-full">
-      {/* 舞台（永遠佔滿，底部由 page.js 用 paddingBottom 讓位） */}
-      <div className="absolute inset-0 flex items-center justify-center px-4 pt-6">
-        <div className="w-full max-w-sm">
-          <div className="glass-card rounded-[28px] p-3">
-            <div className="aspect-square rounded-2xl glass-soft overflow-hidden">
-              <Avatar3D variant={variant || "sky"} emotion={emotion} />
-            </div>
+    <div className={className}>
+      {/* 舞台卡 */}
+      <div className="glass-card rounded-3xl p-3">
+        {/* ✅ 熊舞台：一定要 relative + overflow-hidden */}
+        <div className="relative aspect-square rounded-2xl glass-soft overflow-hidden">
+          {/* 熊本體 */}
+          <div className="absolute inset-0">
+            <Avatar3D variant={variant} emotion={emotion} previewYaw={yaw} />
+          </div>
 
-            <div className="mt-3 text-center">
-              <div className="text-sm font-semibold text-white">
-                {name ? `「${name}」` : "尚未命名"}
-              </div>
+          {/* ✅ 手勢捕捉層：確保拖拉事件一定吃得到 */}
+          {!disableDrag && (
+            <div
+              className="absolute inset-0 z-10"
+              style={{
+                touchAction: "none", // ✅ 關鍵：不讓瀏覽器把拖拉當成捲動
+                WebkitUserSelect: "none",
+                userSelect: "none"
+              }}
+              {...bind}
+            />
+          )}
+        </div>
 
-              <div className="text-xs text-white/70 mt-1">
-                {mode === "chat"
-                  ? `顏色：${labelColor(user?.avatar)} ／ 聲線：${labelVoice(user?.voice)}`
-                  : `顏色：${labelColor(draft?.color || draft?.avatar)} ／ 聲線：${labelVoice(draft?.voice)}`
-                }
-              </div>
-
-              <div className="text-[11px] text-white/55 mt-1">
-                {mode === "chat" ? "聊天中也會持續互動（下一步可加骨架動畫）" : "下方調整你的角色設定"}
-              </div>
-            </div>
+        {/* 文字區 */}
+        <div className="mt-3 space-y-1 px-2 pb-1 text-center">
+          <div className="text-sm font-semibold text-white">{nickname}</div>
+          <div className="text-xs text-white/70">
+            顏色：{labelColor(user?.color || user?.avatar)} ／ 聲線：
+            {labelVoice(user?.voice)}
           </div>
         </div>
       </div>
-
-      {/* 這個只是保留接口，實際高度由 HUD 元件透過 onHeightChange 回報給 page.js */}
-      <div className="hidden" data-onHudHeight={onHudHeight ? "1" : "0"} />
     </div>
   );
 }
@@ -56,7 +62,6 @@ function labelColor(id) {
   if (id === "purple") return "紫色";
   return "天空藍";
 }
-
 function labelVoice(id) {
   if (id === "calm") return "冷靜條理";
   if (id === "energetic") return "活潑有精神";
