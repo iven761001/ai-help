@@ -1,5 +1,5 @@
 "use client";
-
+import Avatar3D from "../AvatarVRM/Avatar3D";
 import { useMemo, useRef, useState } from "react";
 
 export default function useDragRotate({ sensitivity = 0.01 } = {}) {
