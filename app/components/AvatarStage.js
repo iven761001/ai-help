@@ -4,7 +4,7 @@
 import { Suspense, useMemo } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Environment, ContactShadows, OrbitControls } from "@react-three/drei";
-import Avatar3D from "./Avatar3D";
+import Avatar3D from "./AvatarVRM/Avatar3D";
 
 export default function AvatarStage({
   variant = "sky",
