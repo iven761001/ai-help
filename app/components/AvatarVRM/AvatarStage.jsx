@@ -5,7 +5,7 @@ import { Suspense, useMemo } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Environment, ContactShadows, OrbitControls } from "@react-three/drei";
 
-import Avatar3D from "./Avatar3D"; // ✅ 同資料夾就這樣引
+import Avatar3D from "./Avatar3D"; // ✅ 同資料夾，固定這條
 
 export default function AvatarStage({
   profile,
@@ -14,9 +14,8 @@ export default function AvatarStage({
   previewYaw = 0,
   interactive = true
 }) {
-  // 兼容兩種傳法：profile 優先，沒有就用 variant
+  // 兼容：profile 優先
   const v = profile?.avatar || profile?.color || variant || "sky";
-
   const camera = useMemo(() => ({ position: [0, 1.2, 3.2], fov: 40 }), []);
 
   return (
@@ -32,12 +31,11 @@ export default function AvatarStage({
         <directionalLight position={[-3, 2, -2]} intensity={0.6} />
 
         <Suspense fallback={null}>
-          {/* ✅ 旋轉在 Stage 這層做，保證你拖曳一定有效 */}
+          {/* ✅ 旋轉固定在這層做：你拖曳一定會動 */}
           <group position={[0, -0.25, 0]} rotation={[0, previewYaw, 0]}>
             <Avatar3D variant={v} emotion={emotion} />
           </group>
 
-          {/* 地面陰影：立體感 */}
           <ContactShadows
             opacity={0.35}
             scale={6}
@@ -50,12 +48,8 @@ export default function AvatarStage({
           <Environment preset="city" />
         </Suspense>
 
-        {/* Orbit 先關閉，避免跟你的 drag 互搶 */}
-        <OrbitControls
-          enabled={false}
-          enableZoom={false}
-          enablePan={false}
-        />
+        {/* 避免跟你的拖曳打架 */}
+        <OrbitControls enabled={false} enableZoom={false} enablePan={false} />
       </Canvas>
     </div>
   );
