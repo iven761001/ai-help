@@ -1,31 +1,55 @@
-// app/components/AvatarVRM/Avatar3D.jsx
+// app/components/AvatarVRM/AvatarStage.jsx
 "use client";
 
+import { Suspense, useMemo } from "react";
 import { Canvas } from "@react-three/fiber";
-import { Environment } from "@react-three/drei";
-import VRMModel from "./VRMModel";
+import { Environment, ContactShadows, OrbitControls } from "@react-three/drei";
 
-export default function Avatar3D({
-  url = "/vrm/hero.vrm",
+import Avatar3D from "./Avatar3D"; // ✅ 同資料夾，固定這條
+
+export default function AvatarStage({
+  profile,
+  variant = "sky",
   emotion = "idle",
   previewYaw = 0,
-  className = ""
+  interactive = true
 }) {
+  // 兼容：profile 優先
+  const v = profile?.avatar || profile?.color || variant || "sky";
+  const camera = useMemo(() => ({ position: [0, 1.2, 3.2], fov: 40 }), []);
+
   return (
-    <div className={`w-full h-full ${className}`}>
+    <div className="w-full h-full">
       <Canvas
-        camera={{ position: [0, 1.35, 2.6], fov: 35 }}
-        style={{ width: "100%", height: "100%", background: "transparent" }}
-        gl={{ antialias: true, alpha: true }}
+        camera={camera}
+        gl={{ alpha: true, antialias: true }}
+        style={{ background: "transparent" }}
       >
-        <ambientLight intensity={0.6} />
-        <directionalLight position={[3, 6, 4]} intensity={1.2} />
-        <pointLight position={[-2, 1.5, 2]} intensity={0.6} />
+        {/* 光 */}
+        <ambientLight intensity={0.7} />
+        <directionalLight position={[3, 5, 2]} intensity={1.2} />
+        <directionalLight position={[-3, 2, -2]} intensity={0.6} />
 
-        {/* 讓材質更漂亮（可換掉） */}
-        <Environment preset="city" />
+        <Suspense fallback={null}>
+          {/* ✅ 旋轉固定在這層做：你拖曳一定會動 */}
+          <group position={[0, -0.25, 0]} rotation={[0, previewYaw, 0]}>
+            <Avatar3D variant={v} emotion={emotion} />
+          </group>
 
-        <VRMModel url={url} emotion={emotion} previewYaw={previewYaw} />
+          <ContactShadows
+            opacity={0.35}
+            scale={6}
+            blur={2.2}
+            far={6}
+            resolution={256}
+            position={[0, -1.05, 0]}
+          />
+
+          <Environment preset="city" />
+        </Suspense>
+
+        {/* 避免跟你的拖曳打架 */}
+        <OrbitControls enabled={false} enableZoom={false} enablePan={false} />
       </Canvas>
     </div>
   );
