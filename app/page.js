@@ -1,246 +1,308 @@
+// app/page.js
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import TechBackground from "./components/global/TechBackground";
-import BindEmailScreen from "./components/screens/BindEmailScreen";
-import AvatarStage from "./components/AvatarStage";
-import CompassCreator from "./components/CompassCreator";
-import ChatHUD from "./components/ChatHUD";
 
-import { loadUser, saveUser } from "./lib/storage";
+import AvatarStage from "./components/AvatarVRM/AvatarStage";
 
-/**
- * phases:
- * - bind   : 綁定 email
- * - create : 選色/個性/名字（CompassCreator）
- * - chat   : 對話（ChatHUD）
- */
+import CompassCreator from "./components/Creator/CompassCreator";
+import ChatHUD from "./components/HUD/ChatHUD";
+
+import useDragRotate from "./hooks/useDragRotate";
+
+import { loadUser, saveUser, clearUser } from "./lib/storage";
+
+function cx(...arr) {
+  return arr.filter(Boolean).join(" ");
+}
+
 export default function Page() {
-  const [phase, setPhase] = useState("bind");
+  // ====== 使用者資料（localStorage） ======
+  const [user, setUser] = useState(null);
+  const [booted, setBooted] = useState(false);
 
-  // 角色資料（email / color/avatar / voice / nickname）
-  const [user, setUser] = useState({
-    
+  // ====== 流程狀態：bind(信箱) -> create(選角) -> chat(聊天) ======
+  const [step, setStep] = useState("bind");
+
+  // ====== 綁定信箱 ======
+  const [email, setEmail] = useState("");
+
+  // ====== 角色草稿（選角面板） ======
+  const [draft, setDraft] = useState({
     email: "",
-    avatar: "sky",
     color: "sky",
+    avatar: "sky",
     voice: "warm",
     nickname: ""
   });
 
-  // Chat 狀態
+  // ====== Chat 狀態 ======
   const [messages, setMessages] = useState([]);
-  const [sending, setSending] = useState(false);
   const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
 
-  // 轉場動畫用（HUD 互換）
-  const [hudMode, setHudMode] = useState("create"); // create | chat
-  const [hudAnimating, setHudAnimating] = useState(false);
-  const hudModeRef = useRef(hudMode);
+  // ====== 拖曳旋轉（舞台統一使用） ======
+  const { yaw, bind } = useDragRotate({ sensitivity: 0.01 });
 
-  // 初次載入：如果 localStorage 有 user，就直接略過 bind
+  // ====== 初始載入 user ======
   useEffect(() => {
-    const u = loadUser?.();
+    const u = loadUser();
     if (u?.email) {
-      setUser((prev) => ({ ...prev, ...u }));
-      // 如果資料已完整，就直接到 create（或你要直接 chat 也行）
-      setPhase("create");
-      setHudMode("create");
-      hudModeRef.current = "create";
+      setUser(u);
+      setDraft((d) => ({ ...d, ...u })); // 讓草稿沿用
+      setStep(u?.nickname ? "chat" : "create");
+      setEmail(u.email);
     } else {
-      setPhase("bind");
+      setStep("bind");
     }
+    setBooted(true);
   }, []);
 
-  // user 變動就存起來（避免刷新不見）
-  useEffect(() => {
-    if (!user?.email) return;
-    saveUser?.(user);
-  }, [user]);
-
-  // ===== Bind Email =====
-  const onBindSubmit = (e) => {
-    e?.preventDefault?.();
-    const email = (user.email || "").trim();
-    if (!email) return;
-
-    // 進入創角
-    setPhase("create");
-    setHudMode("create");
-    hudModeRef.current = "create";
-  };
-
-  // ===== Create -> Chat 轉場 =====
-  const goToChat = () => {
-    if (hudModeRef.current === "chat") {
-      setPhase("chat");
-      return;
-    }
-    setHudAnimating(true);
-
-    // 先把 phase 切到 chat（但 HUD 用動畫進場）
-    setPhase("chat");
-
-    // 下一幀切 HUD 模式，讓 CSS transition 生效
-    requestAnimationFrame(() => {
-      setHudMode("chat");
-      hudModeRef.current = "chat";
-      // 動畫時間要跟下面 class 的 duration 一致
-      window.setTimeout(() => setHudAnimating(false), 280);
-    });
-  };
-
-  const backToCreator = () => {
-    if (hudModeRef.current === "create") {
-      setPhase("create");
-      return;
-    }
-    setHudAnimating(true);
-    setPhase("create");
-    requestAnimationFrame(() => {
-      setHudMode("create");
-      hudModeRef.current = "create";
-      window.setTimeout(() => setHudAnimating(false), 280);
-    });
-  };
-
-  // ===== Chat send =====
-  const sendToAPI = async (text) => {
-    const payload = {
-      user,
-      messages: [...messages, { role: "user", content: text }]
+  // ====== 舞台顯示的「當下角色」 ======
+  const stageProfile = useMemo(() => {
+    const base = user?.email ? { ...draft, ...user } : draft;
+    return {
+      email: base.email || "",
+      color: base.color || base.avatar || "sky",
+      avatar: base.avatar || base.color || "sky",
+      voice: base.voice || "warm",
+      nickname: base.nickname || ""
     };
+  }, [user, draft]);
 
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload)
-    });
+  // ====== 舞台情緒（示範：送出/思考時） ======
+  const stageEmotion = useMemo(() => {
+    if (sending) return "thinking";
+    return "idle";
+  }, [sending]);
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(errText || "API error");
-    }
+  // ====== 綁定信箱：送出 ======
+  const submitEmail = (e) => {
+    e.preventDefault();
+    const mail = (email || "").trim();
+    if (!mail) return;
 
-    const data = await res.json();
-    return data?.reply || "（沒有回覆）";
+    const next = {
+      email: mail,
+      color: "sky",
+      avatar: "sky",
+      voice: "warm",
+      nickname: ""
+    };
+    setUser(next);
+    setDraft(next);
+    saveUser(next);
+    setStep("create");
   };
 
+  // ====== 選角完成 ======
+  const onDoneCreator = () => {
+    const profile = {
+      ...user,
+      ...draft,
+      email: user?.email || draft.email,
+      color: draft.color || draft.avatar || "sky",
+      avatar: draft.avatar || draft.color || "sky"
+    };
+    setUser(profile);
+    saveUser(profile);
+    setStep("chat");
+  };
+
+  // ====== 回到選角（聊天頁左上返回） ======
+  const onBackToCreator = () => {
+    setStep("create");
+  };
+
+  // ====== Chat：送出訊息（你之後要接 API） ======
   const onSend = async (text) => {
     const t = (text || "").trim();
-    if (!t || sending) return;
+    if (!t) return;
 
     setSending(true);
     setMessages((prev) => [...prev, { role: "user", content: t }]);
 
     try {
-      const reply = await sendToAPI(t);
+      // 你有 app/api/chat/route.js 的話，這裡就能直接打
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user: stageProfile,
+          messages: [...messages, { role: "user", content: t }]
+        })
+      });
+
+      if (!res.ok) throw new Error("API Error");
+      const data = await res.json();
+
+      const reply =
+        data?.reply ||
+        data?.message ||
+        "我有收到！你要不要再多描述一下情境（材質/位置/有沒有鍍膜）？";
+
       setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
-    } catch (e) {
+    } catch (err) {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: `（系統錯誤）${e?.message || "請稍後再試"}` }
+        {
+          role: "assistant",
+          content: "我這邊連線好像卡住了😅 你再送一次看看，或等一下我。"
+        }
       ]);
     } finally {
       setSending(false);
     }
   };
 
-  // ===== HUD 高度統一：避免擠到熊 =====
-  // 你可以微調這個數字：越大下方越高，上方熊越不會被蓋到
-  const HUD_HEIGHT = "clamp(360px, 44vh, 520px)";
+  // ====== 退出重來（可用在 debug） ======
+  const hardReset = () => {
+    clearUser();
+    setUser(null);
+    setDraft({
+      email: "",
+      color: "sky",
+      avatar: "sky",
+      voice: "warm",
+      nickname: ""
+    });
+    setMessages([]);
+    setInput("");
+    setEmail("");
+    setStep("bind");
+  };
 
-  // ===== 畫面 =====
+  if (!booted) return null;
+
   return (
-    <TechBackground>
-      {/* 1) bind email 畫面 */}
-      {phase === "bind" && (
-        <div className="min-h-screen flex items-center justify-center px-4">
-          <div className="w-full max-w-xl">
-            <BindEmailScreen
-              email={user.email}
-              setEmail={(v) => setUser((p) => ({ ...p, email: v }))}
-              onSubmit={onBindSubmit}
-            />
-          </div>
-        </div>
-      )}
+    <main className="min-h-[100dvh] w-full relative overflow-hidden">
+      {/* 背景（全透明科技感） */}
+      <div className="absolute inset-0 -z-10">
+        <TechBackground />
+      </div>
 
-      {/* 2) create/chat 共用舞台 + HUD */}
-      {phase !== "bind" && (
-        <div
-          className="min-h-screen w-full mx-auto max-w-4xl px-3"
-          style={{
-            display: "grid",
-            gridTemplateRows: `1fr ${HUD_HEIGHT}`
-          }}
-        >
-          {/* 上方：永遠同一個熊舞台（沉浸感） */}
-          <div className="relative flex items-center justify-center pt-6 pb-3">
-            <AvatarStage
-              user={user}
-              // 你之後要讓熊「活蹦亂跳」可以把情緒/狀態從這裡傳進去
-              // emotion={...}
-              // onTap={...}
-            />
-
-            {/* 可選：舞台下方資訊（你要更乾淨也可刪） */}
-            <div className="absolute bottom-2 left-0 right-0 text-center">
-              <div className="text-white/90 text-sm font-semibold">
-                {user.nickname ? `「${user.nickname}」` : "尚未命名"}
-              </div>
-              <div className="text-white/60 text-[11px]">
-                顏色：{labelColor(user.color || user.avatar)} ／ 聲線：
-                {labelVoice(user.voice)}
-              </div>
-            </div>
-          </div>
-
-          {/* 下方：HUD 固定高度，不會擠熊 */}
-          <div className="relative pb-[calc(env(safe-area-inset-bottom)+10px)]">
-            {/* Create HUD */}
+      {/* ===== 上半部：永遠固定的 Avatar 舞台（不會被聊天擠上去） ===== */}
+      <section className="w-full px-4 pt-6">
+        <div className="mx-auto w-full max-w-md">
+          <div className="rounded-[32px] border border-white/10 bg-white/5 backdrop-blur-xl shadow-[0_25px_80px_rgba(0,0,0,0.55)] overflow-hidden">
             <div
-              className={[
-                "absolute inset-0 transition-transform duration-300 ease-out",
-                hudMode === "create"
-                  ? "translate-y-0"
-                  : "translate-y-[110%]" // 往下退場
-              ].join(" ")}
-              style={{ pointerEvents: hudMode === "create" ? "auto" : "none" }}
+              className="aspect-square w-full overflow-hidden"
+              {...bind}
+              style={{ WebkitTapHighlightColor: "transparent" }}
             >
-              <CompassCreator
-                value={user}
-                onChange={(next) => setUser(next)}
-                onDone={goToChat}
-                disabled={hudAnimating}
+              <AvatarStage
+                profile={stageProfile}
+                emotion={stageEmotion}
+                previewYaw={yaw}
               />
             </div>
 
-            {/* Chat HUD */}
-            <div
-              className={[
-                "absolute inset-0 transition-transform duration-300 ease-out",
-                hudMode === "chat"
-                  ? "translate-y-0"
-                  : "translate-y-[110%]" // 先藏在下面，進場
-              ].join(" ")}
-              style={{ pointerEvents: hudMode === "chat" ? "auto" : "none" }}
-            >
-              <ChatHUD
-                user={user}
-                messages={messages}
-                sending={sending}
-                input={input}
-                setInput={setInput}
-                onSend={onSend}
-                onBackToCreator={backToCreator}
-              />
+            {/* 舞台下方資訊（共用，讓選角->聊天有延伸感） */}
+            <div className="px-4 pt-3 pb-4 text-center">
+              <div className="text-sm font-semibold text-white">
+                {stageProfile.nickname ? `「${stageProfile.nickname}」` : "尚未命名"}
+              </div>
+              <div className="text-[11px] text-white/70 mt-1">
+                顏色：{labelColor(stageProfile.color)} ／ 聲線：{labelVoice(stageProfile.voice)}
+              </div>
             </div>
           </div>
         </div>
-      )}
-    </TechBackground>
+      </section>
+
+      {/* ===== 下半部：面板區（固定高度，不蓋到熊） ===== */}
+      <section className="w-full px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] mt-4">
+        <div className="mx-auto w-full max-w-md">
+          {/* 這個容器固定高度，聊天再多也只在裡面捲，不會把熊推走 */}
+          <div className="h-[44dvh] min-h-[360px]">
+            {/* Step: Bind Email */}
+            {step === "bind" && (
+              <div
+                className="
+                  h-full
+                  rounded-[28px]
+                  border border-white/15
+                  bg-white/10
+                  backdrop-blur-xl
+                  shadow-[0_-12px_50px_rgba(56,189,248,0.15)]
+                  overflow-hidden
+                  flex flex-col
+                "
+              >
+                <div className="px-4 pt-4 pb-3">
+                  <div className="text-sm font-semibold text-white">綁定信箱</div>
+                  <div className="text-[11px] text-white/70 mt-1">
+                    綁定後會記住你的角色設定（存在你的手機瀏覽器）
+                  </div>
+                </div>
+
+                <form onSubmit={submitEmail} className="px-4 pb-4 flex-1 flex flex-col gap-3">
+                  <input
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="例如：you@gmail.com"
+                    className="
+                      w-full rounded-2xl
+                      border border-white/15 bg-black/20
+                      text-white px-4 py-3 text-sm outline-none
+                      placeholder:text-white/40 focus:ring-2 focus:ring-sky-400
+                    "
+                  />
+
+                  <button
+                    type="submit"
+                    className="
+                      rounded-full px-4 py-3 text-sm font-medium
+                      bg-sky-500 text-white hover:bg-sky-400 transition
+                      active:scale-[0.99]
+                    "
+                  >
+                    下一步
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={hardReset}
+                    className="text-[11px] text-white/50 underline underline-offset-4 mt-1"
+                  >
+                    （Debug）清除綁定重來
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* Step: Creator */}
+            {step === "create" && (
+              <div className="h-full">
+                <CompassCreator
+                  value={{ ...draft, email: user?.email || draft.email }}
+                  onChange={(v) => setDraft(v)}
+                  onDone={onDoneCreator}
+                  disabled={false}
+                />
+              </div>
+            )}
+
+            {/* Step: Chat */}
+            {step === "chat" && (
+              <div className="h-full">
+                <ChatHUD
+                  user={stageProfile}
+                  messages={messages}
+                  sending={sending}
+                  input={input}
+                  setInput={setInput}
+                  onSend={onSend}
+                  onBackToCreator={onBackToCreator}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+    </main>
   );
 }
 
