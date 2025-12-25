@@ -187,11 +187,17 @@ export default function Page() {
       <section className="w-full px-4 pt-6">
         <div className="mx-auto w-full max-w-md">
           <div className="rounded-[32px] border border-white/10 bg-white/5 backdrop-blur-xl shadow-[0_25px_80px_rgba(0,0,0,0.55)] overflow-hidden">
-            <div
-              className="aspect-square w-full overflow-hidden"
-              {...bind}
-              style={{ WebkitTapHighlightColor: "transparent" }}
-            >
+            const dragBind = typeof bind === "function" ? bind() : bind; // ✅ 兼容兩種 hook 寫法
+...
+<div
+  className="aspect-square w-full overflow-hidden"
+  {...dragBind}
+  style={{
+    WebkitTapHighlightColor: "transparent",
+    touchAction: "none", // ✅ 手機一定要，否則拖曳常被瀏覽器吃掉
+    userSelect: "none"
+  }}
+>
               <AvatarStage
                 profile={stageProfile}
                 emotion={stageEmotion}
