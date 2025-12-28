@@ -32,7 +32,7 @@ class StageErrorBoundary extends React.Component {
 }
 
 export default function AvatarStage({ variant="sky", emotion="idle", previewYaw=0 }) {
-  const camera = useMemo(() => ({ position: [0, 1.2, 3.2], fov: 40 }), []);
+  const camera = useMemo(() => ({ position: [0, 1.4, 2.2], fov: 35 }), []);
 
   return (
     <div className="w-full h-full">
