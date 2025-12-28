@@ -1,166 +1,203 @@
+// app/components/AvatarVRM/Avatar3D.jsx
 "use client";
 
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { useFrame, useLoader } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
+import { VRM, VRMUtils } from "@pixiv/three-vrm";
 
 const VRM_URL = "/vrm/avatar.vrm";
 
-/** 套自然待機姿勢（把T-pose放鬆） */
-function applyIdlePose(vrm) {
-  if (!vrm?.humanoid) return;
-
-  const get = (name) => vrm.humanoid.getNormalizedBoneNode(name);
-
-  // 先確保是 "Rest Pose" 起手式（不同VRM可能原始姿勢不一樣）
-  // VRMUtils.rotateVRM0 はモデルの向き調整；這裡不動它，舞台已經處理好置中/縮放。
-  // 但我們會先把骨頭 rotation 稍微 reset 到 0，避免疊加奇怪姿勢。
-  const resetBone = (bone) => {
-    if (!bone) return;
-    bone.rotation.set(0, 0, 0);
-  };
-
-  const bonesToReset = [
-    "hips",
-    "spine",
-    "chest",
-    "upperChest",
-    "neck",
-    "head",
-    "leftShoulder",
-    "rightShoulder",
-    "leftUpperArm",
-    "rightUpperArm",
-    "leftLowerArm",
-    "rightLowerArm",
-    "leftHand",
-    "rightHand",
-    "leftUpperLeg",
-    "rightUpperLeg",
-    "leftLowerLeg",
-    "rightLowerLeg",
-    "leftFoot",
-    "rightFoot"
-  ];
-
-  for (const b of bonesToReset) resetBone(get(b));
-
-  // --- 進入「自然待機」---
-  const spine = get("spine");
-  const chest = get("chest") || get("upperChest");
-  const neck = get("neck");
-  const head = get("head");
-
-  const lShoulder = get("leftShoulder");
-  const rShoulder = get("rightShoulder");
-  const lUpperArm = get("leftUpperArm");
-  const rUpperArm = get("rightUpperArm");
-  const lLowerArm = get("leftLowerArm");
-  const rLowerArm = get("rightLowerArm");
-  const lHand = get("leftHand");
-  const rHand = get("rightHand");
-
-  // 身體微調：不要像木板
-  if (spine) spine.rotation.x = THREE.MathUtils.degToRad(2);
-  if (chest) chest.rotation.x = THREE.MathUtils.degToRad(3);
-  if (neck) neck.rotation.x = THREE.MathUtils.degToRad(2);
-  if (head) head.rotation.x = THREE.MathUtils.degToRad(-1);
-
-  // 肩膀放鬆（略下沉、略後收）
-  if (lShoulder) {
-    lShoulder.rotation.z = THREE.MathUtils.degToRad(6);
-    lShoulder.rotation.y = THREE.MathUtils.degToRad(4);
-  }
-  if (rShoulder) {
-    rShoulder.rotation.z = THREE.MathUtils.degToRad(-6);
-    rShoulder.rotation.y = THREE.MathUtils.degToRad(-4);
-  }
-
-  // 上臂：從水平放下來（關鍵）
-  if (lUpperArm) {
-    lUpperArm.rotation.z = THREE.MathUtils.degToRad(25);  // 放下
-    lUpperArm.rotation.x = THREE.MathUtils.degToRad(6);   // 微向前
-    lUpperArm.rotation.y = THREE.MathUtils.degToRad(8);   // 微外展
-  }
-  if (rUpperArm) {
-    rUpperArm.rotation.z = THREE.MathUtils.degToRad(-25);
-    rUpperArm.rotation.x = THREE.MathUtils.degToRad(6);
-    rUpperArm.rotation.y = THREE.MathUtils.degToRad(-8);
-  }
-
-  // 前臂：微彎（不要僵直）
-  if (lLowerArm) lLowerArm.rotation.z = THREE.MathUtils.degToRad(18);
-  if (rLowerArm) rLowerArm.rotation.z = THREE.MathUtils.degToRad(-18);
-
-  // 手腕：微內收、自然垂
-  if (lHand) {
-    lHand.rotation.z = THREE.MathUtils.degToRad(6);
-    lHand.rotation.x = THREE.MathUtils.degToRad(4);
-  }
-  if (rHand) {
-    rHand.rotation.z = THREE.MathUtils.degToRad(-6);
-    rHand.rotation.x = THREE.MathUtils.degToRad(4);
-  }
-}
-
+/**
+ * 穩定策略：
+ * 1) 只在 client 載入
+ * 2) 載入失敗不炸整頁（回傳 null）
+ * 3) 以 model 的 bounding box 自動置中 + 自動縮放到舞台
+ * 4) 轉頭：head bone 旋轉
+ * 5) 眼睛：VRM lookAt applier
+ */
 export default function Avatar3D({
   variant = "sky",
   emotion = "idle",
-  previewYaw = 0
+  previewYaw = 0,
 }) {
-  // 用 ref 記著 vrm（方便 useFrame update）
-  const vrmRef = useRef(null);
+  const groupRef = useRef();
+  const [vrm, setVrm] = useState(null);
+  const [error, setError] = useState("");
 
-  // VRM 載入（用 GLTFLoader + VRMLoaderPlugin）
-  const gltf = useLoader(
-    GLTFLoader,
-    VRM_URL,
-    (loader) => {
-      loader.crossOrigin = "anonymous";
-      loader.register((parser) => new VRMLoaderPlugin(parser));
-    }
-  );
+  // 你要的「角色顏色」目前先保留（未來可做燈光/濾鏡或材質）
+  const tint = useMemo(() => {
+    if (variant === "mint") return new THREE.Color(0x8dffd7);
+    if (variant === "purple") return new THREE.Color(0xd3b2ff);
+    return new THREE.Color(0xa0dcff);
+  }, [variant]);
 
-  // 取得 VRM（three-vrm 會掛在 userData.vrm）
-  const vrm = useMemo(() => gltf?.userData?.vrm || null, [gltf]);
-
+  // ====== 讀 VRM ======
   useEffect(() => {
-    if (!vrm) return;
+    let mounted = true;
 
-    // 有些模型會朝向不一致：這行會讓 VRM 正方向一致（通常是面向 +Z 或 -Z 問題）
-    // 如果你現在方向已經對，就保留；若方向突然翻轉，再跟我說我幫你調整。
-    VRMUtils.rotateVRM0(vrm);
-
-    // 套自然待機姿勢
-    applyIdlePose(vrm);
-
-    // 記住
-    vrmRef.current = vrm;
-
-    // 清理：離開頁面釋放
-    return () => {
+    async function load() {
       try {
-        vrmRef.current = null;
-        vrm.scene?.traverse((obj) => {
-          if (obj.isMesh) {
-            obj.geometry?.dispose?.();
-            if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose?.());
-            else obj.material?.dispose?.();
+        setError("");
+        const loader = new GLTFLoader();
+
+        // VRM 需要這個來移除不必要座標系/最佳化
+        loader.crossOrigin = "anonymous";
+
+        const gltf = await new Promise((resolve, reject) => {
+          loader.load(
+            VRM_URL,
+            (g) => resolve(g),
+            undefined,
+            (e) => reject(e)
+          );
+        });
+
+        if (!mounted) return;
+
+        // VRMUtils：清理 joints 等，避免效能/怪問題
+        VRMUtils.removeUnnecessaryVertices(gltf.scene);
+        VRMUtils.removeUnnecessaryJoints(gltf.scene);
+
+        const vrmParsed = await VRM.from(gltf);
+
+        if (!mounted) return;
+
+        // 一些 VRM 會面向 -Z 或比例怪：確保方向一致
+        vrmParsed.scene.rotation.y = Math.PI; // 常見 VRM 面向相反，這行能讓角色面向鏡頭（若你覺得反了就註解）
+        vrmParsed.scene.traverse((o) => {
+          if (o.isMesh) {
+            o.frustumCulled = false; // 手機/裁切問題避免瞬間消失
           }
         });
+
+        setVrm(vrmParsed);
+      } catch (e) {
+        console.error("[Avatar3D] VRM load error:", e);
+        setError(e?.message || "VRM load failed");
+      }
+    }
+
+    load();
+    return () => {
+      mounted = false;
+      // 釋放（可選）
+      try {
+        if (vrm?.scene) {
+          vrm.scene.traverse((o) => {
+            if (o.isMesh) {
+              o.geometry?.dispose?.();
+              if (Array.isArray(o.material)) {
+                o.material.forEach((m) => m?.dispose?.());
+              } else {
+                o.material?.dispose?.();
+              }
+            }
+          });
+        }
       } catch {}
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ====== 自動置中 + 自動縮放（關鍵：全身在舞台中間，不會忽大忽小）=====
+  useEffect(() => {
+    if (!vrm || !groupRef.current) return;
+
+    // 取得模型包圍盒
+    const box = new THREE.Box3().setFromObject(vrm.scene);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+
+    // 目標：讓整體高度在舞台中「看起來滿版但不爆」：
+    // 你可以調 targetHeight 來放大/縮小
+    const targetHeight = 1.65; // ✅ 想更大：1.8~2.0，想更小：1.4~1.6
+    const scale = targetHeight / Math.max(size.y, 0.0001);
+
+    // 先清掉群組 transform
+    groupRef.current.position.set(0, 0, 0);
+    groupRef.current.rotation.set(0, 0, 0);
+    groupRef.current.scale.set(scale, scale, scale);
+
+    // 置中：把模型 center 拉回原點
+    // 注意：這裡是把 vrm.scene 往反方向移
+    vrm.scene.position.set(-center.x, -center.y, -center.z);
+
+    // 再把腳底放到地面附近（避免飄）
+    // box 的 bottom 是 center.y - size.y/2
+    const bottomY = center.y - size.y / 2;
+    vrm.scene.position.y += bottomY;
+
+    // 最後微調：讓角色「在舞台中間略偏下」比較好看
+    // ✅ 想更往下：-0.05 ~ -0.15
+    // ✅ 想更往上：0.02 ~ 0.08
+    groupRef.current.position.y = -0.08;
+
+    // 若你覺得角色離鏡頭太遠/太近，優先調 AvatarStage 相機 position.z
   }, [vrm]);
 
-  // 每幀更新 VRM（必要，否則某些模型表情/骨架不會刷新）
-  useFrame((_, delta) => {
-    if (vrmRef.current) vrmRef.current.update(delta);
+  // ====== 轉頭/眼睛跟隨（你剛剛選 1 的功能）=====
+  useFrame((state, delta) => {
+    if (!vrm || !groupRef.current) return;
+
+    // VRM update（必須）
+    vrm.update(delta);
+
+    // previewYaw（你外面拖曳）通常是 -1 ~ 1（或更大）
+    const yaw = THREE.MathUtils.clamp(previewYaw, -1.2, 1.2);
+
+    // 1) 頭部骨架（小幅）
+    const head = vrm.humanoid?.getBoneNode("head");
+    if (head) {
+      const target = THREE.MathUtils.clamp(yaw * 0.35, -0.55, 0.55);
+      head.rotation.y = THREE.MathUtils.lerp(head.rotation.y, target, 0.18);
+    }
+
+    // 2) 眼睛 LookAt（大幅）
+    if (vrm.lookAt?.applier) {
+      // applyYawPitch：yaw, pitch（弧度）
+      // yaw 建議比頭大，讓眼神更明顯
+      const eyeYaw = THREE.MathUtils.clamp(yaw * 0.8, -0.9, 0.9);
+      vrm.lookAt.applier.applyYawPitch(eyeYaw, 0);
+    }
+
+    // 3) 身體可選：輕微跟著（很小就好，不然會像轉整隻）
+    const spine = vrm.humanoid?.getBoneNode("spine");
+    if (spine) {
+      const target = THREE.MathUtils.clamp(yaw * 0.08, -0.15, 0.15);
+      spine.rotation.y = THREE.MathUtils.lerp(spine.rotation.y, target, 0.08);
+    }
   });
+
+  // ====== 若讀不到 VRM：不炸，回傳一個小提示（你也可以改成 return null）=====
+  if (error) {
+    return (
+      <group>
+        {/* 用幾何體提示（不影響其他 UI） */}
+        <mesh>
+          <boxGeometry args={[0.6, 0.3, 0.2]} />
+          <meshStandardMaterial color={"#ff6b6b"} />
+        </mesh>
+      </group>
+    );
+  }
 
   if (!vrm) return null;
 
-  // 這裡先不做旋轉/情緒，避免干擾；下一步你要 2️⃣ 轉頭跟隨我再加
-  return <primitive object={vrm.scene} />;
+  return (
+    <group ref={groupRef}>
+      {/* 這裡直接掛 VRM */}
+      <primitive object={vrm.scene} />
+
+      {/* 可選：用一盞淡淡的補光，讓臉更亮（不影響你原本舞台燈） */}
+      <directionalLight
+        position={[1.5, 2.2, 2.0]}
+        intensity={0.15}
+        color={tint}
+      />
+    </group>
+  );
 }
