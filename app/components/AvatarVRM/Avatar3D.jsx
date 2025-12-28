@@ -2,197 +2,172 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import * as THREE from "three";
-import { useFrame, useThree, useLoader } from "@react-three/fiber";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-
-import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
+import { useFrame } from "@react-three/fiber";
 
 /**
- * ✅ 穩定版 VRM Avatar3D（避免 build/prerender 爆掉）
- * - VRM 放置：public/vrm/avatar.vrm
- * - 讀取網址：/vrm/avatar.vrm
- * - 比例/站位自動修正
- * - 頭身分離旋轉（previewYaw）
+ * 穩定版 VRM Loader（避免 useGLTF/useLoader 的 SSR/prerender 雷）
+ * - 預設讀取：/vrm/avatar.vrm   (放在 public/vrm/avatar.vrm)
+ * - 自動比例修正：把模型縮放到「合理高度」並把腳貼地
+ * - previewYaw：提供外層拖曳旋轉（Page 的 useDragRotate）
  */
-
-const VRM_URL = "/vrm/avatar.vrm";
-
 export default function Avatar3D({
   variant = "sky",
   emotion = "idle",
-  previewYaw = 0
+  previewYaw = 0,
+  url = "/vrm/avatar.vrm"
 }) {
-  const { camera } = useThree();
+  const rootRef = useRef();          // 旋轉容器
+  const vrmHolderRef = useRef(null); // 實際 VRM scene 放這裡
+  const [ready, setReady] = useState(false);
 
-  // ✅ 用 useLoader + GLTFLoader 註冊 VRM plugin（不要用 useGLTF.setLoaderExtensions）
-  const gltf = useLoader(
-    GLTFLoader,
-    VRM_URL,
-    (loader) => {
-      loader.register((parser) => new VRMLoaderPlugin(parser));
-      // 這個 crossOrigin 對某些環境比較穩
-      loader.crossOrigin = "anonymous";
-    }
-  );
-
-  const rootRef = useRef(null);
-  const headRef = useRef(null);
-  const vrmSceneRef = useRef(null);
-  const vrmRef = useRef(null);
-
-  const [error, setError] = useState("");
-
-  // 顏色（可先留著，後續你要做材質換色再加強）
+  // 顏色提示：你之後可以用來改材質或光色（先不硬改 VRM 材質，保穩）
   const tint = useMemo(() => {
-    if (variant === "mint") return new THREE.Color(0x7fffd4);
-    if (variant === "purple") return new THREE.Color(0xd6b0ff);
-    return new THREE.Color(0xa0dcff);
+    if (variant === "mint") return [0.45, 1.0, 0.85];
+    if (variant === "purple") return [0.85, 0.68, 1.0];
+    return [0.62, 0.86, 1.0];
   }, [variant]);
 
-  // 頭身分離旋轉（弧度）
-  const bodyYaw = previewYaw * 0.55; // 身體比較小
-  const headYaw = previewYaw * 1.1;  // 頭比較大
-
   useEffect(() => {
-    setError("");
+    let cancelled = false;
 
-    try {
-      if (!gltf) return;
+    async function load() {
+      try {
+        // ✅ 只在瀏覽器執行
+        if (typeof window === "undefined") return;
 
-      // ✅ VRM 會被 plugin 放到 gltf.userData.vrm
-      const vrm = gltf.userData?.vrm;
-      if (!vrm) {
-        setError("VRM 載入失敗：gltf.userData.vrm 不存在（可能不是 VRM 或 plugin 未生效）");
-        return;
-      }
+        // 動態載入，避免 Next build 時在 server 執行
+        const THREE = await import("three");
+        const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
+        const { VRM, VRMUtils, VRMLoaderPlugin } = await import("@pixiv/three-vrm");
 
-      // ✅ 清理/修正（常見比例怪、頭怪、法線怪的安全處理）
-      VRMUtils.removeUnnecessaryVertices(vrm.scene);
-      VRMUtils.removeUnnecessaryJoints(vrm.scene);
-      VRMUtils.rotateVRM0(vrm);
+        const loader = new GLTFLoader();
+        loader.crossOrigin = "anonymous";
 
-      // 陰影/裁切穩定
-      vrm.scene.traverse((o) => {
-        if (o.isMesh) {
-          o.castShadow = true;
-          o.receiveShadow = true;
-          o.frustumCulled = false;
+        // ✅ three-vrm 推薦用 plugin
+        loader.register((parser) => new VRMLoaderPlugin(parser));
+
+        const gltf = await loader.loadAsync(url);
+        if (cancelled) return;
+
+        const vrm = gltf.userData.vrm;
+        if (!vrm) throw new Error("VRM parse failed: gltf.userData.vrm not found");
+
+        // ✅ 修正 VRM 方向 / 骨架等（官方建議）
+        VRMUtils.removeUnnecessaryVertices(gltf.scene);
+        VRMUtils.removeUnnecessaryJoints(gltf.scene);
+
+        // 有些 VRM 會需要這個來對齊 0 度姿勢
+        // 如果你發現模型方向怪，再保留這行（通常是正向幫助）
+        VRMUtils.rotateVRM0(vrm);
+
+        // ===== 自動比例修正：高度目標約 1.55（你也可改成 1.4~1.7）=====
+        const box = new THREE.Box3().setFromObject(vrm.scene);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+
+        const height = Math.max(0.0001, size.y);
+        const targetHeight = 1.55;
+        const s = targetHeight / height;
+
+        vrm.scene.scale.setScalar(s);
+
+        // 重新算一次縮放後 box
+        const box2 = new THREE.Box3().setFromObject(vrm.scene);
+        const center = new THREE.Vector3();
+        box2.getCenter(center);
+
+        // 讓模型「站在地面」：把最低點貼近 y=0
+        const minY = box2.min.y;
+        vrm.scene.position.y += -minY;
+
+        // 讓模型左右/前後置中
+        vrm.scene.position.x += -center.x;
+        vrm.scene.position.z += -center.z;
+
+        // 交給 useFrame 每幀 update
+        vrmHolderRef.current = vrm;
+
+        // 放到 group 裡
+        if (rootRef.current) {
+          // 清空舊的（熱更新/重載）
+          while (rootRef.current.children.length) rootRef.current.remove(rootRef.current.children[0]);
+          rootRef.current.add(vrm.scene);
         }
-      });
 
-      // ✅ 比例/站位修正（核心）
-      // 先給一個保守縮放
-      vrm.scene.scale.set(1.05, 1.05, 1.05);
-
-      // 用 bounding box 把「腳底」貼近舞台地面（配合你 ContactShadows 的 y）
-      const box = new THREE.Box3().setFromObject(vrm.scene);
-      const size = new THREE.Vector3();
-      box.getSize(size);
-
-      // 讓模型不要離鏡頭太近/太遠（保底）
-      vrm.scene.position.set(0, 0, 0);
-
-      if (size.y > 0.1) {
-        // 目標：腳底接近 -1.05（你 AvatarStage 的 ContactShadows 位置）
-        const bottomY = box.min.y;
-        const desiredBottom = -1.05;
-        const offsetY = desiredBottom - bottomY;
-        vrm.scene.position.y += offsetY;
-      } else {
-        // fallback
-        vrm.scene.position.y = -1.05;
+        setReady(true);
+      } catch (err) {
+        console.error("[Avatar3D] load error:", err);
+        setReady(false);
       }
-
-      // ✅ 超輕微 tint（避免整隻變色）
-      vrm.scene.traverse((o) => {
-        if (o.isMesh && o.material) {
-          const mats = Array.isArray(o.material) ? o.material : [o.material];
-          for (const m of mats) {
-            if (m && m.color) {
-              m.color = m.color.clone().lerp(tint, 0.06);
-            }
-          }
-        }
-      });
-
-      // ✅ 抓 head bone（用於頭部旋轉/微看鏡頭）
-      const head =
-        vrm.humanoid?.getBoneNode?.("head") ||
-        vrm.humanoid?.getRawBoneNode?.("head") ||
-        null;
-
-      headRef.current = head;
-      vrmRef.current = vrm;
-      vrmSceneRef.current = vrm.scene;
-    } catch (e) {
-      console.error("[Avatar3D] setup failed:", e);
-      setError(String(e?.message || e));
     }
-  }, [gltf, tint]);
 
-  useFrame((_, delta) => {
-    const vrm = vrmRef.current;
+    load();
+
+    return () => {
+      cancelled = true;
+      // 清理：把 VRM scene 拿掉
+      if (rootRef.current) {
+        while (rootRef.current.children.length) rootRef.current.remove(rootRef.current.children[0]);
+      }
+      vrmHolderRef.current = null;
+    };
+  }, [url]);
+
+  useFrame((state, delta) => {
+    const vrm = vrmHolderRef.current;
     if (!vrm) return;
 
-    // VRM update（彈簧骨等）
+    // 每幀更新 VRM（表情/骨架/視線等都靠這個）
     vrm.update(delta);
 
-    // 身體旋轉（整體）
-    if (rootRef.current) rootRef.current.rotation.y = bodyYaw;
-
-    // 頭部旋轉（獨立）
-    const head = headRef.current;
-    if (head) {
-      // 先加上拖曳的頭 yaw（太大會怪，先保守）
-      head.rotation.y = headYaw * 0.35;
-
-      // 很輕的看鏡頭（避免頭僵硬，但不會「歪到奇怪」）
-      const headPos = new THREE.Vector3();
-      head.getWorldPosition(headPos);
-
-      const camPos = new THREE.Vector3();
-      camera.getWorldPosition(camPos);
-
-      const dir = camPos.sub(headPos).normalize();
-      dir.y *= 0.10; // 降低抬頭感
-
-      const q = new THREE.Quaternion().setFromUnitVectors(
-        new THREE.Vector3(0, 0, 1),
-        dir
-      );
-
-      head.quaternion.slerp(q, 0.02);
+    // ===== 外層拖曳旋轉（身體轉向）=====
+    if (rootRef.current) {
+      rootRef.current.rotation.y = previewYaw * 1.0; // 你外面 yaw 已經是弧度概念就 1.0
     }
+
+    // ===== 輕微待機（呼吸 + 微擺）=====
+    const t = state.clock.getElapsedTime();
+
+    // 呼吸強度：不同 emotion 可調
+    const breathe =
+      emotion === "thinking" ? 0.012 :
+      emotion === "happy" ? 0.018 :
+      0.01;
+
+    const sway =
+      emotion === "thinking" ? 0.02 :
+      emotion === "happy" ? 0.03 :
+      0.018;
+
+    // 用 humanoid 骨頭做更「像人」的微動（VRM 通用）
+    const humanoid = vrm.humanoid;
+    const chest = humanoid?.getNormalizedBoneNode("chest");
+    const spine = humanoid?.getNormalizedBoneNode("spine");
+    const head = humanoid?.getNormalizedBoneNode("head");
+
+    if (chest) chest.position.y = Math.sin(t * 2.0) * breathe;
+    if (spine) spine.rotation.z = Math.sin(t * 1.3) * sway * 0.12;
+    if (head) head.rotation.z = Math.sin(t * 1.6) * sway * 0.08;
+
+    // 你之後要做「看向使用者」：就控制 head.rotation.y / lookAt
+    // 先保守不加，以免某些 VRM 頭部骨骼命名不一致造成怪相
   });
 
-  // ✅ 錯誤保底：不黑屏
-  if (error) {
+  // 如果還沒 ready，就顯示一個很輕的 placeholder（避免黑洞感）
+  if (!ready) {
     return (
       <group>
-        <mesh>
-          <boxGeometry args={[1.4, 1.4, 0.2]} />
-          <meshStandardMaterial transparent opacity={0.12} />
+        <mesh position={[0, 0.8, 0]}>
+          <sphereGeometry args={[0.25, 18, 18]} />
+          <meshStandardMaterial color={`rgb(${Math.floor(tint[0] * 255)},${Math.floor(tint[1] * 255)},${Math.floor(tint[2] * 255)})`} transparent opacity={0.35} />
+        </mesh>
+        <mesh position={[0, 0.3, 0]}>
+          <capsuleGeometry args={[0.22, 0.55, 8, 16]} />
+          <meshStandardMaterial color={`rgb(${Math.floor(tint[0] * 255)},${Math.floor(tint[1] * 255)},${Math.floor(tint[2] * 255)})`} transparent opacity={0.25} />
         </mesh>
       </group>
     );
   }
 
-  // 還沒就緒也不要黑（顯示一個透明 placeholder）
-  if (!vrmSceneRef.current) {
-    return (
-      <group>
-        <mesh>
-          <boxGeometry args={[1.4, 1.4, 0.2]} />
-          <meshStandardMaterial transparent opacity={0.08} />
-        </mesh>
-      </group>
-    );
-  }
-
-  return (
-    <group ref={rootRef}>
-      <primitive object={vrmSceneRef.current} />
-    </group>
-  );
+  return <group ref={rootRef} />;
 }
