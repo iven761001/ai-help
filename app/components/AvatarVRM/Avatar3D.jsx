@@ -1,3 +1,4 @@
+// app/components/AvatarVRM/Avatar3D.jsx
 "use client";
 
 import React, { useEffect, useMemo, useRef } from "react";
@@ -11,12 +12,8 @@ const VRM_URL = "/vrm/avatar.vrm";
 /** 套自然待機姿勢（把T-pose放鬆） */
 function applyIdlePose(vrm) {
   if (!vrm?.humanoid) return;
-
   const get = (name) => vrm.humanoid.getNormalizedBoneNode(name);
 
-  // 先確保是 "Rest Pose" 起手式（不同VRM可能原始姿勢不一樣）
-  // VRMUtils.rotateVRM0 はモデルの向き調整；這裡不動它，舞台已經處理好置中/縮放。
-  // 但我們會先把骨頭 rotation 稍微 reset 到 0，避免疊加奇怪姿勢。
   const resetBone = (bone) => {
     if (!bone) return;
     bone.rotation.set(0, 0, 0);
@@ -42,12 +39,10 @@ function applyIdlePose(vrm) {
     "leftLowerLeg",
     "rightLowerLeg",
     "leftFoot",
-    "rightFoot"
+    "rightFoot",
   ];
-
   for (const b of bonesToReset) resetBone(get(b));
 
-  // --- 進入「自然待機」---
   const spine = get("spine");
   const chest = get("chest") || get("upperChest");
   const neck = get("neck");
@@ -80,9 +75,9 @@ function applyIdlePose(vrm) {
 
   // 上臂：從水平放下來（關鍵）
   if (lUpperArm) {
-    lUpperArm.rotation.z = THREE.MathUtils.degToRad(25);  // 放下
-    lUpperArm.rotation.x = THREE.MathUtils.degToRad(6);   // 微向前
-    lUpperArm.rotation.y = THREE.MathUtils.degToRad(8);   // 微外展
+    lUpperArm.rotation.z = THREE.MathUtils.degToRad(25);
+    lUpperArm.rotation.x = THREE.MathUtils.degToRad(6);
+    lUpperArm.rotation.y = THREE.MathUtils.degToRad(8);
   }
   if (rUpperArm) {
     rUpperArm.rotation.z = THREE.MathUtils.degToRad(-25);
@@ -105,15 +100,25 @@ function applyIdlePose(vrm) {
   }
 }
 
-export default function Avatar3D({
-  variant = "sky",
-  emotion = "idle",
-  previewYaw = 0
-}) {
-  // 用 ref 記著 vrm（方便 useFrame update）
+export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw = 0 }) {
   const vrmRef = useRef(null);
 
-  // VRM 載入（用 GLTFLoader + VRMLoaderPlugin）
+  // ✅ 存「基準姿勢」：避免每幀累積誤差（很重要）
+  const baseRotRef = useRef({
+    hips: null,
+    spine: null,
+    chest: null,
+    upperChest: null,
+    neck: null,
+    head: null,
+    lUpperArm: null,
+    rUpperArm: null,
+    lLowerArm: null,
+    rLowerArm: null,
+    lShoulder: null,
+    rShoulder: null,
+  });
+
   const gltf = useLoader(
     GLTFLoader,
     VRM_URL,
@@ -123,23 +128,40 @@ export default function Avatar3D({
     }
   );
 
-  // 取得 VRM（three-vrm 會掛在 userData.vrm）
   const vrm = useMemo(() => gltf?.userData?.vrm || null, [gltf]);
 
   useEffect(() => {
     if (!vrm) return;
 
-    // 有些模型會朝向不一致：這行會讓 VRM 正方向一致（通常是面向 +Z 或 -Z 問題）
-    // 如果你現在方向已經對，就保留；若方向突然翻轉，再跟我說我幫你調整。
+    // ✅ 方向統一
     VRMUtils.rotateVRM0(vrm);
 
-    // 套自然待機姿勢
+    // ✅ 先套「放鬆 T pose」到自然站姿
     applyIdlePose(vrm);
 
-    // 記住
+    // ✅ 記住 VRM
     vrmRef.current = vrm;
 
-    // 清理：離開頁面釋放
+    // ✅ 把「自然站姿」當作 base（後面呼吸/晃動都在 base 上加減）
+    const get = (name) => vrm.humanoid?.getNormalizedBoneNode(name);
+    const snap = (bone) => (bone ? bone.rotation.clone() : null);
+
+    baseRotRef.current = {
+      hips: snap(get("hips")),
+      spine: snap(get("spine")),
+      chest: snap(get("chest")),
+      upperChest: snap(get("upperChest")),
+      neck: snap(get("neck")),
+      head: snap(get("head")),
+      lUpperArm: snap(get("leftUpperArm")),
+      rUpperArm: snap(get("rightUpperArm")),
+      lLowerArm: snap(get("leftLowerArm")),
+      rLowerArm: snap(get("rightLowerArm")),
+      lShoulder: snap(get("leftShoulder")),
+      rShoulder: snap(get("rightShoulder")),
+    };
+
+    // ✅ 釋放資源
     return () => {
       try {
         vrmRef.current = null;
@@ -154,13 +176,85 @@ export default function Avatar3D({
     };
   }, [vrm]);
 
-  // 每幀更新 VRM（必要，否則某些模型表情/骨架不會刷新）
-  useFrame((_, delta) => {
-    if (vrmRef.current) vrmRef.current.update(delta);
+  useFrame((state, delta) => {
+    const v = vrmRef.current;
+    if (!v) return;
+
+    // VRM 必須 update
+    v.update(delta);
+
+    // --- 取骨頭 ---
+    const get = (name) => v.humanoid?.getNormalizedBoneNode(name);
+    const hips = get("hips");
+    const spine = get("spine");
+    const chest = get("chest") || get("upperChest");
+    const neck = get("neck");
+    const head = get("head");
+    const lUpperArm = get("leftUpperArm");
+    const rUpperArm = get("rightUpperArm");
+    const lShoulder = get("leftShoulder");
+    const rShoulder = get("rightShoulder");
+
+    // --- 基準姿勢 ---
+    const base = baseRotRef.current;
+
+    // --- 時間 ---
+    const t = state.clock.getElapsedTime();
+
+    // ✅ 呼吸（很小就好，避免抖）
+    const breath = Math.sin(t * 1.6) * 0.02;     // 胸口起伏
+    const sway = Math.sin(t * 0.9) * 0.015;      // 身體左右微擺
+    const bob = Math.sin(t * 1.2) * 0.008;       // 上下微浮（很小）
+
+    // ✅ 把 rotation 設回 base 再加動作（避免累積）
+    if (hips && base.hips) {
+      hips.rotation.copy(base.hips);
+      hips.rotation.y += sway * 0.4;
+      hips.position.y = bob; // ✅ 只有在 hips 做很小的上下浮動（比動 scene 安全）
+    }
+    if (spine && base.spine) {
+      spine.rotation.copy(base.spine);
+      spine.rotation.x += breath * 0.7;
+      spine.rotation.y += sway * 0.6;
+    }
+    if (chest) {
+      const b = base.chest || base.upperChest;
+      if (b) {
+        chest.rotation.copy(b);
+        chest.rotation.x += breath;
+        chest.rotation.y += sway * 0.6;
+      }
+    }
+    if (neck && base.neck) {
+      neck.rotation.copy(base.neck);
+      neck.rotation.y += sway * 0.35;
+    }
+    if (head && base.head) {
+      head.rotation.copy(base.head);
+      head.rotation.y += sway * 0.35;
+      head.rotation.x += Math.sin(t * 1.1) * 0.01; // 微點頭感
+    }
+
+    // ✅ 手臂跟著身體一點點（讓整體更活）
+    if (lShoulder && base.lShoulder) {
+      lShoulder.rotation.copy(base.lShoulder);
+      lShoulder.rotation.x += breath * 0.25;
+    }
+    if (rShoulder && base.rShoulder) {
+      rShoulder.rotation.copy(base.rShoulder);
+      rShoulder.rotation.x += breath * 0.25;
+    }
+    if (lUpperArm && base.lUpperArm) {
+      lUpperArm.rotation.copy(base.lUpperArm);
+      lUpperArm.rotation.x += breath * 0.2;
+    }
+    if (rUpperArm && base.rUpperArm) {
+      rUpperArm.rotation.copy(base.rUpperArm);
+      rUpperArm.rotation.x += breath * 0.2;
+    }
   });
 
   if (!vrm) return null;
 
-  // 這裡先不做旋轉/情緒，避免干擾；下一步你要 2️⃣ 轉頭跟隨我再加
   return <primitive object={vrm.scene} />;
 }
