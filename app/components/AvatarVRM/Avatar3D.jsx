@@ -1,222 +1,155 @@
+// app/components/AvatarVRM/Avatar3D.jsx
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { useFrame } from "@react-three/fiber";
-import { Html } from "@react-three/drei";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 
-const VRM_URL = "/vrm/avatar.vrm";
+export default function Avatar3D({
+  variant = "sky",
+  emotion = "idle",
+  previewYaw = 0, // 由外層手勢驅動
+}) {
+  const groupRef = useRef();          // 舞台中的容器
+  const bodyRef = useRef(null);       // VRM root（會被加入到 group 裡）
+  const [status, setStatus] = useState("loading"); // loading | ready | error
+  const [errMsg, setErrMsg] = useState("");
 
-// ✅ 把 VRM「高度」統一到這個值（你可微調：1.35~1.6）
-const TARGET_HEIGHT = 1.45;
-
-export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw = 0 }) {
-  const group = useRef();
-  const vrmRef = useRef(null);
-  const [err, setErr] = useState("");
-  const [loading, setLoading] = useState(true);
-
-  // 顏色（給 placeholder 用）
-  const tint = useMemo(() => {
-    if (variant === "mint") return new THREE.Color("#7dffd2");
-    if (variant === "purple") return new THREE.Color("#d2aaff");
-    return new THREE.Color("#a0dcff");
-  }, [variant]);
-
-  // ✅ 身體/頭 分離旋轉：body 比較小、head 比較大
-  const bodyYaw = previewYaw * 0.7; // radians-ish
-  const headYaw = previewYaw * 1.35;
-
+  // ===== 讀取 VRM =====
   useEffect(() => {
-    let cancelled = false;
+    let disposed = false;
 
-    async function load() {
-      setErr("");
-      setLoading(true);
+    const loader = new GLTFLoader();
+    loader.register((parser) => new VRMLoaderPlugin(parser));
 
-      try {
-        // ✅ 關鍵：動態 import，避免 Next server/prerender 先碰到 three-vrm
-        const [{ GLTFLoader }, vrmPkg] = await Promise.all([
-          import("three/examples/jsm/loaders/GLTFLoader.js"),
-          import("@pixiv/three-vrm"),
-        ]);
+    setStatus("loading");
+    setErrMsg("");
 
-        const { VRM, VRMUtils } = vrmPkg;
+    loader.load(
+      "/vrm/avatar.vrm",
+      (gltf) => {
+        if (disposed) return;
 
-        const loader = new GLTFLoader();
+        const vrm = gltf.userData?.vrm;
+        if (!vrm) {
+          setStatus("error");
+          setErrMsg("不是合法 VRM 檔或解析失敗");
+          return;
+        }
 
-        // 有些 vrm 會需要 crossOrigin
-        loader.setCrossOrigin?.("anonymous");
+        // 取消可能的重複骨骼綁定 & 更新材質
+        VRMUtils.removeUnnecessaryJoints(vrm.scene);
+        VRMUtils.assignAnimationHumanoid(vrm);
 
-        loader.load(
-          VRM_URL,
-          async (gltf) => {
-            if (cancelled) return;
+        // ===== 自動量身高 → 安全縮放到目標高度 =====
+        // 目標舞台高度（公尺概念，不要太大以免鏡頭吃不到）
+        const TARGET_HEIGHT = 1.3; // 建議 1.2 ~ 1.4
 
-            // three-vrm 推薦的清理
-            VRMUtils.removeUnnecessaryVertices(gltf.scene);
-            VRMUtils.removeUnnecessaryJoints(gltf.scene);
+        // 先重設為 1，避免前一次縮放干擾
+        vrm.scene.scale.setScalar(1);
+        vrm.scene.position.set(0, 0, 0);
+        vrm.scene.rotation.set(0, 0, 0);
 
-            const vrm = await VRM.from(gltf, { autoUpdateHumanBones: true });
+        // 量模型包圍盒
+        const box = new THREE.Box3().setFromObject(vrm.scene);
+        const size = new THREE.Vector3();
+        box.getSize(size);
 
-            if (cancelled) return;
+        let height = size.y;
+        if (!isFinite(height) || height <= 0) {
+          // 某些模型 metadata 不齊全時給預設值
+          height = 1.6;
+        }
 
-            // 讓 vrm 正向
-            VRMUtils.rotateVRM0(vrm);
+        // 等比縮放
+        const scale = THREE.MathUtils.clamp(TARGET_HEIGHT / height, 0.2, 3.0);
+        vrm.scene.scale.setScalar(scale);
 
-            // ✅ 比例/位置修正：把 VRM 置中 + 腳貼地 + 统一高度
-            normalizeVRM(vrm.scene, TARGET_HEIGHT);
+        // 重新取包圍盒並把「腳」放到 y=0；再置中 XZ
+        const box2 = new THREE.Box3().setFromObject(vrm.scene);
+        const center = new THREE.Vector3();
+        box2.getCenter(center);
 
-            // 儲存
-            vrmRef.current = vrm;
+        // 位移：讓腳貼地（把 minY 拉到 0），同時把 XZ 置中到 (0,0)
+        vrm.scene.position.x = vrm.scene.position.x - center.x;
+        vrm.scene.position.z = vrm.scene.position.z - center.z;
+        vrm.scene.position.y = vrm.scene.position.y - box2.min.y;
 
-            // ✅ 確保一定加到 group 底下（避免被 unmount）
-            if (group.current) {
-              // 清掉舊的
-              while (group.current.children.length) group.current.remove(group.current.children[0]);
-              group.current.add(vrm.scene);
-            }
-
-            setLoading(false);
-          },
-          undefined,
-          (e) => {
-            if (cancelled) return;
-            setErr(`Could not load ${VRM_URL}: ${e?.message || e}`);
-            setLoading(false);
+        // 防止某些零件被剔除（避免眨眼、髮絲消失等）
+        vrm.scene.traverse((o) => {
+          o.frustumCulled = false;
+          if (o.isMesh) {
+            o.castShadow = true;
+            o.receiveShadow = true;
           }
-        );
-      } catch (e) {
-        if (cancelled) return;
-        setErr(e?.message || String(e));
-        setLoading(false);
-      }
-    }
+        });
 
-    load();
+        // 放進舞台
+        bodyRef.current = vrm.scene;
+        groupRef.current?.add(vrm.scene);
+
+        setStatus("ready");
+      },
+      undefined,
+      (err) => {
+        if (disposed) return;
+        setStatus("error");
+        setErrMsg(err?.message || "載入失敗");
+        console.error("[VRM load error]", err);
+      }
+    );
 
     return () => {
-      cancelled = true;
-      // 不強制 dispose，避免你看到「載到一瞬間後消失」的狀況再發生
-      vrmRef.current = null;
+      disposed = true;
+      // 清掉舊模型
+      if (bodyRef.current && groupRef.current) {
+        groupRef.current.remove(bodyRef.current);
+      }
+      bodyRef.current = null;
     };
   }, []);
 
-  useFrame((state, delta) => {
-    // 讓 VRM internal update（表情/物理/骨架）有機會跑
-    if (vrmRef.current) vrmRef.current.update(delta);
+  // ===== 旋轉（外層拖曳角度）=====
+  useEffect(() => {
+    if (!groupRef.current) return;
+    // 身體穩定、不要太暈
+    const deg = previewYaw * 25;
+    groupRef.current.rotation.y = THREE.MathUtils.degToRad(deg);
+  }, [previewYaw]);
 
-    // ✅ 身體旋轉
-    if (group.current) {
-      group.current.rotation.y = bodyYaw;
-    }
+  // ===== 外觀（顏色/情緒可做後續材質調整；此處保留鉤子）=====
+  useEffect(() => {
+    // 未來可根據 variant/emotion 調材質或表情
+  }, [variant, emotion]);
 
-    // ✅ 頭部旋轉（改 head 或 neck bone）
-    const vrm = vrmRef.current;
-    if (vrm?.humanoid) {
-      const head =
-        vrm.humanoid.getNormalizedBoneNode("head") ||
-        vrm.humanoid.getNormalizedBoneNode("neck");
-
-      if (head) {
-        // 稍微限制一下不要轉太大
-        head.rotation.y = THREE.MathUtils.clamp(headYaw, -0.8, 0.8);
-      }
-    }
-  });
-
+  // ===== 畫面 =====
   return (
-    <group ref={group} position={[0, 0, 0]}>
-      {/* ✅ Loading placeholder：不要讓你看到空白 */}
-      {(loading || err) && (
+    <group ref={groupRef}>
+      {/* Placeholder：載入或錯誤時出現，避免空舞台 */}
+      {status !== "ready" && (
         <group>
-          <mesh position={[0, TARGET_HEIGHT * 0.55, 0]}>
-            <capsuleGeometry args={[0.28, 0.55, 8, 16]} />
-            <meshStandardMaterial color={tint} transparent opacity={0.35} />
+          {/* 膠囊 */}
+          <mesh position={[0, 0.7, 0]}>
+            <capsuleGeometry args={[0.25, 0.9, 8, 16]} />
+            <meshStandardMaterial color="#7aa7ff" roughness={0.85} metalness={0.05} />
+          </mesh>
+          {/* 地面小陰影 */}
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
+            <circleGeometry args={[0.6, 32]} />
+            <meshBasicMaterial color="black" transparent opacity={0.25} />
           </mesh>
 
-          <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-            <circleGeometry args={[0.55, 32]} />
-            <meshStandardMaterial color={new THREE.Color("#000000")} transparent opacity={0.22} />
-          </mesh>
-
-          <Html center>
-            <div
-              style={{
-                padding: "8px 10px",
-                borderRadius: 12,
-                background: "rgba(0,0,0,0.45)",
-                color: "rgba(255,255,255,0.75)",
-                fontSize: 12,
-                maxWidth: 260,
-                textAlign: "center",
-                lineHeight: 1.35,
-                border: "1px solid rgba(255,255,255,0.12)",
-                backdropFilter: "blur(8px)",
-              }}
-            >
-              {err ? (
-                <>
-                  VRM 載入失敗<br />
-                  <span style={{ opacity: 0.85 }}>{err}</span>
-                </>
-              ) : (
-                "VRM 載入中…"
-              )}
-            </div>
-          </Html>
+          {/* 小字訊息：手機若被 UI 蓋到可稍微滑動看一下 */}
+          <group position={[0, 1.6, 0]}>
+            <mesh>
+              <planeGeometry args={[1.8, 0.3]} />
+              <meshBasicMaterial color="black" transparent opacity={0.4} />
+            </mesh>
+            {/* 這段只是提示，不影響功能；要拿掉也行 */}
+          </group>
         </group>
       )}
     </group>
   );
-}
-
-/**
- * ✅ 把模型：
- * 1) bbox 置中（x,z）
- * 2) 腳貼地（y=0）
- * 3) 統一高度到 targetHeight
- */
-function normalizeVRM(scene, targetHeight) {
-  // 先算 bbox
-  const box = new THREE.Box3().setFromObject(scene);
-  const size = new THREE.Vector3();
-  const center = new THREE.Vector3();
-  box.getSize(size);
-  box.getCenter(center);
-
-  // 防呆
-  if (!isFinite(size.y) || size.y <= 0.0001) return;
-
-  // 1) 先把中心移到原點（x,z）
-  scene.position.x -= center.x;
-  scene.position.z -= center.z;
-
-  // 2) 腳貼地：重新算 bbox（因為剛移動過）
-  const box2 = new THREE.Box3().setFromObject(scene);
-  const minY = box2.min.y;
-  scene.position.y -= minY;
-
-  // 3) 統一高度
-  const box3 = new THREE.Box3().setFromObject(scene);
-  const h = box3.max.y - box3.min.y;
-  const s = targetHeight / h;
-  scene.scale.setScalar(s);
-
-  // 縮放後再貼一次地（保險）
-  const box4 = new THREE.Box3().setFromObject(scene);
-  scene.position.y -= box4.min.y;
-
-  // 讓材質不要太暗
-  scene.traverse((obj) => {
-    if (obj.isMesh) {
-      obj.castShadow = false;
-      obj.receiveShadow = false;
-      obj.frustumCulled = false;
-      const m = obj.material;
-      if (m) {
-        m.transparent = m.transparent ?? false;
-      }
-    }
-  });
 }
