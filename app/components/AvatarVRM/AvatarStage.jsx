@@ -37,7 +37,7 @@ export default function AvatarStage({
   previewYaw = 0
 }) {
   // ✅ 比你原本更穩：距離更合理、比較不會「頭被切到」
-  const camera = useMemo(() => ({ position: [0, 3, 1.35], fov: 28 }), []);
+  const camera = useMemo(() => ({ position: [3, 3, 1.35], fov: 28 }), []);
 
   return (
     <div className="w-full h-full">
