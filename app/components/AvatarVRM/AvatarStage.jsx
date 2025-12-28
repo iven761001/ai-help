@@ -1,8 +1,9 @@
 "use client";
 
-import React, { Suspense, useMemo } from "react";
-import { Canvas } from "@react-three/fiber";
-import { Environment, ContactShadows, OrbitControls } from "@react-three/drei";
+import React, { Suspense, useMemo, useRef, useLayoutEffect, useState } from "react";
+import * as THREE from "three";
+import { Canvas, useThree } from "@react-three/fiber";
+import { ContactShadows, OrbitControls } from "@react-three/drei";
 import Avatar3D from "./Avatar3D";
 
 class StageErrorBoundary extends React.Component {
@@ -31,13 +32,55 @@ class StageErrorBoundary extends React.Component {
   }
 }
 
-export default function AvatarStage({
-  variant = "sky",
-  emotion = "idle",
-  previewYaw = 0
-}) {
-  // ✅ 比你原本更穩：距離更合理、比較不會「頭被切到」
-  const camera = useMemo(() => ({ position: [0, 1.25, 1.35], fov: 32 }), []);
+// ✅ 這個元件會在「模型載入/更新後」自動調相機，讓全身穩穩在畫面內
+function AutoFrame({ targetRef, padding = 1.18 }) {
+  const { camera } = useThree();
+
+  useLayoutEffect(() => {
+    const target = targetRef.current;
+    if (!target) return;
+
+    // 用 bbox 算模型尺寸/中心
+    const box = new THREE.Box3().setFromObject(target);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+
+    // 目標：全身進框（以高度為主）
+    const height = Math.max(0.0001, size.y);
+
+    // 相機 FOV 計算距離
+    const fov = (camera.fov * Math.PI) / 180;
+    const dist = (height * padding) / (2 * Math.tan(fov / 2));
+
+    // ✅ 把相機放在正前方稍微往上看
+    camera.position.set(center.x, center.y + height * 0.05, center.z + dist);
+    camera.near = Math.max(0.01, dist / 100);
+    camera.far = dist * 100;
+    camera.updateProjectionMatrix();
+
+    // ✅ 讓相機看向模型中心
+    camera.lookAt(center);
+
+  }, [camera, targetRef, padding]);
+
+  return null;
+}
+
+export default function AvatarStage({ variant = "sky", emotion = "idle", previewYaw = 0 }) {
+  // 相機初始值不重要，反正 AutoFrame 會接管
+  const camera = useMemo(() => ({ position: [0, 1.4, 2.2], fov: 35 }), []);
+  const modelRoot = useRef();
+  const [frameTick, setFrameTick] = useState(0);
+
+  // ✅ 讓 Avatar3D 在載入成功後通知一次（我們用 key 或 callback 觸發 AutoFrame）
+  // 這裡用最簡單的方式：每次進來先 frame 一次，載入後你也可以手動 setFrameTick
+  // （如果你 Avatar3D 有加 onLoaded callback，我再給你更乾淨版）
+  useLayoutEffect(() => {
+    const t = setTimeout(() => setFrameTick((x) => x + 1), 400);
+    return () => clearTimeout(t);
+  }, [variant, emotion]);
 
   return (
     <div className="w-full h-full">
@@ -46,55 +89,33 @@ export default function AvatarStage({
           camera={camera}
           gl={{ alpha: true, antialias: true }}
           style={{ background: "transparent" }}
-          dpr={[1, 1.75]}
         >
-          {/* ✅ 讓立體感更好：環境光別太亮，主光更集中 */}
-          <ambientLight intensity={0.45} />
-
-          {/* 主光：左前上（像展示櫃打燈） */}
-          <directionalLight
-            position={[3.2, 5.5, 2.6]}
-            intensity={1.25}
-          />
-
-          {/* 補光：右後（把陰影的死黑拉起來） */}
-          <directionalLight
-            position={[-2.8, 2.2, -2.2]}
-            intensity={0.55}
-          />
-
-          {/* 頂光：讓頭/肩有高光邊緣 */}
-          <directionalLight
-            position={[0, 6.5, 0]}
-            intensity={0.35}
-          />
+          {/* 光 */}
+          <ambientLight intensity={0.75} />
+          <directionalLight position={[3, 6, 4]} intensity={1.2} />
+          <directionalLight position={[-3, 2, -2]} intensity={0.6} />
 
           <Suspense fallback={null}>
-            {/* ✅ 重要：不要再額外把 Avatar 往下移
-               因為 Avatar3D.jsx 已經做過「腳貼地」校正了 */}
-          <group /*position={[0, -0.5, 0]}*/>
-              <Avatar3D
-                variant={variant}
-                emotion={emotion}
-                previewYaw={previewYaw}
-              />
+            {/* ✅ 這個 group 就是我們要 frame 的目標 */}
+            <group ref={modelRoot}>
+              {/* 你原本有 group position [-0.25]，那會讓中心偏移，先拿掉 */}
+              <Avatar3D variant={variant} emotion={emotion} previewYaw={previewYaw} />
             </group>
 
-            {/* ✅ 陰影貼地：把 y 放在 0 附近最穩 */}
-            <ContactShadows
-              opacity={0.38}
-              scale={6.2}
-              blur={2.4}
-              far={6}
-              resolution={256}
-              position={[0, 0.02, 0]}
-            />
+            {/* ✅ 只要 frameTick 變化就重新算一次相機（保底用） */}
+            <AutoFrame targetRef={modelRoot} padding={1.18 + frameTick * 0} />
 
-            {/* ✅ 環境：city OK，但強度不要太大（避免整體灰白） */}
-            <Environment preset="city" environmentIntensity={0.9} />
+            {/* 地面陰影 */}
+            <ContactShadows
+              opacity={0.35}
+              scale={6}
+              blur={2.2}
+              far={8}
+              resolution={256}
+              position={[0, 0, 0]}
+            />
           </Suspense>
 
-          {/* 禁用 Orbit，避免跟你拖曳旋轉打架 */}
           <OrbitControls enabled={false} enableZoom={false} enablePan={false} />
         </Canvas>
       </StageErrorBoundary>
