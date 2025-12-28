@@ -31,8 +31,13 @@ class StageErrorBoundary extends React.Component {
   }
 }
 
-export default function AvatarStage({ variant="sky", emotion="idle", previewYaw=0 }) {
-  const camera = useMemo(() => ({ position: [0, 1.4, 2.2], fov: 35 }), []);
+export default function AvatarStage({
+  variant = "sky",
+  emotion = "idle",
+  previewYaw = 0
+}) {
+  // ✅ 比你原本更穩：距離更合理、比較不會「頭被切到」
+  const camera = useMemo(() => ({ position: [0, 1.35, 2.65], fov: 36 }), []);
 
   return (
     <div className="w-full h-full">
@@ -41,27 +46,55 @@ export default function AvatarStage({ variant="sky", emotion="idle", previewYaw=
           camera={camera}
           gl={{ alpha: true, antialias: true }}
           style={{ background: "transparent" }}
+          dpr={[1, 1.75]}
         >
-          <ambientLight intensity={0.7} />
-          <directionalLight position={[3, 5, 2]} intensity={1.2} />
-          <directionalLight position={[-3, 2, -2]} intensity={0.6} />
+          {/* ✅ 讓立體感更好：環境光別太亮，主光更集中 */}
+          <ambientLight intensity={0.45} />
+
+          {/* 主光：左前上（像展示櫃打燈） */}
+          <directionalLight
+            position={[3.2, 5.5, 2.6]}
+            intensity={1.25}
+          />
+
+          {/* 補光：右後（把陰影的死黑拉起來） */}
+          <directionalLight
+            position={[-2.8, 2.2, -2.2]}
+            intensity={0.55}
+          />
+
+          {/* 頂光：讓頭/肩有高光邊緣 */}
+          <directionalLight
+            position={[0, 6.5, 0]}
+            intensity={0.35}
+          />
 
           <Suspense fallback={null}>
-            <group position={[0, -0.25, 0]}>
-              <Avatar3D variant={variant} emotion={emotion} previewYaw={previewYaw} />
+            {/* ✅ 重要：不要再額外把 Avatar 往下移
+               因為 Avatar3D.jsx 已經做過「腳貼地」校正了 */}
+            <group position={[0, 0, 0]}>
+              <Avatar3D
+                variant={variant}
+                emotion={emotion}
+                previewYaw={previewYaw}
+              />
             </group>
 
+            {/* ✅ 陰影貼地：把 y 放在 0 附近最穩 */}
             <ContactShadows
-              opacity={0.35}
-              scale={6}
-              blur={2.2}
+              opacity={0.38}
+              scale={6.2}
+              blur={2.4}
               far={6}
               resolution={256}
-              position={[0, -1.05, 0]}
+              position={[0, 0.02, 0]}
             />
-            <Environment preset="city" />
+
+            {/* ✅ 環境：city OK，但強度不要太大（避免整體灰白） */}
+            <Environment preset="city" environmentIntensity={0.9} />
           </Suspense>
 
+          {/* 禁用 Orbit，避免跟你拖曳旋轉打架 */}
           <OrbitControls enabled={false} enableZoom={false} enablePan={false} />
         </Canvas>
       </StageErrorBoundary>
