@@ -84,7 +84,7 @@ export default function Avatar3D({
 
         // ------- 自動縮放 & 置中 & 腳貼地（你現在要的穩定定位核心） -------
         // 以模型高度縮放到 targetHeight（可依你舞台微調）
-        const targetHeight = 1.55; // 你畫面目前看起來 OK 的比例，可微調 1.45~1.7
+        const targetHeight = 1.45; // 你畫面目前看起來 OK 的比例，可微調 1.45~1.7
         const box = new THREE.Box3().setFromObject(vrm.scene);
         const size = new THREE.Vector3();
         box.getSize(size);
