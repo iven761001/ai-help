@@ -141,7 +141,7 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw
 
     // 往下：-0.08 ~ -0.18
     // 往上：-0.02 ~ 0.06
-    const yOffset = -0.08;
+    const yOffset = -0.04;
 
     return { targetHeight, yOffset };
   }, []);
