@@ -1,11 +1,20 @@
+// app/components/AvatarVRM/AvatarStage.jsx
 "use client";
 
-import React, { Suspense, useMemo, useRef, useEffect, useState } from "react";
+import React, { Suspense, useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { ContactShadows, OrbitControls } from "@react-three/drei";
 import Avatar3D from "./Avatar3D";
 
+/**
+ * ✅ 目標：
+ * - normalizedGroup：只做一次「置中 + 腳貼地 + 相機對焦」
+ * - actorGroup：之後角色跑來跑去都改這層（不會再被 normalize 影響）
+ * - 一鍵回中：actorGroup.position = (0,0,0)
+ */
+
+/** 防止舞台炸掉（不影響其他 UI） */
 class StageErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -22,7 +31,8 @@ class StageErrorBoundary extends React.Component {
       return (
         <div className="w-full h-full flex items-center justify-center">
           <div className="text-white/60 text-xs text-center px-4">
-            3D 舞台載入失敗（不影響輸入信箱/聊天）<br />
+            3D 舞台載入失敗（不影響輸入信箱/聊天）
+            <br />
             {this.state.message}
           </div>
         </div>
@@ -33,100 +43,130 @@ class StageErrorBoundary extends React.Component {
 }
 
 /**
- * ✅ 穩定版 Auto Normalize + Auto Frame
- * - 不用 -=（避免累積偏移）
- * - 每次重算都先 reset position
- * - 等 bbox 有尺寸才做（避免手機上 mesh 還沒進來）
+ * ✅ 等模型真的有 bbox 後，做一次：
+ * 1) normalizedGroup：水平置中 + 腳貼地
+ * 2) 相機自動對焦，能看到全身
+ *
+ * 注意：這個只會做一次（doneRef），之後不要再動 normalizedGroup，
+ * 角色移動請改 actorGroup。
  */
-function AutoNormalizeAndFrame({
-  targetRef,
-  padding = 1.12,   // 越小越放大（建議 1.05~1.25）
-  yBias = -0.03,     // 鏡頭看向點微調（0~0.12）
-  doneOnce = true,  // true：算一次就停；false：每幀跟著（通常不需要）
-}) {
+function AutoNormalizeAndFrame({ normalizedRef, actorRef, padding = 1.12 }) {
   const { camera } = useThree();
   const doneRef = useRef(false);
   const retryRef = useRef(0);
 
   useFrame(() => {
-    if (doneOnce && doneRef.current) return;
+    if (doneRef.current) return;
 
-    const obj = targetRef.current;
-    if (!obj) return;
+    const normalized = normalizedRef.current;
+    const actor = actorRef.current;
+    if (!normalized || !actor) return;
 
-    // 先用目前狀態算 bbox
-    const box = new THREE.Box3().setFromObject(obj);
+    // bbox 用 actor（因為 VRM primitive 在 actor 裡）
+    const box = new THREE.Box3().setFromObject(actor);
     const size = new THREE.Vector3();
     const center = new THREE.Vector3();
     box.getSize(size);
     box.getCenter(center);
 
-    // bbox 還沒準備好就先等
+    // bbox 還沒好就重試
     if (!isFinite(size.y) || size.y < 0.001) {
       retryRef.current += 1;
       if (retryRef.current > 300) doneRef.current = true;
       return;
     }
 
-    // ✅ 1) reset（避免累積）
-    obj.position.set(0, 0, 0);
+    // ---- 1) normalized：水平置中 (x,z) ----
+    normalized.position.x -= center.x;
+    normalized.position.z -= center.z;
 
-    // ✅ 2) 重新算 bbox（reset後再算一次更乾淨）
-    const box2 = new THREE.Box3().setFromObject(obj);
-    const size2 = new THREE.Vector3();
-    const center2 = new THREE.Vector3();
-    box2.getSize(size2);
-    box2.getCenter(center2);
+    // ---- 2) 腳貼地：讓最低點到 y=0 ----
+    const box2 = new THREE.Box3().setFromObject(actor);
+    const minY = box2.min.y;
+    normalized.position.y -= minY;
 
-    // ✅ 3) 水平置中（x/z）
-    // 直接 set，避免 -= 累積
-    obj.position.x = -center2.x;
-    obj.position.z = -center2.z;
+    // ---- 3) 再算一次 bbox，做相機距離 ----
+    const box3 = new THREE.Box3().setFromObject(actor);
+    const size3 = new THREE.Vector3();
+    const center3 = new THREE.Vector3();
+    box3.getSize(size3);
+    box3.getCenter(center3);
 
-    // ✅ 4) 腳貼地：把最低點抬到 y=0
-    const box3 = new THREE.Box3().setFromObject(obj);
-    obj.position.y = -box3.min.y;
-
-    // ✅ 5) 最終 bbox（拿來算相機）
-    const box4 = new THREE.Box3().setFromObject(obj);
-    const size4 = new THREE.Vector3();
-    const center4 = new THREE.Vector3();
-    box4.getSize(size4);
-    box4.getCenter(center4);
-
-    const height = Math.max(0.0001, size4.y);
-
-    // ✅ 用 FOV 算距離：讓整身完整進畫面
+    const height = Math.max(0.0001, size3.y);
     const fov = (camera.fov * Math.PI) / 180;
     const dist = (height * padding) / (2 * Math.tan(fov / 2));
 
-    // ✅ 相機位置：正前方 + 微抬高
-    camera.position.set(center4.x, center4.y + height * yBias, center4.z + dist);
+    // ---- 4) 相機在正前方 + 微抬高 ----
+    camera.position.set(center3.x, center3.y + height * 0.08, center3.z + dist);
     camera.near = Math.max(0.01, dist / 100);
     camera.far = dist * 50;
     camera.updateProjectionMatrix();
-    camera.lookAt(center4);
+    camera.lookAt(center3);
 
     doneRef.current = true;
   });
 
+  // padding 改變時允許重新 framing
   useEffect(() => {
-    // padding / yBias 改了就允許重算一次
     doneRef.current = false;
     retryRef.current = 0;
-  }, [padding, yBias]);
+  }, [padding]);
 
   return null;
 }
 
-export default function AvatarStage({ variant = "sky", emotion = "idle", previewYaw = 0 }) {
-  const camera = useMemo(() => ({ position: [0, 1.4, 2.2], fov: 35 }), []);
-  const modelRoot = useRef(null);
-  const normalized = useRef(null);
+export default function AvatarStage({
+  variant = "sky",
+  emotion = "idle",
+  previewYaw = 0,
 
-  // 你要放大縮小：改 padding
-  // 越小越大（1.05 很近、1.2 比較保守）
-  const [padding] = useState(1.10);
+  /**
+   * ✅ 讓父層拿到控制權（可選）
+   * 用法：
+   * const apiRef = useRef(null)
+   * <AvatarStage apiRef={apiRef} />
+   * apiRef.current.recenter()
+   */
+  apiRef,
+}) {
+  // 你可調：fov 越小越「近」的透視感；position 只是初始值，最後會被 AutoNormalizeAndFrame 接管一次
+  const camera = useMemo(() => ({ position: [0, 1.4, 2.2], fov: 35 }), []);
+
+  // ✅ 兩層 group
+  const normalizedRef = useRef(null); // 只做一次置中貼地
+  const actorRef = useRef(null); // 角色移動、回中、跑跳都動這層
+
+  // ✅ 你要放大/縮小：padding 越小角色越大（1.06~1.18 常用）
+  const padding = 1.10;
+
+  // ✅ 對外 API：一鍵回舞台中心
+  useEffect(() => {
+    if (!apiRef) return;
+    apiRef.current = {
+      recenter: () => {
+        const actor = actorRef.current;
+        if (!actor) return;
+        actor.position.set(0, 0, 0);
+        actor.rotation.set(0, 0, 0);
+      },
+      setPos: (x, y, z) => {
+        const actor = actorRef.current;
+        if (!actor) return;
+        actor.position.set(x, y, z);
+      },
+      getPos: () => {
+        const actor = actorRef.current;
+        if (!actor) return null;
+        return actor.position.clone();
+      },
+      // 你之後要跑來跑去可以用這個設速度/狀態（先留接口）
+      actorRef,
+      normalizedRef,
+    };
+    return () => {
+      apiRef.current = null;
+    };
+  }, [apiRef]);
 
   return (
     <div className="w-full h-full">
@@ -136,20 +176,26 @@ export default function AvatarStage({ variant = "sky", emotion = "idle", preview
           gl={{ alpha: true, antialias: true }}
           style={{ background: "transparent" }}
         >
+          {/* 光（保守、穩定） */}
           <ambientLight intensity={0.8} />
           <directionalLight position={[3, 6, 4]} intensity={1.2} />
           <directionalLight position={[-3, 2, -2]} intensity={0.6} />
 
           <Suspense fallback={null}>
-            {/* modelRoot 不動，normalized 專門做置中/貼地 */}
-            <group ref={modelRoot}>
-              <group ref={normalized}>
+            {/* ✅ normalized: 只做一次置中貼地 */}
+            <group ref={normalizedRef}>
+              {/* ✅ actor: 你之後要移動就改這層 */}
+              <group ref={actorRef} position={[0, 0, 0]}>
                 <Avatar3D variant={variant} emotion={emotion} previewYaw={previewYaw} />
               </group>
             </group>
 
-            {/* ✅ 對 normalized 做 auto normalize + auto frame */}
-            <AutoNormalizeAndFrame targetRef={normalized} padding={padding} yBias={0.06} />
+            {/* ✅ 只做一次 normalize + framing */}
+            <AutoNormalizeAndFrame
+              normalizedRef={normalizedRef}
+              actorRef={actorRef}
+              padding={padding}
+            />
 
             <ContactShadows
               opacity={0.35}
@@ -157,13 +203,15 @@ export default function AvatarStage({ variant = "sky", emotion = "idle", preview
               blur={2.2}
               far={10}
               resolution={256}
-              position={[0, -0.001, 0]} // 貼地更自然，避免 z-fighting
+              position={[0, 0, 0]}
             />
           </Suspense>
 
+          {/* 先關掉操作，避免使用者亂拉 */}
           <OrbitControls enabled={false} enableZoom={false} enablePan={false} />
         </Canvas>
       </StageErrorBoundary>
     </div>
   );
 }
+```0
