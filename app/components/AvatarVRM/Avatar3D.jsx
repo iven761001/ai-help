@@ -103,7 +103,10 @@ function applyIdlePose(vrm) {
 export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw = 0 }) {
   const vrmRef = useRef(null);
 
-  // ✅ 存「基準姿勢」：避免每幀累積誤差（很重要）
+  // ✅ 外層容器：用來做「置中/縮放/整體位移」
+  const rootRef = useRef();
+
+  // ✅ 存「基準姿勢」：避免每幀累積誤差
   const baseRotRef = useRef({
     hips: null,
     spine: null,
@@ -130,19 +133,61 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw
 
   const vrm = useMemo(() => gltf?.userData?.vrm || null, [gltf]);
 
+  // ✅ 你要調整大小/位置就改這兩個
+  const fit = useMemo(() => {
+    // 角色看起來更大：1.85 ~ 2.05
+    // 更小：1.60 ~ 1.75
+    const targetHeight = 1.90;
+
+    // 往下：-0.08 ~ -0.18
+    // 往上：-0.02 ~ 0.06
+    const yOffset = -0.08;
+
+    return { targetHeight, yOffset };
+  }, []);
+
   useEffect(() => {
-    if (!vrm) return;
+    if (!vrm || !rootRef.current) return;
 
     // ✅ 方向統一
     VRMUtils.rotateVRM0(vrm);
 
-    // ✅ 先套「放鬆 T pose」到自然站姿
+    // ✅ 避免手機偶發裁切/瞬間消失
+    vrm.scene.traverse((o) => {
+      if (o.isMesh) o.frustumCulled = false;
+    });
+
+    // ✅ 先套自然站姿
     applyIdlePose(vrm);
+
+    // ✅ 自動置中 + 腳底貼地
+    // 1) 取得初始 bbox（在套完 idle pose 後算才準）
+    const box = new THREE.Box3().setFromObject(vrm.scene);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+
+    // 2) 把模型中心移到原點
+    vrm.scene.position.set(-center.x, -center.y, -center.z);
+
+    // 3) 再算一次 bbox，把腳底貼到 y=0
+    const box2 = new THREE.Box3().setFromObject(vrm.scene);
+    const bottomY = box2.min.y;
+    vrm.scene.position.y -= bottomY;
+
+    // ✅ 自動縮放到固定高度
+    const modelH = Math.max(size.y, 0.0001);
+    const s = fit.targetHeight / modelH;
+    rootRef.current.scale.setScalar(s);
+
+    // ✅ 整體微調到舞台中間
+    rootRef.current.position.set(0, fit.yOffset, 0);
 
     // ✅ 記住 VRM
     vrmRef.current = vrm;
 
-    // ✅ 把「自然站姿」當作 base（後面呼吸/晃動都在 base 上加減）
+    // ✅ 把「自然站姿」當作 base（呼吸/晃動都在 base 上加減）
     const get = (name) => vrm.humanoid?.getNormalizedBoneNode(name);
     const snap = (bone) => (bone ? bone.rotation.clone() : null);
 
@@ -161,26 +206,16 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw
       rShoulder: snap(get("rightShoulder")),
     };
 
-    // ✅ 釋放資源
+    // ⚠️ 這裡先不要 dispose（useLoader 會快取，dispose 容易讓下一次消失）
     return () => {
-      try {
-        vrmRef.current = null;
-        vrm.scene?.traverse((obj) => {
-          if (obj.isMesh) {
-            obj.geometry?.dispose?.();
-            if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose?.());
-            else obj.material?.dispose?.();
-          }
-        });
-      } catch {}
+      vrmRef.current = null;
     };
-  }, [vrm]);
+  }, [vrm, fit.targetHeight, fit.yOffset]);
 
   useFrame((state, delta) => {
     const v = vrmRef.current;
     if (!v) return;
 
-    // VRM 必須 update
     v.update(delta);
 
     // --- 取骨頭 ---
@@ -201,16 +236,16 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw
     // --- 時間 ---
     const t = state.clock.getElapsedTime();
 
-    // ✅ 呼吸（很小就好，避免抖）
-    const breath = Math.sin(t * 1.6) * 0.02;     // 胸口起伏
-    const sway = Math.sin(t * 0.9) * 0.015;      // 身體左右微擺
-    const bob = Math.sin(t * 1.2) * 0.008;       // 上下微浮（很小）
+    // ✅ 呼吸/晃動（保持小，不抖）
+    const breath = Math.sin(t * 1.6) * 0.02;
+    const sway = Math.sin(t * 0.9) * 0.015;
+    const bob = Math.sin(t * 1.2) * 0.008;
 
-    // ✅ 把 rotation 設回 base 再加動作（避免累積）
+    // ✅ rotation 設回 base 再加（避免累積）
     if (hips && base.hips) {
       hips.rotation.copy(base.hips);
       hips.rotation.y += sway * 0.4;
-      hips.position.y = bob; // ✅ 只有在 hips 做很小的上下浮動（比動 scene 安全）
+      hips.position.y = bob;
     }
     if (spine && base.spine) {
       spine.rotation.copy(base.spine);
@@ -232,10 +267,10 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw
     if (head && base.head) {
       head.rotation.copy(base.head);
       head.rotation.y += sway * 0.35;
-      head.rotation.x += Math.sin(t * 1.1) * 0.01; // 微點頭感
+      head.rotation.x += Math.sin(t * 1.1) * 0.01;
     }
 
-    // ✅ 手臂跟著身體一點點（讓整體更活）
+    // ✅ 手臂跟著一點點
     if (lShoulder && base.lShoulder) {
       lShoulder.rotation.copy(base.lShoulder);
       lShoulder.rotation.x += breath * 0.25;
@@ -256,5 +291,10 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw
 
   if (!vrm) return null;
 
-  return <primitive object={vrm.scene} />;
-}
+  // ✅ 用 rootRef 包起來，位置/縮放都改這層，不直接動 vrm.scene（比較穩）
+  return (
+    <group ref={rootRef}>
+      <primitive object={vrm.scene} />
+    </group>
+  );
+            }
