@@ -1,4 +1,3 @@
-// app/components/AvatarVRM/Avatar3D.jsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -40,42 +39,54 @@ export default function Avatar3D({
             return;
           }
 
-          // === 最穩定的一組清理（避免某些模型直接黑掉/消失） ===
+          // === 清理（穩定顯示）===
           try { VRMUtils.removeUnnecessaryJoints(vrm.scene); } catch {}
           try { VRMUtils.rotateVRM0(vrm); } catch {}
           try { VRMUtils.sanitizeMaterialProperties(vrm.scene); } catch {}
 
-          // === 量身高 → 等比縮放到舞台安全高度 ===
-          const TARGET_HEIGHT = 1.25; // 1.15~1.35 都可以
+          // reset
           vrm.scene.scale.setScalar(1);
           vrm.scene.position.set(0, 0, 0);
           vrm.scene.rotation.set(0, 0, 0);
           vrm.scene.updateMatrixWorld(true);
 
+          // === 算 bbox ===
           const box = new THREE.Box3().setFromObject(vrm.scene);
           const size = new THREE.Vector3();
+          const center = new THREE.Vector3();
           box.getSize(size);
+          box.getCenter(center);
 
           let height = size.y;
           if (!isFinite(height) || height <= 0) height = 1.6;
+
+          // ✅ 舞台「安全高度」：你這個 UI 框比較高，所以用 1.05~1.15 會比較不會爆頭
+          const TARGET_HEIGHT = 1.1;
 
           const scale = THREE.MathUtils.clamp(TARGET_HEIGHT / height, 0.15, 4.0);
           vrm.scene.scale.setScalar(scale);
           vrm.scene.updateMatrixWorld(true);
 
-          // 腳貼地 & 置中
+          // 重新算 bbox（因為縮放過）
           const box2 = new THREE.Box3().setFromObject(vrm.scene);
-          const center = new THREE.Vector3();
-          box2.getCenter(center);
+          const size2 = new THREE.Vector3();
+          const center2 = new THREE.Vector3();
+          box2.getSize(size2);
+          box2.getCenter(center2);
 
-          vrm.scene.position.x -= center.x;
-          vrm.scene.position.z -= center.z;
+          // === 置中：X/Z 置中，Y 腳貼地 ===
+          vrm.scene.position.x -= center2.x;
+          vrm.scene.position.z -= center2.z;
           vrm.scene.position.y -= box2.min.y;
 
-          // 讓臉朝鏡頭（很多 VRM 預設背對）
+          // ✅ 再把整個人往下壓一點（關鍵：避免頭出框）
+          // 你可以調整這個比例：0.06~0.16 都常用
+          vrm.scene.position.y -= size2.y * 0.12;
+
+          // 面向鏡頭（很多 VRM 背對）
           vrm.scene.rotation.y = Math.PI;
 
-          // 避免被 frustum cull 掉（手機很常看到「一瞬間出現又消失」）
+          // 避免手機 frustum 一閃就消失
           vrm.scene.traverse((o) => {
             o.frustumCulled = false;
             if (o.isMesh) {
@@ -84,7 +95,6 @@ export default function Avatar3D({
             }
           });
 
-          // 加入舞台
           modelRef.current = vrm.scene;
           groupRef.current?.add(vrm.scene);
 
@@ -120,19 +130,13 @@ export default function Avatar3D({
     groupRef.current.rotation.y = THREE.MathUtils.degToRad(deg);
   }, [previewYaw]);
 
-  // === 舞台內容 ===
   return (
     <group ref={groupRef}>
-      {/* 載入中：顯示膠囊 */}
       {status === "loading" && (
         <group>
           <mesh position={[0, 0.65, 0]}>
             <capsuleGeometry args={[0.22, 0.9, 8, 16]} />
             <meshStandardMaterial color="#7aa7ff" roughness={0.85} metalness={0.05} />
-          </mesh>
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
-            <circleGeometry args={[0.7, 32]} />
-            <meshBasicMaterial color="black" transparent opacity={0.25} />
           </mesh>
           <Html center>
             <div style={{ color: "rgba(255,255,255,0.65)", fontSize: 12 }}>
@@ -142,7 +146,6 @@ export default function Avatar3D({
         </group>
       )}
 
-      {/* 失敗：直接把錯誤顯示出來（你就不用再猜） */}
       {status === "error" && (
         <group>
           <mesh position={[0, 0.65, 0]}>
