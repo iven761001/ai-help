@@ -1,204 +1,266 @@
-//
 // app/components/AvatarVRM/Avatar3D.jsx
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
-import { useFrame, useLoader } from "@react-three/fiber";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import * as THREE from "three";
-import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useFrame } from "@react-three/fiber";
 
 /**
- * VRM Loader Avatar
- * - 預設載入 /vrm/avatar.vrm
- * - 身體 yaw + 頭部 yaw（頭身分離）
- * - emotion 基礎表情/動作
+ * 穩定保底 VRM Loader
+ * - 固定載入：/vrm/avatar.vrm
+ * - 有 loading / error UI
+ * - 不成功也不黑畫面
  *
- * 放模型：public/vrm/avatar.vrm
+ * 依賴套件：
+ *   three
+ *   @react-three/fiber
+ *   @react-three/drei
+ *   @pixiv/three-vrm
  */
 export default function Avatar3D({
   variant = "sky",
   emotion = "idle",
   previewYaw = 0,
-  modelUrl = "/vrm/avatar.vrm"
+  url = "/vrm/avatar.vrm"
 }) {
   const groupRef = useRef(null);
   const vrmRef = useRef(null);
-  const headBoneRef = useRef(null);
-  const baseHeadRotRef = useRef(new THREE.Euler());
-  const didInitRef = useRef(false);
 
-  // 依 variant 給一個「輕微染色」色票（不會整個變色太誇張）
+  const [status, setStatus] = useState("loading"); // loading | ready | error
+  const [progress, setProgress] = useState(0);
+  const [errMsg, setErrMsg] = useState("");
+
+  // 不同主題色（可用來打光/材質微調）
   const tint = useMemo(() => {
-    if (variant === "mint") return new THREE.Color("#7CFFD2");
-    if (variant === "purple") return new THREE.Color("#D2AAFF");
-    return new THREE.Color("#A0DCFF"); // sky
+    if (variant === "mint") return [0.55, 1.0, 0.82];
+    if (variant === "purple") return [0.86, 0.70, 1.0];
+    return [0.65, 0.86, 1.0];
   }, [variant]);
 
-  // 用 GLTFLoader + VRMLoaderPlugin 載入 VRM
-  const gltf = useLoader(
-    GLTFLoader,
-    modelUrl,
-    (loader) => {
-      loader.register((parser) => new VRMLoaderPlugin(parser));
-    }
-  );
-
+  // ---- Load VRM once (or when url changes) ----
   useEffect(() => {
-    if (!gltf) return;
+    let cancelled = false;
 
-    const vrm = gltf.userData.vrm;
-    if (!vrm) {
-      console.warn("[Avatar3D] VRM not found in gltf.userData.vrm");
-      return;
+    async function load() {
+      setStatus("loading");
+      setProgress(0);
+      setErrMsg("");
+
+      try {
+        const THREE = await import("three");
+        const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
+        const { VRMLoaderPlugin, VRMUtils } = await import("@pixiv/three-vrm");
+
+        if (cancelled) return;
+
+        const loader = new GLTFLoader();
+
+        // VRM plugin
+        loader.register((parser) => new VRMLoaderPlugin(parser));
+
+        loader.load(
+          url,
+          (gltf) => {
+            if (cancelled) return;
+
+            // 清理舊的
+            if (vrmRef.current?.scene && groupRef.current) {
+              groupRef.current.remove(vrmRef.current.scene);
+            }
+            if (vrmRef.current) {
+              try {
+                vrmRef.current.dispose();
+              } catch {}
+              vrmRef.current = null;
+            }
+
+            // gltf -> vrm
+            const vrm = gltf.userData.vrm;
+            if (!vrm) {
+              setStatus("error");
+              setErrMsg("VRM 解析失敗：gltf.userData.vrm 不存在（檔案可能不是 VRM）");
+              return;
+            }
+
+            // 建議的優化/修正（很重要：避免奇怪朝向、骨架、材質）
+            try {
+              VRMUtils.removeUnnecessaryVertices(gltf.scene);
+              VRMUtils.removeUnnecessaryJoints(gltf.scene);
+            } catch {}
+
+            // 讓材質比較穩、避免透明排序問題造成黑黑的
+            vrm.scene.traverse((obj) => {
+              if (!obj.isMesh) return;
+              obj.frustumCulled = false;
+              if (obj.material) {
+                // 某些 VRM 材質在 R3F 下可能會出現怪怪的透明/深度問題
+                obj.material.depthWrite = true;
+                obj.material.depthTest = true;
+              }
+            });
+
+            // 尺寸/位置調整：把角色放在舞台中心
+            vrm.scene.rotation.y = Math.PI; // 正面朝向鏡頭（看模型而定，這個最常見需要）
+            vrm.scene.position.set(0, 0, 0);
+
+            // 加入場景
+            if (groupRef.current) {
+              groupRef.current.add(vrm.scene);
+            }
+
+            vrmRef.current = vrm;
+
+            setStatus("ready");
+            setProgress(100);
+
+            // 給你 Debug 用：你可以在手機看不到 console 時，至少知道載入成功
+            // （若你有開 console，也會看到）
+            // eslint-disable-next-line no-console
+            console.log("[VRM] loaded:", url, vrm);
+          },
+          (evt) => {
+            if (cancelled) return;
+            if (!evt?.total) return;
+            const p = Math.round((evt.loaded / evt.total) * 100);
+            setProgress(p);
+          },
+          (err) => {
+            if (cancelled) return;
+            setStatus("error");
+            setErrMsg(err?.message || "VRM 載入失敗（請確認檔案路徑 / 套件安裝 / VRM 格式）");
+            // eslint-disable-next-line no-console
+            console.error("[VRM] load error:", err);
+          }
+        );
+      } catch (e) {
+        if (cancelled) return;
+        setStatus("error");
+        setErrMsg(e?.message || "載入器初始化失敗（可能缺少 @pixiv/three-vrm 或 three）");
+        // eslint-disable-next-line no-console
+        console.error("[VRM] init error:", e);
+      }
     }
 
-    // 清理 VRM（建議）
-    VRMUtils.removeUnnecessaryVertices(vrm.scene);
-    VRMUtils.removeUnnecessaryJoints(vrm.scene);
-
-    // 降低「看起來很暗」的風險：把材質做一點點提亮 & 染色
-    vrm.scene.traverse((obj) => {
-      if (!obj.isMesh) return;
-      const mat = obj.material;
-      if (!mat) return;
-
-      // 有些 VRM 會是 material array
-      const mats = Array.isArray(mat) ? mat : [mat];
-      mats.forEach((m) => {
-        if (!m) return;
-        // 只對有 color 的材質做輕微染色
-        if (m.color && m.color.isColor) {
-          // mix tint 15%
-          const c = m.color.clone();
-          c.lerp(tint, 0.15);
-          m.color.copy(c);
-          m.needsUpdate = true;
-        }
-        // 稍微提亮（避免深色背景全黑）
-        if (typeof m.roughness === "number") m.roughness = Math.min(1, m.roughness + 0.05);
-        if (typeof m.metalness === "number") m.metalness = Math.max(0, m.metalness - 0.05);
-      });
-    });
-
-    // 找 head bone（VRM humanoid）
-    const humanoid = vrm.humanoid;
-    const head = humanoid?.getRawBoneNode("head") || null;
-
-    vrmRef.current = vrm;
-    headBoneRef.current = head;
-
-    // 記住 head 初始 rotation（避免每幀覆蓋造成跳動）
-    if (head) {
-      baseHeadRotRef.current.copy(head.rotation);
-    }
-
-    // 第一次載入時，放到 group 下
-    if (groupRef.current && vrm.scene.parent !== groupRef.current) {
-      groupRef.current.add(vrm.scene);
-    }
-
-    didInitRef.current = true;
+    load();
 
     return () => {
-      // cleanup
+      cancelled = true;
+      // 卸載清理：避免 hot reload 堆疊
       try {
-        if (groupRef.current && vrm.scene.parent === groupRef.current) {
-          groupRef.current.remove(vrm.scene);
+        if (vrmRef.current?.scene && groupRef.current) {
+          groupRef.current.remove(vrmRef.current.scene);
         }
-        VRMUtils.deepDispose(vrm.scene);
+        vrmRef.current?.dispose?.();
       } catch {}
       vrmRef.current = null;
-      headBoneRef.current = null;
-      didInitRef.current = false;
     };
-  }, [gltf, tint]);
+  }, [url]);
 
-  // 小工具：安全設定表情（VRM0/VRM1 名稱可能不同）
-  const setExpression = (vrm, name, value) => {
-    const em = vrm?.expressionManager;
-    if (!em) return;
-    try {
-      em.setValue(name, value);
-    } catch {}
-  };
-
-  // 每幀更新：VRM update + 情緒動作 + previewYaw
+  // ---- Animation loop ----
   useFrame((state, delta) => {
-    const vrm = vrmRef.current;
-    if (!vrm || !didInitRef.current) return;
+    // 讓 VRM 的內部 update 跑起來（很重要）
+    if (vrmRef.current) {
+      try {
+        vrmRef.current.update(delta);
+      } catch {}
+    }
 
-    // VRM 內部 update（很重要：表情、物理等）
-    vrm.update(delta);
-
-    // previewYaw：身體
-    // 讓「身體轉得穩」，避免太敏感
-    const bodyYaw = previewYaw * 1.0; // radians
+    // 預覽旋轉：整個角色轉
     if (groupRef.current) {
-      groupRef.current.rotation.y = bodyYaw;
+      groupRef.current.rotation.y = previewYaw || 0;
     }
 
-    // 頭身分離：頭部再多轉一點
-    const head = headBoneRef.current;
-    if (head) {
-      const headYaw = previewYaw * 1.8; // radians
-      head.rotation.y = baseHeadRotRef.current.y + headYaw;
-    }
-
-    // 情緒動作（輕量，不會太吵）
-    const t = state.clock.getElapsedTime();
-
-    // reset expressions
-    // VRM1 常見：happy, angry, sad, relaxed, surprised
-    // VRM0 有時：Joy, Angry, Sorrow, Fun
-    const clearAll = () => {
-      setExpression(vrm, "happy", 0);
-      setExpression(vrm, "angry", 0);
-      setExpression(vrm, "sad", 0);
-      setExpression(vrm, "relaxed", 0);
-      setExpression(vrm, "surprised", 0);
-
-      setExpression(vrm, "Joy", 0);
-      setExpression(vrm, "Angry", 0);
-      setExpression(vrm, "Sorrow", 0);
-      setExpression(vrm, "Fun", 0);
-    };
-
-    clearAll();
-
-    // 基本呼吸/漂浮
-    const bob =
-      emotion === "happy" ? 0.06 :
-      emotion === "thinking" ? 0.03 :
-      emotion === "sorry" ? 0.018 :
-      0.025;
-
-    const speed =
-      emotion === "happy" ? 2.6 :
-      emotion === "thinking" ? 1.5 :
-      1.2;
-
+    // 情緒（保底：先用簡單的上下浮動）
     if (groupRef.current) {
-      groupRef.current.position.y = Math.sin(t * speed) * bob;
-    }
-
-    // 表情權重
-    if (emotion === "happy") {
-      setExpression(vrm, "happy", 0.8);
-      setExpression(vrm, "Joy", 0.8);
-    } else if (emotion === "thinking") {
-      setExpression(vrm, "relaxed", 0.35);
-      setExpression(vrm, "Fun", 0.25);
-    } else if (emotion === "sad") {
-      setExpression(vrm, "sad", 0.65);
-      setExpression(vrm, "Sorrow", 0.65);
-    } else if (emotion === "sorry") {
-      setExpression(vrm, "sad", 0.35);
-      setExpression(vrm, "Sorrow", 0.35);
-      setExpression(vrm, "relaxed", 0.15);
+      const t = state.clock.getElapsedTime();
+      const amp = emotion === "thinking" ? 0.03 : emotion === "happy" ? 0.06 : 0.02;
+      const spd = emotion === "happy" ? 2.4 : emotion === "thinking" ? 1.6 : 1.0;
+      groupRef.current.position.y = Math.sin(t * spd) * amp;
     }
   });
 
-  // 這個 group 會被 AvatarStage 放在 scene 裡
-  return <group ref={groupRef} />;
+  // ---- UI Overlay (won't cause black screen) ----
+  return (
+    <group ref={groupRef}>
+      {/* 若 VRM 還沒 ready，用簡單幾何體當保底，避免全黑 */}
+      {status !== "ready" && (
+        <FallbackDude tint={tint} status={status} progress={progress} errMsg={errMsg} />
+      )}
+    </group>
+  );
+}
+
+/**
+ * 保底模型：就算 VRM 壞掉也會看到東西
+ * 這個是 three primitive，不依賴任何外部資源
+ */
+function FallbackDude({ tint, status, progress, errMsg }) {
+  // tint: [r,g,b] 0~1
+  const color = `rgb(${Math.floor(tint[0] * 255)} ${Math.floor(tint[1] * 255)} ${Math.floor(
+    tint[2] * 255
+  )})`;
+
+  return (
+    <group position={[0, -0.25, 0]}>
+      {/* body */}
+      <mesh position={[0, 0.2, 0]}>
+        <capsuleGeometry args={[0.42, 0.7, 8, 16]} />
+        <meshStandardMaterial color={color} transparent opacity={0.75} metalness={0.0} roughness={0.2} />
+      </mesh>
+
+      {/* head */}
+      <mesh position={[0, 0.95, 0]}>
+        <sphereGeometry args={[0.35, 18, 18]} />
+        <meshStandardMaterial color={color} transparent opacity={0.78} metalness={0.0} roughness={0.18} />
+      </mesh>
+
+      {/* status label (用 drei Html 會需要 @react-three/drei；你有裝所以可用) */}
+      <StatusBillboard status={status} progress={progress} errMsg={errMsg} />
+    </group>
+  );
+}
+
+function StatusBillboard({ status, progress, errMsg }) {
+  // 不用 drei Html，避免又引入依賴；直接用簡單平面材質顯示「條紋」當作狀態提示
+  // 你要更漂亮我再幫你換 Html
+  const text =
+    status === "loading" ? `Loading VRM… ${progress}%` : status === "error" ? `VRM Error: ${errMsg}` : "";
+
+  return (
+    <group position={[0, 1.55, 0]}>
+      <mesh>
+        <planeGeometry args={[2.2, 0.45]} />
+        <meshBasicMaterial color="black" transparent opacity={0.35} />
+      </mesh>
+
+      {/* 用簡單方式顯示文字：三條白線當提示（手機看得到就好） */}
+      {status === "loading" && (
+        <>
+          <mesh position={[-0.7, 0, 0.01]}>
+            <planeGeometry args={[0.55, 0.06]} />
+            <meshBasicMaterial color="white" transparent opacity={0.85} />
+          </mesh>
+          <mesh position={[0, 0, 0.01]}>
+            <planeGeometry args={[0.55, 0.06]} />
+            <meshBasicMaterial color="white" transparent opacity={0.65} />
+          </mesh>
+          <mesh position={[0.7, 0, 0.01]}>
+            <planeGeometry args={[0.55, 0.06]} />
+            <meshBasicMaterial color="white" transparent opacity={0.45} />
+          </mesh>
+        </>
+      )}
+
+      {status === "error" && (
+        <>
+          <mesh position={[0, 0, 0.01]}>
+            <planeGeometry args={[1.6, 0.06]} />
+            <meshBasicMaterial color="red" transparent opacity={0.85} />
+          </mesh>
+        </>
+      )}
+
+      {/* 你要真的顯示文字我再幫你加 Html（先確保不黑畫面） */}
+      {/* text: {text} */}
+    </group>
+  );
 }
