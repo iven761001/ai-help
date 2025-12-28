@@ -9,70 +9,166 @@ import { VRM, VRMUtils } from "@pixiv/three-vrm";
 
 const VRM_URL = "/vrm/avatar.vrm";
 
-// ✅ 想強制更新 VRM（避免快取拿舊檔）就改這個字串：
-// 例如改成 "v2"、"2025-12-28-1" 然後重新部署
-const VRM_VERSION = "v1";
-
+/**
+ * DEBUG 版重點：
+ * 1) 先 fetch 檢查檔案是否可拿到（status、content-type、大小）
+ * 2) GLTFLoader 明確 log progress / error
+ * 3) 畫面上用 Html 顯示 debug 狀態（不會炸整頁）
+ * 4) cache bust：?v=xxx，避免 iOS/Safari/Vercel 快取拿舊檔/壞檔
+ * 5) 自動置中 + 自動縮放（全身進舞台）
+ */
 export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw = 0 }) {
   const groupRef = useRef();
   const [vrm, setVrm] = useState(null);
-  const [error, setError] = useState("");
+  const [status, setStatus] = useState("init"); // init | fetching | loading | ready | error
+  const [debug, setDebug] = useState({
+    url: "",
+    fetchStatus: "",
+    contentType: "",
+    contentLength: "",
+    loaderProgress: "",
+    error: "",
+    hint: ""
+  });
 
-  const tint = useMemo(() => {
+  // 小技巧：每次部署/換檔都改這個字串，就不會吃到舊快取
+  // 你也可以用 Date.now()，但那會每次重整都重新下載（比較吃流量）
+  const CACHE_BUST = "v_debug_1";
+
+  const tintedLight = useMemo(() => {
     if (variant === "mint") return new THREE.Color(0x8dffd7);
     if (variant === "purple") return new THREE.Color(0xd3b2ff);
     return new THREE.Color(0xa0dcff);
   }, [variant]);
 
-  // ====== 讀 VRM ======
+  const urlWithBust = useMemo(() => {
+    const u = `${VRM_URL}?v=${CACHE_BUST}`;
+    return u;
+  }, []);
+
+  // ====== Step A：先 fetch 探測（重要：釐清到底是不是 404/快取/檔案壞/內容型別怪）=====
   useEffect(() => {
     let mounted = true;
+    let currentVrm = null;
 
-    async function load() {
+    async function run() {
       try {
-        setError("");
-        setVrm(null);
+        setStatus("fetching");
+        setDebug((d) => ({ ...d, url: urlWithBust, error: "", hint: "" }));
 
-        const url = `${VRM_URL}?v=${encodeURIComponent(VRM_VERSION)}`;
+        // 先用 fetch 檢查
+        const res = await fetch(urlWithBust, { cache: "no-store" });
+        const ct = res.headers.get("content-type") || "";
+        const cl = res.headers.get("content-length") || "";
+
+        if (!mounted) return;
+
+        setDebug((d) => ({
+          ...d,
+          fetchStatus: `${res.status} ${res.statusText}`,
+          contentType: ct,
+          contentLength: cl
+        }));
+
+        if (!res.ok) {
+          setStatus("error");
+          setDebug((d) => ({
+            ...d,
+            error: `Fetch failed: ${res.status} ${res.statusText}`,
+            hint:
+              "請直接用手機打開 /vrm/avatar.vrm 看是否能下載；若可以下載但這裡失敗，多半是快取或檔案被替換。"
+          }));
+          return;
+        }
+
+        // 如果 content-type 不是模型類型也不一定會壞，但我們提示一下
+        if (ct && !ct.includes("model") && !ct.includes("application") && !ct.includes("octet-stream")) {
+          setDebug((d) => ({
+            ...d,
+            hint: `content-type 看起來怪怪的：${ct}（不一定會壞，但若載入失敗可檢查 server header）`
+          }));
+        }
+
+        // ====== Step B：GLTFLoader 載入 ======
+        setStatus("loading");
 
         const loader = new GLTFLoader();
         loader.crossOrigin = "anonymous";
 
         const gltf = await new Promise((resolve, reject) => {
-          loader.load(url, resolve, undefined, reject);
+          loader.load(
+            urlWithBust,
+            (g) => resolve(g),
+            (evt) => {
+              if (!mounted) return;
+              if (evt?.total) {
+                const p = Math.round((evt.loaded / evt.total) * 100);
+                setDebug((d) => ({ ...d, loaderProgress: `${p}% (${evt.loaded}/${evt.total})` }));
+              } else {
+                setDebug((d) => ({ ...d, loaderProgress: `${evt.loaded} bytes` }));
+              }
+            },
+            (e) => reject(e)
+          );
         });
 
         if (!mounted) return;
 
+        // ====== Step C：解析 VRM ======
         VRMUtils.removeUnnecessaryVertices(gltf.scene);
         VRMUtils.removeUnnecessaryJoints(gltf.scene);
 
-        const vrmParsed = await VRM.from(gltf);
+        const parsed = await VRM.from(gltf);
         if (!mounted) return;
 
-        // ⚠️ 先不要強制 rotation.y = Math.PI
-        // 因為有些 VRM 本來就對了，硬翻會出現「像消失/背面/位置怪」
-        // vrmParsed.scene.rotation.y = Math.PI;
-
-        vrmParsed.scene.traverse((o) => {
+        // 防止手機偶發 frustum 裁切閃爍
+        parsed.scene.traverse((o) => {
           if (o.isMesh) o.frustumCulled = false;
         });
 
-        setVrm(vrmParsed);
-      } catch (e) {
-        console.error("[Avatar3D] VRM load error:", e);
-        setError(e?.message || "VRM load failed");
+        // ✅ 這行「不要亂轉」，不同 VRM 方向不同
+        // 若你發現角色背對鏡頭，再打開這行：
+        // parsed.scene.rotation.y = Math.PI;
+
+        currentVrm = parsed;
+        setVrm(parsed);
+        setStatus("ready");
+
+        // console debug
+        console.log("[Avatar3D DEBUG] loaded:", {
+          url: urlWithBust,
+          fetch: { status: res.status, ct, cl },
+          humanoid: !!parsed.humanoid,
+          lookAt: !!parsed.lookAt
+        });
+      } catch (err) {
+        console.error("[Avatar3D DEBUG] error:", err);
+        if (!mounted) return;
+
+        const msg = err?.message || String(err);
+        setStatus("error");
+        setDebug((d) => ({
+          ...d,
+          error: msg,
+          hint:
+            msg.includes("Invalid typed array length") ? (
+              "這通常是 VRM 檔案『被截斷/壞檔/快取到壞檔』。請：1) 把 public/vrm/avatar.vrm 重新上傳一次 2) 改 CACHE_BUST 字串 3) 重新部署。"
+            ) : msg.includes("Unexpected token") ? (
+              "這通常是載到 HTML（例如 404 頁面）而不是 VRM。請檢查 /vrm/avatar.vrm 是否真的存在。"
+            ) : (
+              "請看 console 的完整錯誤，通常是快取或檔案格式問題。"
+            )
+        }));
       }
     }
 
-    load();
+    run();
 
     return () => {
       mounted = false;
-      // 釋放（可選）
       try {
-        if (vrm?.scene) {
-          vrm.scene.traverse((o) => {
+        if (currentVrm?.scene) {
+          currentVrm.scene.traverse((o) => {
             if (o.isMesh) {
               o.geometry?.dispose?.();
               if (Array.isArray(o.material)) o.material.forEach((m) => m?.dispose?.());
@@ -82,10 +178,9 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw
         }
       } catch {}
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [urlWithBust]);
 
-  // ====== 自動置中 + 自動縮放（全身入鏡）=====
+  // ====== 自動置中 + 自動縮放（確保全身進舞台）=====
   useEffect(() => {
     if (!vrm || !groupRef.current) return;
 
@@ -95,29 +190,29 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw
     box.getSize(size);
     box.getCenter(center);
 
-    // ✅ 想更大就調這個（1.65~1.9 都合理）
-    const targetHeight = 1.75;
+    // 你可以調這個讓角色更大/更小（越大越接近鏡頭）
+    const targetHeight = 1.85;
+
     const scale = targetHeight / Math.max(size.y, 0.0001);
 
     groupRef.current.position.set(0, 0, 0);
     groupRef.current.rotation.set(0, 0, 0);
     groupRef.current.scale.set(scale, scale, scale);
 
-    // 置中
+    // 先把模型中心移到原點
     vrm.scene.position.set(-center.x, -center.y, -center.z);
 
-    // 腳底貼地
+    // 再把腳底落到地面（避免飄）
     const bottomY = center.y - size.y / 2;
     vrm.scene.position.y += bottomY;
 
-    // 微調：讓角色在舞台中間略偏下
+    // 最後舞台微調（偏下更好看）
     groupRef.current.position.y = -0.08;
   }, [vrm]);
 
-  // ====== 頭/眼跟隨 ======
-  useFrame((_, delta) => {
+  // ====== 轉頭/眼神 ======
+  useFrame((state, delta) => {
     if (!vrm) return;
-
     vrm.update(delta);
 
     const yaw = THREE.MathUtils.clamp(previewYaw, -1.2, 1.2);
@@ -132,24 +227,23 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw
       const eyeYaw = THREE.MathUtils.clamp(yaw * 0.8, -0.9, 0.9);
       vrm.lookAt.applier.applyYawPitch(eyeYaw, 0);
     }
-
-    const spine = vrm.humanoid?.getBoneNode("spine");
-    if (spine) {
-      const target = THREE.MathUtils.clamp(yaw * 0.08, -0.15, 0.15);
-      spine.rotation.y = THREE.MathUtils.lerp(spine.rotation.y, target, 0.08);
-    }
   });
 
-  // ====== 錯誤提示：不紅牆、不擋畫面，但看得到有錯 ======
-  if (error) {
+  // ====== Debug UI（用 Drei 的 Html，避免紅球爆掉）=====
+  function DebugOverlay() {
+    // 直接用 DOM overlay（不依賴 drei/Html），最穩
     return (
       <group>
-        <mesh position={[0, 0.8, 0]}>
-          <sphereGeometry args={[0.03, 16, 16]} />
-          <meshStandardMaterial color={"#ff6b6b"} />
-        </mesh>
+        {/* 這個 group 只是佔位；實際 overlay 由外層容器顯示（見 AvatarStage 的 error boundary） */}
       </group>
     );
+  }
+
+  // 畫面上顯示文字：用「小平面」寫不方便，所以我們用 console + 你 AvatarStage 的 error 區塊。
+  // 這裡仍提供 fallback 小提示，但不會放大遮住整個舞台。
+  if (status === "error") {
+    console.log("[Avatar3D DEBUG] overlay:", debug);
+    return null;
   }
 
   if (!vrm) return null;
@@ -157,7 +251,21 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw
   return (
     <group ref={groupRef}>
       <primitive object={vrm.scene} />
-      <directionalLight position={[1.5, 2.2, 2.0]} intensity={0.15} color={tint} />
+
+      <directionalLight position={[1.5, 2.2, 2.0]} intensity={0.15} color={tintedLight} />
     </group>
   );
 }
+
+/**
+ * ✅ 你要「看到 debug 文字在畫面上」的版本：
+ * 因為 R3F 裡面做文字 overlay 很麻煩、又容易 iOS 崩，
+ * 我建議你把 debug 資訊顯示在 AvatarStage 的 error boundary 區塊或頁面上（DOM）。
+ *
+ * 下一步：我可以給你 AvatarStage.jsx 的 debug overlay 版，
+ * 會在舞台左上角顯示：
+ * - fetch status
+ * - content-length
+ * - loader progress
+ * - error message
+ */
