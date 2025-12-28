@@ -72,7 +72,7 @@ export default function AvatarStage({
           <Suspense fallback={null}>
             {/* ✅ 重要：不要再額外把 Avatar 往下移
                因為 Avatar3D.jsx 已經做過「腳貼地」校正了 */}
-            <group position={[0, -1, 0]}>
+            <group position={[0, 1, 0]}>
               <Avatar3D
                 variant={variant}
                 emotion={emotion}
