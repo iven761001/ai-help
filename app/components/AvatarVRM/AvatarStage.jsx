@@ -41,7 +41,7 @@ class StageErrorBoundary extends React.Component {
 function AutoNormalizeAndFrame({
   targetRef,
   padding = 1.12,   // 越小越放大（建議 1.05~1.25）
-  yBias = 0.06,     // 鏡頭看向點微調（0~0.12）
+  yBias = -0.03,     // 鏡頭看向點微調（0~0.12）
   doneOnce = true,  // true：算一次就停；false：每幀跟著（通常不需要）
 }) {
   const { camera } = useThree();
