@@ -1,8 +1,8 @@
 "use client";
 
-import React, { Suspense, useMemo, useRef, useLayoutEffect, useState } from "react";
+import React, { Suspense, useMemo, useRef, useEffect, useState } from "react";
 import * as THREE from "three";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { ContactShadows, OrbitControls } from "@react-three/drei";
 import Avatar3D from "./Avatar3D";
 
@@ -32,55 +32,80 @@ class StageErrorBoundary extends React.Component {
   }
 }
 
-// ✅ 這個元件會在「模型載入/更新後」自動調相機，讓全身穩穩在畫面內
-function AutoFrame({ targetRef, padding = 1.18 }) {
+/** ✅ 等模型真的「有尺寸」後才置中與對焦（會自動重試） */
+function AutoNormalizeAndFrame({ targetRef, padding = 1.15 }) {
   const { camera } = useThree();
+  const doneRef = useRef(false);
+  const retryRef = useRef(0);
 
-  useLayoutEffect(() => {
-    const target = targetRef.current;
-    if (!target) return;
+  useFrame(() => {
+    if (doneRef.current) return;
+    const obj = targetRef.current;
+    if (!obj) return;
 
-    // 用 bbox 算模型尺寸/中心
-    const box = new THREE.Box3().setFromObject(target);
+    // 算 bbox
+    const box = new THREE.Box3().setFromObject(obj);
     const size = new THREE.Vector3();
     const center = new THREE.Vector3();
     box.getSize(size);
     box.getCenter(center);
 
-    // 目標：全身進框（以高度為主）
-    const height = Math.max(0.0001, size.y);
+    // ✅ bbox 還沒好（高度太小 / NaN）就先不要做
+    if (!isFinite(size.y) || size.y < 0.001) {
+      retryRef.current += 1;
+      // 避免永遠卡住：重試很久還不行就停（但通常 1~30 frame 就好了）
+      if (retryRef.current > 300) doneRef.current = true;
+      return;
+    }
 
-    // 相機 FOV 計算距離
+    // --- 1) 先把模型「水平置中」(x/z) ---
+    obj.position.x -= center.x;
+    obj.position.z -= center.z;
+
+    // --- 2) 腳貼地：把最低點抬到 y=0 ---
+    // 重新算一次（因為剛移動了）
+    const box2 = new THREE.Box3().setFromObject(obj);
+    const minY = box2.min.y;
+    obj.position.y -= minY; // minY -> 0
+
+    // 再算一次最終 bbox (用來算相機距離)
+    const box3 = new THREE.Box3().setFromObject(obj);
+    const size3 = new THREE.Vector3();
+    const center3 = new THREE.Vector3();
+    box3.getSize(size3);
+    box3.getCenter(center3);
+
+    const height = Math.max(0.0001, size3.y);
+
+    // --- 3) 用 FOV 算出能完整看到全身的距離 ---
     const fov = (camera.fov * Math.PI) / 180;
     const dist = (height * padding) / (2 * Math.tan(fov / 2));
 
-    // ✅ 把相機放在正前方稍微往上看
-    camera.position.set(center.x, center.y + height * 0.05, center.z + dist);
+    // --- 4) 相機放正前方 + 微微抬高看中間 ---
+    camera.position.set(center3.x, center3.y + height * 0.08, center3.z + dist);
     camera.near = Math.max(0.01, dist / 100);
-    camera.far = dist * 100;
+    camera.far = dist * 50;
     camera.updateProjectionMatrix();
+    camera.lookAt(center3);
 
-    // ✅ 讓相機看向模型中心
-    camera.lookAt(center);
+    doneRef.current = true;
+  });
 
-  }, [camera, targetRef, padding]);
+  // padding 改變時，允許重新 framing
+  useEffect(() => {
+    doneRef.current = false;
+    retryRef.current = 0;
+  }, [padding]);
 
   return null;
 }
 
 export default function AvatarStage({ variant = "sky", emotion = "idle", previewYaw = 0 }) {
-  // 相機初始值不重要，反正 AutoFrame 會接管
   const camera = useMemo(() => ({ position: [0, 1.4, 2.2], fov: 35 }), []);
   const modelRoot = useRef();
-  const [frameTick, setFrameTick] = useState(0);
 
-  // ✅ 讓 Avatar3D 在載入成功後通知一次（我們用 key 或 callback 觸發 AutoFrame）
-  // 這裡用最簡單的方式：每次進來先 frame 一次，載入後你也可以手動 setFrameTick
-  // （如果你 Avatar3D 有加 onLoaded callback，我再給你更乾淨版）
-  useLayoutEffect(() => {
-    const t = setTimeout(() => setFrameTick((x) => x + 1), 400);
-    return () => clearTimeout(t);
-  }, [variant, emotion]);
+  // ✅ 你想放大/縮小就改這個（越小越大）
+  const [padding] = useState(1.12);
 
   return (
     <div className="w-full h-full">
@@ -91,26 +116,23 @@ export default function AvatarStage({ variant = "sky", emotion = "idle", preview
           style={{ background: "transparent" }}
         >
           {/* 光 */}
-          <ambientLight intensity={0.75} />
+          <ambientLight intensity={0.8} />
           <directionalLight position={[3, 6, 4]} intensity={1.2} />
           <directionalLight position={[-3, 2, -2]} intensity={0.6} />
 
           <Suspense fallback={null}>
-            {/* ✅ 這個 group 就是我們要 frame 的目標 */}
             <group ref={modelRoot}>
-              {/* 你原本有 group position [-0.25]，那會讓中心偏移，先拿掉 */}
               <Avatar3D variant={variant} emotion={emotion} previewYaw={previewYaw} />
             </group>
 
-            {/* ✅ 只要 frameTick 變化就重新算一次相機（保底用） */}
-            <AutoFrame targetRef={modelRoot} padding={1.18 + frameTick * 0} />
+            {/* ✅ 先置中 + 腳貼地，再自動對焦 */}
+            <AutoNormalizeAndFrame targetRef={modelRoot} padding={padding} />
 
-            {/* 地面陰影 */}
             <ContactShadows
               opacity={0.35}
               scale={6}
               blur={2.2}
-              far={8}
+              far={10}
               resolution={256}
               position={[0, 0, 0]}
             />
