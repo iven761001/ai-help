@@ -9,11 +9,13 @@ import { VRM, VRMUtils } from "@pixiv/three-vrm";
 
 const VRM_URL = "/vrm/avatar.vrm";
 
+// ✅ 想強制更新 VRM（避免快取拿舊檔）就改這個字串：
+// 例如改成 "v2"、"2025-12-28-1" 然後重新部署
+const VRM_VERSION = "v1";
+
 export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw = 0 }) {
   const groupRef = useRef();
-  const vrmRef = useRef(null);
-
-  const [ready, setReady] = useState(false);
+  const [vrm, setVrm] = useState(null);
   const [error, setError] = useState("");
 
   const tint = useMemo(() => {
@@ -22,17 +24,16 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw
     return new THREE.Color(0xa0dcff);
   }, [variant]);
 
-  // ====== 讀 VRM（加 cache-bust，最重要）=====
+  // ====== 讀 VRM ======
   useEffect(() => {
     let mounted = true;
 
     async function load() {
       try {
         setError("");
-        setReady(false);
+        setVrm(null);
 
-        // ✅ 避免 Vercel/手機快取：強制拿最新檔
-        const url = `${VRM_URL}?v=${Date.now()}`;
+        const url = `${VRM_URL}?v=${encodeURIComponent(VRM_VERSION)}`;
 
         const loader = new GLTFLoader();
         loader.crossOrigin = "anonymous";
@@ -46,27 +47,21 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw
         VRMUtils.removeUnnecessaryVertices(gltf.scene);
         VRMUtils.removeUnnecessaryJoints(gltf.scene);
 
-        const vrm = await VRM.from(gltf);
-
+        const vrmParsed = await VRM.from(gltf);
         if (!mounted) return;
 
-        // 面向鏡頭（若你覺得反了就把這行註解）
-        vrm.scene.rotation.y = Math.PI;
+        // ⚠️ 先不要強制 rotation.y = Math.PI
+        // 因為有些 VRM 本來就對了，硬翻會出現「像消失/背面/位置怪」
+        // vrmParsed.scene.rotation.y = Math.PI;
 
-        vrm.scene.traverse((o) => {
+        vrmParsed.scene.traverse((o) => {
           if (o.isMesh) o.frustumCulled = false;
         });
 
-        vrmRef.current = vrm;
-
-        // ✅ 置中 + 縮放（全身入鏡）
-        fitToStage(vrm, groupRef);
-
-        setReady(true);
+        setVrm(vrmParsed);
       } catch (e) {
         console.error("[Avatar3D] VRM load error:", e);
         setError(e?.message || "VRM load failed");
-        setReady(false);
       }
     }
 
@@ -74,9 +69,8 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw
 
     return () => {
       mounted = false;
-      // ✅ 正確釋放：用 ref，不要用 state（避免抓到舊值）
+      // 釋放（可選）
       try {
-        const vrm = vrmRef.current;
         if (vrm?.scene) {
           vrm.scene.traverse((o) => {
             if (o.isMesh) {
@@ -87,13 +81,41 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw
           });
         }
       } catch {}
-      vrmRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ====== 每幀更新 + 跟隨（頭/眼/脊椎）=====
+  // ====== 自動置中 + 自動縮放（全身入鏡）=====
+  useEffect(() => {
+    if (!vrm || !groupRef.current) return;
+
+    const box = new THREE.Box3().setFromObject(vrm.scene);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+
+    // ✅ 想更大就調這個（1.65~1.9 都合理）
+    const targetHeight = 1.75;
+    const scale = targetHeight / Math.max(size.y, 0.0001);
+
+    groupRef.current.position.set(0, 0, 0);
+    groupRef.current.rotation.set(0, 0, 0);
+    groupRef.current.scale.set(scale, scale, scale);
+
+    // 置中
+    vrm.scene.position.set(-center.x, -center.y, -center.z);
+
+    // 腳底貼地
+    const bottomY = center.y - size.y / 2;
+    vrm.scene.position.y += bottomY;
+
+    // 微調：讓角色在舞台中間略偏下
+    groupRef.current.position.y = -0.08;
+  }, [vrm]);
+
+  // ====== 頭/眼跟隨 ======
   useFrame((_, delta) => {
-    const vrm = vrmRef.current;
     if (!vrm) return;
 
     vrm.update(delta);
@@ -118,57 +140,24 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw
     }
   });
 
-  // ✅ 讀取失敗：不要紅牆、不要擋舞台（讓 AvatarStage 的 error boundary 顯示也行）
+  // ====== 錯誤提示：不紅牆、不擋畫面，但看得到有錯 ======
   if (error) {
-    // 你也可以直接 return null;（最乾淨）
     return (
       <group>
-        {/* 幾乎看不到的透明點：不影響畫面，但你還是能從 console 看到錯誤 */}
-        <mesh>
-          <sphereGeometry args={[0.001, 8, 8]} />
-          <meshStandardMaterial transparent opacity={0} />
+        <mesh position={[0, 0.8, 0]}>
+          <sphereGeometry args={[0.03, 16, 16]} />
+          <meshStandardMaterial color={"#ff6b6b"} />
         </mesh>
       </group>
     );
   }
 
-  if (!ready) return null;
+  if (!vrm) return null;
 
   return (
     <group ref={groupRef}>
-      <primitive object={vrmRef.current.scene} />
+      <primitive object={vrm.scene} />
       <directionalLight position={[1.5, 2.2, 2.0]} intensity={0.15} color={tint} />
     </group>
   );
-}
-
-// ====== 自動置中 + 自動縮放（全身在舞台中）=====
-function fitToStage(vrm, groupRef) {
-  if (!vrm?.scene || !groupRef?.current) return;
-
-  const box = new THREE.Box3().setFromObject(vrm.scene);
-  const size = new THREE.Vector3();
-  const center = new THREE.Vector3();
-  box.getSize(size);
-  box.getCenter(center);
-
-  // ✅ 你要「不小隻」：調這個最直覺
-  // 1.65：全身入鏡偏滿
-  // 1.85：更大、更貼近（手可能會快碰邊）
-  const targetHeight = 1.75;
-  const scale = targetHeight / Math.max(size.y, 0.0001);
-
-  groupRef.current.position.set(0, 0, 0);
-  groupRef.current.rotation.set(0, 0, 0);
-  groupRef.current.scale.set(scale, scale, scale);
-
-  // 把中心移回原點
-  vrm.scene.position.set(-center.x, -center.y, -center.z);
-
-  // 腳底貼近地面
-  const bottomY = center.y - size.y / 2;
-  vrm.scene.position.y += bottomY;
-
-  // 微調：讓角色落在舞台中間略偏下（比較符合卡片構圖）
-  groupRef.current.position.y = -0.08;
 }
