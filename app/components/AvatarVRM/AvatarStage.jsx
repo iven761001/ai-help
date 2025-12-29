@@ -133,14 +133,14 @@ function WorldController({
 }
 
 export default function AvatarStage({
-  vrmid   = "C1",
+  vrmId   = "C1",
   variant = "sky",
   emotion = "idle",
   action  = "idle",
   previewYaw = 0,
 
   /** 你之後換成 /vrm/<id>.vrm：把 id 從 page 傳進來即可 */
-  vrmId = "avatar",
+  //vrmId = "avatar",
 
   /** 相機與視線（先固定，避免 bbox 影響切腳） */
   lookAtY = 0.9,
