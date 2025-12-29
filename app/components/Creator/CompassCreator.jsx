@@ -1,4 +1,3 @@
-// app/components/Creator/CompassCreator.jsx
 "use client";
 
 import { useMemo, useState, useEffect, useRef } from "react";
@@ -15,11 +14,11 @@ export default function CompassCreator({
   disabled,
   onHeightChange
 }) {
-  // ✅ 新增：角色列表（之後你會擴充更多元素模型）
+  // ✅ 兩個 VRM 模型（輪盤切換寫回 vrmId）
   const avatars = useMemo(
     () => [
-      { id: "C1", label: "碳1 · C1" }
-      // 之後加：{ id:"Si1", label:"矽1 · Si1" } ...
+      { id: "C1", label: "碳1 · C1" },
+      { id: "C2", label: "碳2 · C2" }
     ],
     []
   );
@@ -55,11 +54,10 @@ export default function CompassCreator({
     []
   );
 
-  // ===== 名字模式 =====
   const [nameMode, setNameMode] = useState("__custom__");
   const [customName, setCustomName] = useState(value?.nickname || "");
 
-  // ✅ 量高度（外層要用就能用）
+  // ✅ 量高度（外層要閃避鍵盤/配置可以用）
   const shellRef = useRef(null);
   useEffect(() => {
     const el = shellRef.current;
@@ -88,7 +86,6 @@ export default function CompassCreator({
     setNameMode(hit ? hit.id : "__custom__");
   }, [value?.nickname, nameOptions]);
 
-  // ====== 更新各欄位 ======
   const pickAvatar = (id) => onChange?.({ ...value, vrmId: id });
   const pickColor = (id) => onChange?.({ ...value, color: id, avatar: id });
   const pickVoice = (id) => onChange?.({ ...value, voice: id });
@@ -113,7 +110,7 @@ export default function CompassCreator({
     !!value?.voice &&
     !!(value?.nickname || customName).trim();
 
-  // ====== ✅ 輪盤 carousel：超過 3 個就左右滑 ======
+  // ✅ panels：現在 4 個輪盤（>=4 會變左右滑 carousel）
   const panels = useMemo(
     () => [
       {
@@ -121,7 +118,7 @@ export default function CompassCreator({
         node: (
           <WheelPicker
             title="① 角色"
-            subtitle="選元素模型"
+            subtitle="選 VRM 模型"
             items={avatars}
             value={value?.vrmId || "C1"}
             onChange={pickAvatar}
@@ -183,7 +180,7 @@ export default function CompassCreator({
     const el = trackRef.current;
     if (!el) return;
     const next = Math.max(0, Math.min(pageCount - 1, p));
-    const w = el.clientWidth;
+    const w = el.clientWidth || 1;
     el.scrollTo({ left: next * w, behavior: "smooth" });
     setPage(next);
   };
@@ -197,9 +194,6 @@ export default function CompassCreator({
   };
 
   useEffect(() => {
-    // 旋轉螢幕 / 尺寸變更後保持在同頁
-    const el = trackRef.current;
-    if (!el) return;
     const handler = () => scrollToPage(page);
     window.addEventListener("resize", handler);
     return () => window.removeEventListener("resize", handler);
@@ -242,7 +236,11 @@ export default function CompassCreator({
       {/* Wheels */}
       <div className="px-3 pb-3 flex-1">
         {!showCarousel ? (
-          <div className="grid grid-cols-3 gap-3">{panels.map((p) => <div key={p.key}>{p.node}</div>)}</div>
+          <div className="grid grid-cols-3 gap-3">
+            {panels.map((p) => (
+              <div key={p.key}>{p.node}</div>
+            ))}
+          </div>
         ) : (
           <>
             <div className="flex items-center justify-between mb-2 px-1">
@@ -257,7 +255,13 @@ export default function CompassCreator({
                 aria-label="上一組輪盤"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  <path
+                    d="M15 18l-6-6 6-6"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               </button>
 
@@ -287,7 +291,13 @@ export default function CompassCreator({
                 aria-label="下一組輪盤"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  <path
+                    d="M9 6l6 6-6 6"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               </button>
             </div>
@@ -312,7 +322,6 @@ export default function CompassCreator({
                         {slice.map((p) => (
                           <div key={p.key}>{p.node}</div>
                         ))}
-                        {/* 補空格，避免最後一頁不足 3 個時排版亂 */}
                         {slice.length < 3 &&
                           Array.from({ length: 3 - slice.length }).map((__, k) => (
                             <div key={`pad-${k}`} className="opacity-0 pointer-events-none">
@@ -333,7 +342,9 @@ export default function CompassCreator({
       {nameMode === "__custom__" && (
         <div className="px-4 pb-4 shrink-0">
           <div className="rounded-2xl border border-white/15 bg-white/10 px-3 py-3">
-            <div className="text-[11px] text-white/70 mb-2">自訂名字（最多 20 字）</div>
+            <div className="text-[11px] text-white/70 mb-2">
+              自訂名字（最多 20 字）
+            </div>
             <div className="flex items-center gap-2">
               <input
                 value={customName}
@@ -352,4 +363,4 @@ export default function CompassCreator({
       )}
     </div>
   );
-        }
+}
