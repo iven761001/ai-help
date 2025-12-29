@@ -181,6 +181,7 @@ export default function Page() {
                 </div>
               ) : (
                 <AvatarStage
+                  key={stageProfile.vrmId} 
                   vrmId={stageProfile.vrmId || "C1"}
                   variant={stageProfile.color}
                   emotion={stageEmotion}
