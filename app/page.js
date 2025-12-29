@@ -23,7 +23,7 @@ export default function Page() {
   // ===== 角色草稿 =====
   const [draft, setDraft] = useState({
     email: "",
-    vrmId:"C1",
+    vrmId: "C1",
     color: "sky",
     avatar: "sky",
     voice: "warm",
@@ -43,7 +43,7 @@ export default function Page() {
     const u = loadUser();
     if (u?.email) {
       setUser(u);
-      setDraft((d) => ({ ...d, ...u }));
+      setDraft((d) => ({ ...d, ...u, vrmId: u.vrmId || d.vrmId || "C1" }));
       setEmail(u.email);
       setStep(u.nickname ? "chat" : "create");
     } else {
@@ -57,6 +57,7 @@ export default function Page() {
     const base = user?.email ? { ...draft, ...user } : draft;
     return {
       email: base.email || "",
+      vrmId: base.vrmId || "C1",
       color: base.color || base.avatar || "sky",
       avatar: base.avatar || base.color || "sky",
       voice: base.voice || "warm",
@@ -69,11 +70,12 @@ export default function Page() {
   // ===== 綁定信箱 =====
   const submitEmail = (e) => {
     e.preventDefault();
-    const mail = email.trim();
+    const mail = (email || "").trim();
     if (!mail) return;
 
     const next = {
       email: mail,
+      vrmId: "C1",
       color: "sky",
       avatar: "sky",
       voice: "warm",
@@ -90,7 +92,10 @@ export default function Page() {
     const profile = {
       ...user,
       ...draft,
-      email: user?.email || draft.email
+      email: user?.email || draft.email,
+      vrmId: draft.vrmId || user?.vrmId || "C1",
+      color: draft.color || draft.avatar || "sky",
+      avatar: draft.avatar || draft.color || "sky"
     };
     setUser(profile);
     saveUser(profile);
@@ -101,7 +106,7 @@ export default function Page() {
 
   // ===== Chat 送出 =====
   const onSend = async (text) => {
-    const t = text.trim();
+    const t = (text || "").trim();
     if (!t) return;
 
     setSending(true);
@@ -116,7 +121,10 @@ export default function Page() {
           messages: [...messages, { role: "user", content: t }]
         })
       });
+
+      if (!res.ok) throw new Error("API error");
       const data = await res.json();
+
       setMessages((p) => [
         ...p,
         { role: "assistant", content: data.reply || "我有收到 👍" }
@@ -136,6 +144,7 @@ export default function Page() {
     setUser(null);
     setDraft({
       email: "",
+      vrmId: "C1",
       color: "sky",
       avatar: "sky",
       voice: "warm",
@@ -163,19 +172,17 @@ export default function Page() {
             <div
               className="aspect-square w-full"
               {...(step !== "bind" ? bind : {})}
+              style={{ WebkitTapHighlightColor: "transparent" }}
             >
-              {/* 🔑 關鍵：bind 時完全不載入 3D */}
+              {/* bind 時不載入 3D（避免 client-side exception 影響第一頁） */}
               {step === "bind" ? (
                 <div className="w-full h-full flex items-center justify-center">
-                  <div className="text-white/60 text-sm">
-                    角色舞台準備中…
-                  </div>
+                  <div className="text-white/60 text-sm">角色舞台準備中…</div>
                 </div>
               ) : (
                 <AvatarStage
-               vrmId={stageProfile.vrmId || "C1"}
-               action="wave"
-                  virant={stageProfile.color}
+                  vrmId={stageProfile.vrmId || "C1"}
+                  variant={stageProfile.color}
                   emotion={stageEmotion}
                   previewYaw={yaw}
                 />
@@ -184,12 +191,10 @@ export default function Page() {
 
             <div className="px-4 pt-3 pb-4 text-center">
               <div className="text-sm font-semibold text-white">
-                {stageProfile.nickname
-                  ? `「${stageProfile.nickname}」`
-                  : "尚未命名"}
+                {stageProfile.nickname ? `「${stageProfile.nickname}」` : "尚未命名"}
               </div>
               <div className="text-[11px] text-white/70 mt-1">
-                顏色：{stageProfile.color} ／ 聲線：{stageProfile.voice}
+                模型：{stageProfile.vrmId || "C1"} ／ 顏色：{stageProfile.color} ／ 聲線：{stageProfile.voice}
               </div>
             </div>
           </div>
@@ -201,25 +206,28 @@ export default function Page() {
         <div className="mx-auto w-full max-w-md">
           <div className="h-[44dvh] min-h-[360px]">
             {step === "bind" && (
-              <div className="h-full rounded-[28px] bg-white/10 backdrop-blur-xl p-4 flex flex-col">
+              <div className="h-full rounded-[28px] bg-white/10 backdrop-blur-xl p-4 flex flex-col border border-white/15">
                 <div className="text-white font-semibold mb-2">綁定信箱</div>
+
                 <form onSubmit={submitEmail} className="flex flex-col gap-3 flex-1">
                   <input
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@gmail.com"
-                    className="rounded-2xl px-4 py-3 bg-black/20 text-white outline-none"
+                    className="rounded-2xl px-4 py-3 bg-black/20 text-white outline-none border border-white/15 placeholder:text-white/40"
                   />
+
                   <button
                     type="submit"
-                    className="rounded-full py-3 bg-sky-500 text-white"
+                    className="rounded-full py-3 bg-sky-500 text-white font-medium"
                   >
                     下一步
                   </button>
+
                   <button
                     type="button"
                     onClick={hardReset}
-                    className="text-xs text-white/50 underline"
+                    className="text-xs text-white/50 underline underline-offset-4"
                   >
                     Debug：清除重來
                   </button>
@@ -232,6 +240,7 @@ export default function Page() {
                 value={{ ...draft, email: user?.email || draft.email }}
                 onChange={setDraft}
                 onDone={onDoneCreator}
+                disabled={false}
               />
             )}
 
