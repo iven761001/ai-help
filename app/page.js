@@ -172,6 +172,8 @@ export default function Page() {
                 </div>
               ) : (
                 <AvatarStage
+               vrmID="C1"
+               action="wave"
                   profile={stageProfile}
                   emotion={stageEmotion}
                   previewYaw={yaw}
