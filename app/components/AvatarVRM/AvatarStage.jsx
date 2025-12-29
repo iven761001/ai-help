@@ -133,8 +133,10 @@ function WorldController({
 }
 
 export default function AvatarStage({
+  vrmid   = "C1",
   variant = "sky",
   emotion = "idle",
+  action  = "idle",
   previewYaw = 0,
 
   /** 你之後換成 /vrm/<id>.vrm：把 id 從 page 傳進來即可 */
@@ -254,6 +256,7 @@ export default function AvatarStage({
                 variant={variant}
                 emotion={emotion}
                 previewYaw={previewYaw}
+                action={action}
                 vrmId={vrmId}
               />
             </group>
