@@ -1,8 +1,7 @@
-
-// app/components/CompassCreator.jsx
+// app/components/Creator/CompassCreator.jsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import WheelPicker from "./WheelPicker";
 
 function cx(...arr) {
@@ -16,6 +15,15 @@ export default function CompassCreator({
   disabled,
   onHeightChange
 }) {
+  // ✅ 新增：角色列表（之後你會擴充更多元素模型）
+  const avatars = useMemo(
+    () => [
+      { id: "C1", label: "碳1 · C1" }
+      // 之後加：{ id:"Si1", label:"矽1 · Si1" } ...
+    ],
+    []
+  );
+
   const colors = useMemo(
     () => [
       { id: "sky", label: "天空藍 · 穩重專業" },
@@ -47,9 +55,12 @@ export default function CompassCreator({
     []
   );
 
-  const shellRef = useRef(null);
+  // ===== 名字模式 =====
+  const [nameMode, setNameMode] = useState("__custom__");
+  const [customName, setCustomName] = useState(value?.nickname || "");
 
-  // 量高度回報 page.js
+  // ✅ 量高度（外層要用就能用）
+  const shellRef = useRef(null);
   useEffect(() => {
     const el = shellRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
@@ -70,177 +81,275 @@ export default function CompassCreator({
     };
   }, [onHeightChange]);
 
-  const [nameMode, setNameMode] = useState("__custom__");
-  const [customName, setCustomName] = useState(value?.nickname || "");
-
-  // 初始同步（回到創角時）
   useEffect(() => {
     const nick = value?.nickname || "";
     setCustomName(nick);
-
     const hit = nameOptions.find((x) => x.id === nick);
     setNameMode(hit ? hit.id : "__custom__");
   }, [value?.nickname, nameOptions]);
 
+  // ====== 更新各欄位 ======
+  const pickAvatar = (id) => onChange?.({ ...value, vrmId: id });
   const pickColor = (id) => onChange?.({ ...value, color: id, avatar: id });
   const pickVoice = (id) => onChange?.({ ...value, voice: id });
 
-  // ✅ 名字轉輪變動：若不是 custom，就把輸入框同步成該名字
   const pickNameMode = (id) => {
     setNameMode(id);
-
-    if (id === "__custom__") {
-      // 留在輸入框自訂
-      onChange?.({ ...value, nickname: customName });
-      return;
-    }
-
+    if (id === "__custom__") return;
     setCustomName(id);
     onChange?.({ ...value, nickname: id });
   };
 
-  // ✅ 輸入框：有字就自動把轉輪跳到 custom，並寫入 nickname
-  const onTypeCustom = (txt) => {
-    const n = (txt || "").slice(0, 20);
-    setCustomName(n);
-
-    const trimmed = n.trim();
-    if (trimmed.length > 0 && nameMode !== "__custom__") {
-      setNameMode("__custom__");
-    }
-    onChange?.({ ...value, nickname: trimmed });
-  };
-
-  const commitCustom = () => {
-    const n = (customName || "").trim().slice(0, 20);
+  const commitCustomName = (name) => {
+    const n = (name || "").trim().slice(0, 20);
     setCustomName(n);
     onChange?.({ ...value, nickname: n });
   };
 
   const canDone =
     !!value?.email &&
+    !!(value?.vrmId || "C1") &&
     !!(value?.color || value?.avatar) &&
     !!value?.voice &&
     !!(value?.nickname || customName).trim();
 
+  // ====== ✅ 輪盤 carousel：超過 3 個就左右滑 ======
+  const panels = useMemo(
+    () => [
+      {
+        key: "avatar",
+        node: (
+          <WheelPicker
+            title="① 角色"
+            subtitle="選元素模型"
+            items={avatars}
+            value={value?.vrmId || "C1"}
+            onChange={pickAvatar}
+            disabled={disabled}
+          />
+        )
+      },
+      {
+        key: "color",
+        node: (
+          <WheelPicker
+            title="② 顏色"
+            subtitle="選核心色"
+            items={colors}
+            value={value?.color || value?.avatar || "sky"}
+            onChange={pickColor}
+            disabled={disabled}
+          />
+        )
+      },
+      {
+        key: "voice",
+        node: (
+          <WheelPicker
+            title="③ 個性"
+            subtitle="選說話風格"
+            items={voices}
+            value={value?.voice || "warm"}
+            onChange={pickVoice}
+            disabled={disabled}
+          />
+        )
+      },
+      {
+        key: "name",
+        node: (
+          <WheelPicker
+            title="④ 名字"
+            subtitle="選一個或自訂"
+            items={nameOptions}
+            value={nameMode}
+            onChange={pickNameMode}
+            disabled={disabled}
+          />
+        )
+      }
+    ],
+    [avatars, colors, voices, nameOptions, value, nameMode, disabled]
+  );
+
+  const showCarousel = panels.length > 3;
+  const perView = showCarousel ? 3 : panels.length;
+
+  const trackRef = useRef(null);
+  const [page, setPage] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(panels.length / perView));
+
+  const scrollToPage = (p) => {
+    const el = trackRef.current;
+    if (!el) return;
+    const next = Math.max(0, Math.min(pageCount - 1, p));
+    const w = el.clientWidth;
+    el.scrollTo({ left: next * w, behavior: "smooth" });
+    setPage(next);
+  };
+
+  const onTrackScroll = () => {
+    const el = trackRef.current;
+    if (!el) return;
+    const w = el.clientWidth || 1;
+    const p = Math.round(el.scrollLeft / w);
+    if (p !== page) setPage(p);
+  };
+
+  useEffect(() => {
+    // 旋轉螢幕 / 尺寸變更後保持在同頁
+    const el = trackRef.current;
+    if (!el) return;
+    const handler = () => scrollToPage(page);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
+
   return (
-    <div className="fixed left-0 right-0 bottom-0 z-[60] pointer-events-none">
-      <div
-        className="pointer-events-auto mx-auto w-full max-w-4xl px-3 pb-[calc(env(safe-area-inset-bottom)+12px)]"
-      >
-        <div
-          ref={shellRef}
-          className="
-            rounded-[28px]
-            bg-white/10
-            backdrop-blur-xl
-            border border-white/15
-            shadow-[0_-12px_50px_rgba(56,189,248,0.15)]
-            overflow-hidden
-          "
-        >
-          {/* Header */}
-          <div className="px-4 pt-4 pb-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-white">創角設定</div>
-                <div className="text-[11px] text-white/70">
-                  三個拉條都可以上下拖拉，會自動吸附到文字正中央
-                </div>
-              </div>
+    <div
+      ref={shellRef}
+      className="h-full rounded-[28px] border border-white/15 bg-white/10 backdrop-blur-xl shadow-[0_-12px_50px_rgba(56,189,248,0.15)] overflow-hidden flex flex-col"
+    >
+      {/* Header */}
+      <div className="px-4 pt-4 pb-3 shrink-0">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-white">創角設定</div>
+            <div className="text-[11px] text-white/70">
+              輪盤可上下拖拉，會自動吸附到文字正中央
+            </div>
+          </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                {/* ✅ 自訂輸入移到完成左邊（原本那段文字刪掉） */}
-                <div className="hidden sm:block">
-                  <input
-                    value={customName}
-                    onChange={(e) => onTypeCustom(e.target.value)}
-                    onBlur={commitCustom}
-                    placeholder="自訂名字（最多 20 字）"
-                    disabled={disabled}
-                    className="
-                      w-[220px] rounded-full
-                      border border-white/15
-                      bg-black/15 text-white
-                      px-4 py-2 text-sm outline-none
-                      placeholder:text-white/40
-                      focus:ring-2 focus:ring-sky-400
-                    "
+          <button
+            disabled={disabled || !canDone}
+            onClick={() => {
+              if (nameMode === "__custom__") commitCustomName(customName);
+              onDone?.();
+            }}
+            className={cx(
+              "shrink-0 rounded-full px-4 py-2 text-sm font-medium transition",
+              disabled || !canDone
+                ? "bg-white/20 text-white/60"
+                : "bg-sky-500 text-white hover:bg-sky-400"
+            )}
+          >
+            完成
+          </button>
+        </div>
+      </div>
+
+      {/* Wheels */}
+      <div className="px-3 pb-3 flex-1">
+        {!showCarousel ? (
+          <div className="grid grid-cols-3 gap-3">{panels.map((p) => <div key={p.key}>{p.node}</div>)}</div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-2 px-1">
+              <button
+                type="button"
+                onClick={() => scrollToPage(page - 1)}
+                disabled={page === 0}
+                className={cx(
+                  "h-8 w-8 rounded-full border border-white/15 bg-white/10 text-white/80 flex items-center justify-center transition active:scale-95",
+                  page === 0 ? "opacity-40" : "opacity-100"
+                )}
+                aria-label="上一組輪盤"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+
+              <div className="flex items-center gap-2">
+                {Array.from({ length: pageCount }).map((_, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => scrollToPage(i)}
+                    className={cx(
+                      "h-2.5 w-2.5 rounded-full transition",
+                      i === page ? "bg-sky-400" : "bg-white/20"
+                    )}
+                    aria-label={`第 ${i + 1} 組輪盤`}
                   />
-                </div>
-
-                <button
-                  disabled={disabled || !canDone}
-                  onClick={() => {
-                    commitCustom();
-                    onDone?.();
-                  }}
-                  className={cx(
-                    "rounded-full px-4 py-2 text-sm font-medium transition",
-                    disabled || !canDone
-                      ? "bg-white/15 text-white/50"
-                      : "bg-sky-500 text-white hover:bg-sky-400"
-                  )}
-                >
-                  完成
-                </button>
+                ))}
               </div>
+
+              <button
+                type="button"
+                onClick={() => scrollToPage(page + 1)}
+                disabled={page === pageCount - 1}
+                className={cx(
+                  "h-8 w-8 rounded-full border border-white/15 bg-white/10 text-white/80 flex items-center justify-center transition active:scale-95",
+                  page === pageCount - 1 ? "opacity-40" : "opacity-100"
+                )}
+                aria-label="下一組輪盤"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
             </div>
 
-            {/* 手機版：輸入框放下面一行（避免太擠） */}
-            <div className="sm:hidden mt-3">
+            <div
+              ref={trackRef}
+              onScroll={onTrackScroll}
+              className="no-scrollbar overflow-x-auto snap-x snap-mandatory"
+              style={{ WebkitOverflowScrolling: "touch" }}
+            >
+              <div className="flex" style={{ width: `${pageCount * 100}%` }}>
+                {Array.from({ length: pageCount }).map((_, pageIdx) => {
+                  const start = pageIdx * perView;
+                  const slice = panels.slice(start, start + perView);
+                  return (
+                    <div
+                      key={pageIdx}
+                      className="snap-start shrink-0"
+                      style={{ width: `${100 / pageCount}%` }}
+                    >
+                      <div className="grid grid-cols-3 gap-3">
+                        {slice.map((p) => (
+                          <div key={p.key}>{p.node}</div>
+                        ))}
+                        {/* 補空格，避免最後一頁不足 3 個時排版亂 */}
+                        {slice.length < 3 &&
+                          Array.from({ length: 3 - slice.length }).map((__, k) => (
+                            <div key={`pad-${k}`} className="opacity-0 pointer-events-none">
+                              <div className="h-[176px]" />
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Custom name input */}
+      {nameMode === "__custom__" && (
+        <div className="px-4 pb-4 shrink-0">
+          <div className="rounded-2xl border border-white/15 bg-white/10 px-3 py-3">
+            <div className="text-[11px] text-white/70 mb-2">自訂名字（最多 20 字）</div>
+            <div className="flex items-center gap-2">
               <input
                 value={customName}
-                onChange={(e) => onTypeCustom(e.target.value)}
-                onBlur={commitCustom}
-                placeholder="自訂名字（最多 20 字）"
+                onChange={(e) => setCustomName(e.target.value)}
+                onBlur={() => commitCustomName(customName)}
+                placeholder="例如：小護膜、阿膜、浴室管家"
                 disabled={disabled}
-                className="
-                  w-full rounded-2xl
-                  border border-white/15
-                  bg-black/15 text-white
-                  px-4 py-3 text-sm outline-none
-                  placeholder:text-white/40
-                  focus:ring-2 focus:ring-sky-400
-                "
+                className="flex-1 rounded-full border border-white/15 bg-black/10 text-white px-4 py-2 text-sm outline-none placeholder:text-white/40 focus:ring-2 focus:ring-sky-400"
               />
-              <div className="text-[11px] text-white/55 mt-1 text-right">
+              <div className="text-[11px] text-white/60 pr-1">
                 {Math.min((customName || "").length, 20)}/20
               </div>
             </div>
           </div>
-
-          {/* Wheels */}
-          <div className="px-3 pb-4 grid grid-cols-3 gap-3">
-            <WheelPicker
-              title="① 顏色"
-              subtitle="選核心色"
-              items={colors}
-              value={value?.color || value?.avatar || "sky"}
-              onChange={pickColor}
-              disabled={disabled}
-            />
-
-            <WheelPicker
-              title="② 個性"
-              subtitle="選說話風格"
-              items={voices}
-              value={value?.voice || "warm"}
-              onChange={pickVoice}
-              disabled={disabled}
-            />
-
-            <WheelPicker
-              title="③ 名字"
-              subtitle="選一個或自訂"
-              items={nameOptions}
-              value={nameMode}
-              onChange={pickNameMode}
-              disabled={disabled}
-            />
-          </div>
         </div>
-      </div>
+      )}
     </div>
   );
-}
+        }
