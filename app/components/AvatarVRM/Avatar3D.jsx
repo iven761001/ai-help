@@ -7,8 +7,6 @@ import { useFrame, useLoader } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 
-const VRM_URL = "/vrm/avatar.vrm";
-
 /** 套自然待機姿勢（把T-pose放鬆） */
 function applyIdlePose(vrm) {
   if (!vrm?.humanoid) return;
@@ -17,6 +15,7 @@ function applyIdlePose(vrm) {
   const resetBone = (bone) => {
     if (!bone) return;
     bone.rotation.set(0, 0, 0);
+    bone.position.set(0, 0, 0);
   };
 
   const bonesToReset = [
@@ -100,31 +99,60 @@ function applyIdlePose(vrm) {
   }
 }
 
-export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw = 0 }) {
+function clamp01(v) {
+  return Math.max(0, Math.min(1, v));
+}
+
+function setExpression(vrm, name, value) {
+  const v = clamp01(value);
+  try {
+    // VRM1
+    if (vrm?.expressionManager?.setValue) {
+      vrm.expressionManager.setValue(name, v);
+      return true;
+    }
+    // VRM0
+    if (vrm?.blendShapeProxy?.setValue) {
+      vrm.blendShapeProxy.setValue(name, v);
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
+function damp(current, target, lambda, dt) {
+  // exponential smoothing
+  const t = 1 - Math.exp(-lambda * dt);
+  return current + (target - current) * t;
+}
+
+export default function Avatar3D({
+  vrmId = "C1",          // ✅ 之後輪盤就改這個
+  variant = "sky",       // 先保留（未來可做材質/燈光色調）
+  emotion = "idle",      // 先保留（你要做情緒映射也可以）
+  action = "idle",       // ✅ wave / walk / nod / angry / smile / crouch
+  previewYaw = 0         // 你拖曳旋轉用
+}) {
   const vrmRef = useRef(null);
 
-  // ✅ 外層容器：用來做「置中/縮放/整體位移」
-  const rootRef = useRef();
+  // ✅ 存 base rotation，避免每幀累積誤差
+  const baseRotRef = useRef(null);
 
-  // ✅ 存「基準姿勢」：避免每幀累積誤差
-  const baseRotRef = useRef({
-    hips: null,
-    spine: null,
-    chest: null,
-    upperChest: null,
-    neck: null,
-    head: null,
-    lUpperArm: null,
-    rUpperArm: null,
-    lLowerArm: null,
-    rLowerArm: null,
-    lShoulder: null,
-    rShoulder: null,
+  // ✅ 動作平滑（避免切動作瞬間抽搐）
+  const actionBlendRef = useRef({
+    wave: 0,
+    walk: 0,
+    nod: 0,
+    angry: 0,
+    smile: 0,
+    crouch: 0
   });
+
+  const url = useMemo(() => `/vrm/${vrmId}.vrm`, [vrmId]);
 
   const gltf = useLoader(
     GLTFLoader,
-    VRM_URL,
+    url,
     (loader) => {
       loader.crossOrigin = "anonymous";
       loader.register((parser) => new VRMLoaderPlugin(parser));
@@ -133,61 +161,19 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw
 
   const vrm = useMemo(() => gltf?.userData?.vrm || null, [gltf]);
 
-  // ✅ 你要調整大小/位置就改這兩個
-  const fit = useMemo(() => {
-    // 角色看起來更大：1.85 ~ 2.05
-    // 更小：1.60 ~ 1.75
-    const targetHeight = 1.90;
-
-    // 往下：-0.08 ~ -0.18
-    // 往上：-0.02 ~ 0.06
-    const yOffset = -0.2;
-
-    return { targetHeight, yOffset };
-  }, []);
-
   useEffect(() => {
-    if (!vrm || !rootRef.current) return;
+    if (!vrm) return;
 
-    // ✅ 方向統一
+    // ✅ 統一方向（別每次載不同模型就亂轉）
     VRMUtils.rotateVRM0(vrm);
 
-    // ✅ 避免手機偶發裁切/瞬間消失
-    vrm.scene.traverse((o) => {
-      if (o.isMesh) o.frustumCulled = false;
-    });
-
-    // ✅ 先套自然站姿
+    // ✅ 自然站姿
     applyIdlePose(vrm);
 
-    // ✅ 自動置中 + 腳底貼地
-    // 1) 取得初始 bbox（在套完 idle pose 後算才準）
-    const box = new THREE.Box3().setFromObject(vrm.scene);
-    const size = new THREE.Vector3();
-    const center = new THREE.Vector3();
-    box.getSize(size);
-    box.getCenter(center);
-
-    // 2) 把模型中心移到原點
-    vrm.scene.position.set(-center.x, -center.y, -center.z);
-
-    // 3) 再算一次 bbox，把腳底貼到 y=0
-    const box2 = new THREE.Box3().setFromObject(vrm.scene);
-    const bottomY = box2.min.y;
-    vrm.scene.position.y -= bottomY;
-
-    // ✅ 自動縮放到固定高度
-    const modelH = Math.max(size.y, 0.0001);
-    const s = fit.targetHeight / modelH;
-    rootRef.current.scale.setScalar(s);
-
-    // ✅ 整體微調到舞台中間
-    rootRef.current.position.set(0, fit.yOffset, 0);
-
-    // ✅ 記住 VRM
+    // ✅ 記住
     vrmRef.current = vrm;
 
-    // ✅ 把「自然站姿」當作 base（呼吸/晃動都在 base 上加減）
+    // ✅ 把目前站姿當 base
     const get = (name) => vrm.humanoid?.getNormalizedBoneNode(name);
     const snap = (bone) => (bone ? bone.rotation.clone() : null);
 
@@ -198,60 +184,102 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw
       upperChest: snap(get("upperChest")),
       neck: snap(get("neck")),
       head: snap(get("head")),
+      lShoulder: snap(get("leftShoulder")),
+      rShoulder: snap(get("rightShoulder")),
       lUpperArm: snap(get("leftUpperArm")),
       rUpperArm: snap(get("rightUpperArm")),
       lLowerArm: snap(get("leftLowerArm")),
       rLowerArm: snap(get("rightLowerArm")),
-      lShoulder: snap(get("leftShoulder")),
-      rShoulder: snap(get("rightShoulder")),
+      lUpperLeg: snap(get("leftUpperLeg")),
+      rUpperLeg: snap(get("rightUpperLeg")),
+      lLowerLeg: snap(get("leftLowerLeg")),
+      rLowerLeg: snap(get("rightLowerLeg")),
+      lFoot: snap(get("leftFoot")),
+      rFoot: snap(get("rightFoot"))
     };
 
-    // ⚠️ 這裡先不要 dispose（useLoader 會快取，dispose 容易讓下一次消失）
+    // 初始把表情清掉
+    setExpression(vrm, "happy", 0);
+    setExpression(vrm, "angry", 0);
+    setExpression(vrm, "joy", 0);    // 有些 VRM 用 joy
+    setExpression(vrm, "smile", 0);  // 有些 VRM 用 smile
+
     return () => {
+      // 不做 heavy dispose（useLoader 有 cache），避免切換時亂炸
       vrmRef.current = null;
+      baseRotRef.current = null;
     };
-  }, [vrm, fit.targetHeight, fit.yOffset]);
+  }, [vrm]);
 
   useFrame((state, delta) => {
     const v = vrmRef.current;
-    if (!v) return;
+    const base = baseRotRef.current;
+    if (!v || !base) return;
 
     v.update(delta);
 
-    // --- 取骨頭 ---
     const get = (name) => v.humanoid?.getNormalizedBoneNode(name);
+
     const hips = get("hips");
     const spine = get("spine");
     const chest = get("chest") || get("upperChest");
     const neck = get("neck");
     const head = get("head");
-    const lUpperArm = get("leftUpperArm");
-    const rUpperArm = get("rightUpperArm");
+
     const lShoulder = get("leftShoulder");
     const rShoulder = get("rightShoulder");
+    const lUpperArm = get("leftUpperArm");
+    const rUpperArm = get("rightUpperArm");
+    const lLowerArm = get("leftLowerArm");
+    const rLowerArm = get("rightLowerArm");
 
-    // --- 基準姿勢 ---
-    const base = baseRotRef.current;
+    const lUpperLeg = get("leftUpperLeg");
+    const rUpperLeg = get("rightUpperLeg");
+    const lLowerLeg = get("leftLowerLeg");
+    const rLowerLeg = get("rightLowerLeg");
 
-    // --- 時間 ---
+    // ---- 時間 ----
     const t = state.clock.getElapsedTime();
 
-    // ✅ 呼吸/晃動（保持小，不抖）
+    // ---- 基礎 idle（永遠存在）----
     const breath = Math.sin(t * 1.6) * 0.02;
     const sway = Math.sin(t * 0.9) * 0.015;
     const bob = Math.sin(t * 1.2) * 0.008;
 
-    // ✅ rotation 設回 base 再加（避免累積）
+    // ---- action blend（平滑切換）----
+    const target = {
+      wave: action === "wave" ? 1 : 0,
+      walk: action === "walk" ? 1 : 0,
+      nod: action === "nod" ? 1 : 0,
+      angry: action === "angry" ? 1 : 0,
+      smile: action === "smile" ? 1 : 0,
+      crouch: action === "crouch" ? 1 : 0
+    };
+
+    const blend = actionBlendRef.current;
+    blend.wave = damp(blend.wave, target.wave, 10, delta);
+    blend.walk = damp(blend.walk, target.walk, 10, delta);
+    blend.nod = damp(blend.nod, target.nod, 10, delta);
+    blend.angry = damp(blend.angry, target.angry, 10, delta);
+    blend.smile = damp(blend.smile, target.smile, 10, delta);
+    blend.crouch = damp(blend.crouch, target.crouch, 10, delta);
+
+    // ---- 先回到 base，再疊加 ----
     if (hips && base.hips) {
       hips.rotation.copy(base.hips);
       hips.rotation.y += sway * 0.4;
-      hips.position.y = bob;
+
+      // ✅ crouch 會壓低 hips
+      const crouchDrop = blend.crouch * 0.12;
+      hips.position.y = bob - crouchDrop;
     }
+
     if (spine && base.spine) {
       spine.rotation.copy(base.spine);
       spine.rotation.x += breath * 0.7;
       spine.rotation.y += sway * 0.6;
     }
+
     if (chest) {
       const b = base.chest || base.upperChest;
       if (b) {
@@ -260,17 +288,35 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw
         chest.rotation.y += sway * 0.6;
       }
     }
+
     if (neck && base.neck) {
       neck.rotation.copy(base.neck);
       neck.rotation.y += sway * 0.35;
     }
+
     if (head && base.head) {
       head.rotation.copy(base.head);
       head.rotation.y += sway * 0.35;
       head.rotation.x += Math.sin(t * 1.1) * 0.01;
+
+      // ✅ previewYaw：轉頭跟隨（小幅、很自然）
+      const yaw = THREE.MathUtils.clamp(previewYaw, -1.2, 1.2);
+      head.rotation.y += yaw * 0.25;
+
+      // ✅ nod 動作
+      if (blend.nod > 0.001) {
+        const nodWave = Math.sin(t * 3.2) * 0.18 * blend.nod; // 點頭幅度
+        head.rotation.x += nodWave;
+      }
+
+      // ✅ angry 會稍微低頭+瞪人感
+      if (blend.angry > 0.001) {
+        head.rotation.x += 0.08 * blend.angry;
+        head.rotation.y += Math.sin(t * 1.6) * 0.03 * blend.angry;
+      }
     }
 
-    // ✅ 手臂跟著一點點
+    // ---- 手臂跟著呼吸 ----
     if (lShoulder && base.lShoulder) {
       lShoulder.rotation.copy(base.lShoulder);
       lShoulder.rotation.x += breath * 0.25;
@@ -287,14 +333,87 @@ export default function Avatar3D({ variant = "sky", emotion = "idle", previewYaw
       rUpperArm.rotation.copy(base.rUpperArm);
       rUpperArm.rotation.x += breath * 0.2;
     }
+    if (lLowerArm && base.lLowerArm) lLowerArm.rotation.copy(base.lLowerArm);
+    if (rLowerArm && base.rLowerArm) rLowerArm.rotation.copy(base.rLowerArm);
+
+    // ---- wave：右手揮手 ----
+    if (blend.wave > 0.001) {
+      const w = blend.wave;
+      if (rUpperArm) {
+        // 抬手
+        rUpperArm.rotation.x += (-0.9) * w;
+        rUpperArm.rotation.z += (-0.35) * w;
+      }
+      if (rLowerArm) {
+        // 前臂揮動
+        const flap = Math.sin(t * 8.0) * 0.55 * w;
+        rLowerArm.rotation.z += flap;
+      }
+      if (rShoulder) {
+        rShoulder.rotation.x += (-0.15) * w;
+      }
+    }
+
+    // ---- walk：原地踏步 ----
+    if (blend.walk > 0.001) {
+      const w = blend.walk;
+      const step = Math.sin(t * 5.0);
+      const step2 = Math.sin(t * 5.0 + Math.PI);
+
+      // 腿
+      if (lUpperLeg) lUpperLeg.rotation.x += (0.45 * step) * w;
+      if (rUpperLeg) rUpperLeg.rotation.x += (0.45 * step2) * w;
+
+      if (lLowerLeg) lLowerLeg.rotation.x += Math.max(0, -0.55 * step) * w;
+      if (rLowerLeg) rLowerLeg.rotation.x += Math.max(0, -0.55 * step2) * w;
+
+      // 手臂反向擺（更像走路）
+      if (lUpperArm) lUpperArm.rotation.x += (-0.22 * step2) * w;
+      if (rUpperArm) rUpperArm.rotation.x += (-0.22 * step) * w;
+
+      // 身體微上下
+      if (hips) hips.position.y += (Math.sin(t * 10.0) * 0.01) * w;
+    }
+
+    // ---- crouch：蹲下（壓低 hips + 腿彎）----
+    if (blend.crouch > 0.001) {
+      const c = blend.crouch;
+      if (lUpperLeg) lUpperLeg.rotation.x += 0.55 * c;
+      if (rUpperLeg) rUpperLeg.rotation.x += 0.55 * c;
+      if (lLowerLeg) lLowerLeg.rotation.x += -0.75 * c;
+      if (rLowerLeg) rLowerLeg.rotation.x += -0.75 * c;
+
+      // 上半身略前傾，才像蹲
+      if (spine) spine.rotation.x += 0.12 * c;
+      if (chest) chest.rotation.x += 0.08 * c;
+    }
+
+    // ---- 表情：smile / angry ----
+    // 這裡用多個常見 key 去嘗試，哪個有吃到就會有效
+    // smile：happy / joy / smile
+    if (blend.smile > 0.001) {
+      const s = blend.smile;
+      setExpression(v, "happy", s);
+      setExpression(v, "joy", s);
+      setExpression(v, "smile", s);
+      // angry 清掉
+      setExpression(v, "angry", 0);
+    } else if (blend.angry > 0.001) {
+      const a = blend.angry;
+      setExpression(v, "angry", a);
+      // smile 清掉
+      setExpression(v, "happy", 0);
+      setExpression(v, "joy", 0);
+      setExpression(v, "smile", 0);
+    } else {
+      // idle 清表情（避免殘留）
+      setExpression(v, "happy", 0);
+      setExpression(v, "joy", 0);
+      setExpression(v, "smile", 0);
+      setExpression(v, "angry", 0);
+    }
   });
 
   if (!vrm) return null;
-
-  // ✅ 用 rootRef 包起來，位置/縮放都改這層，不直接動 vrm.scene（比較穩）
-  return (
-    <group ref={rootRef}>
-      <primitive object={vrm.scene} />
-    </group>
-  );
-            }
+  return <primitive object={vrm.scene} />;
+}
