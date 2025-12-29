@@ -23,6 +23,7 @@ export default function Page() {
   // ===== 角色草稿 =====
   const [draft, setDraft] = useState({
     email: "",
+    vrmId:"C1",
     color: "sky",
     avatar: "sky",
     voice: "warm",
@@ -172,9 +173,9 @@ export default function Page() {
                 </div>
               ) : (
                 <AvatarStage
-               vrmId="C1"
+               vrmId={stageProfile.vrmId || "C1"}
                action="wave"
-                  profile={stageProfile}
+                  virant={stageProfile.color}
                   emotion={stageEmotion}
                   previewYaw={yaw}
                 />
