@@ -212,6 +212,7 @@ export default function Page() {
                   vrmId={stagePreview.vrmId || "C1"}
                   variant={stagePreview.color}
                   emotion={stageEmotion}
+                  action="walk"
                   previewYaw={yaw}
                 />
               )}
