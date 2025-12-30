@@ -69,7 +69,8 @@ function MarketFrame({
   mode = "normal", // normal | full
   bumpLook = 0, // 視線往上微調（0~0.2）
   onDebug,
-  triggerKey
+  triggerKey,
+  groundLock=true,//動畫時鎖地板
 }) {
   const { camera } = useThree();
   const doneRef = useRef(false);
@@ -83,11 +84,11 @@ function MarketFrame({
   }, [triggerKey, mode, bumpLook]);
 
   useFrame(() => {
-    if (doneRef.current) return;
-    const root = targetRef.current;
-    if (!root) return;
+  const root = targetRef.current;
+  if (!root) return;
 
-    // 1) bbox
+  // ✅ 置中/取景：只做一次
+  if (!doneRef.current) {
     const box = new THREE.Box3().setFromObject(root);
     const size = new THREE.Vector3();
     const center = new THREE.Vector3();
@@ -99,6 +100,60 @@ function MarketFrame({
       if (retryRef.current > 240) doneRef.current = true;
       return;
     }
+
+    // 水平置中
+    root.position.x -= center.x;
+    root.position.z -= center.z;
+
+    // 腳底貼地（先貼一次）
+    const box2 = new THREE.Box3().setFromObject(root);
+    const minY = box2.min.y;
+    root.position.y -= minY;
+
+    // 重新計算 bbox
+    const box3 = new THREE.Box3().setFromObject(root);
+    const size3 = new THREE.Vector3();
+    const center3 = new THREE.Vector3();
+    box3.getSize(size3);
+    box3.getCenter(center3);
+
+    const height = Math.max(0.0001, size3.y);
+    const fov = (camera.fov * Math.PI) / 180;
+    const padding = mode === "full" ? 1.45 : 1.20;
+    const dist = (height * padding) / (2 * Math.tan(fov / 2));
+    const lookAtY = box3.min.y + height * (0.58 + bumpLook);
+
+    camera.position.set(center3.x, lookAtY + height * 0.08, center3.z + dist);
+    camera.near = Math.max(0.01, dist / 100);
+    camera.far = dist * 50;
+    camera.updateProjectionMatrix();
+    camera.lookAt(center3.x, lookAtY, center3.z);
+
+    doneRef.current = true;
+
+    onDebug?.({
+      rawMinY: box.min.y.toFixed(3),
+      rawMaxY: box.max.y.toFixed(3),
+      height: height.toFixed(3),
+      centerY: center3.y.toFixed(3),
+      targetY: lookAtY.toFixed(3),
+      camZ: camera.position.z.toFixed(3),
+      padding: padding.toFixed(2),
+      lookAtRatio: (0.58 + bumpLook).toFixed(2),
+    });
+
+    return;
+  }
+
+  // ✅ Ground Lock：每幀把腳底拉回 y=0，避免動畫造成下沉
+  if (groundLock) {
+    const box = new THREE.Box3().setFromObject(root);
+    const minY = box.min.y;
+    if (isFinite(minY) && Math.abs(minY) > 0.0005) {
+      root.position.y -= minY; // 把 minY 拉回 0
+    }
+  }
+});
 
     // 2) 水平置中（x/z）
     root.position.x -= center.x;
