@@ -129,6 +129,7 @@ export default function AvatarStage({
   vrmId = "C1",
   variant = "sky",
   emotion = "idle",
+  action. = "idle",
   previewYaw = 0
 }) {
   const camera = useMemo(() => ({ position: [0, 1.3, 2.8], fov: 35 }), []);
@@ -233,6 +234,7 @@ export default function AvatarStage({
                 vrmId={vrmId}
                 variant={variant}
                 emotion={emotion}
+                action={action}
                 previewYaw={previewYaw}
                 onReady={() => {
                   // ✅ 模型真正載好 → 先重置 root → 強制 reframe
