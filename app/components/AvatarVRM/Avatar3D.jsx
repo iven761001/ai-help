@@ -1,4 +1,4 @@
-//Avatar3D.jsx v004.003
+//Avatar3D.jsx v004.004
 // app/components/AvatarVRM/Avatar3D.jsx
 "use client";
 
@@ -236,7 +236,6 @@ export default function Avatar3D({
     const em = v?.expressionManager;
     if (!em) return;
 
-    // 先歸零常見表情（避免疊加）
     const keys = ["happy", "angry", "sad", "relaxed", "neutral", "blink", "aa", "A"];
     keys.forEach((k) => {
       try {
@@ -245,9 +244,10 @@ export default function Avatar3D({
     });
 
     if (mode === "smile") {
-      if (em.getExpression?.("happy")) em.setValue("happy", 0.9);
+      if (em.getExpression?.("happy")) em.setValue("happy", 0.75);
+      if (em.getExpression?.("relaxed")) em.setValue("relaxed", 0.2);
     } else if (mode === "angry") {
-      if (em.getExpression?.("angry")) em.setValue("angry", 0.85);
+      if (em.getExpression?.("angry")) em.setValue("angry", 0.75);
     } else {
       if (em.getExpression?.("neutral")) em.setValue("neutral", 0.6);
     }
@@ -269,13 +269,6 @@ export default function Avatar3D({
     proceduralRef.current = "idle";
     tRef.current = 0;
 
-    // debug：看看 VRM 內建有哪些動畫
-    if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
-      const names = (gltf?.animations || []).map((c) => c.name);
-      // eslint-disable-next-line no-console
-      console.log(`[VRM ${vrmId}] clips:`, names.length ? names : "(none)");
-    }
-
     onReady?.();
 
     return () => {
@@ -296,7 +289,6 @@ export default function Avatar3D({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vrm, gltf, vrmId]);
 
-  // action 變更：有 clip 播 clip；沒 clip 改程序式
   useEffect(() => {
     const v = vrmRef.current;
     if (!v) return;
@@ -304,7 +296,6 @@ export default function Avatar3D({
     const idleMode = isIdleAction(action);
     const clips = gltf?.animations || [];
 
-    // idle：強制程序式，停 mixer
     if (idleMode) {
       stopMixer();
       proceduralRef.current = "idle";
@@ -314,14 +305,10 @@ export default function Avatar3D({
       return;
     }
 
-    // 非 idle：先試著找 clip
     const clip = pickClipByAction(clips, action);
 
     if (clip) {
-      // ✅ 用動畫
-      if (!mixerRef.current) {
-        mixerRef.current = new THREE.AnimationMixer(v.scene);
-      }
+      if (!mixerRef.current) mixerRef.current = new THREE.AnimationMixer(v.scene);
       const mixer = mixerRef.current;
 
       const next = mixer.clipAction(clip);
@@ -337,13 +324,12 @@ export default function Avatar3D({
 
       currentActionRef.current = next;
       hipsBasePosRef.current = null;
-      proceduralRef.current = "idle"; // 不走程序式
+      proceduralRef.current = "idle";
       tRef.current = 0;
       setFace(v, "idle");
       return;
     }
 
-    // ✅ 沒 clip：走程序式（一定要動）
     stopMixer();
     proceduralRef.current = normActionName(action);
     tRef.current = 0;
@@ -361,11 +347,8 @@ export default function Avatar3D({
     const idleMode = isIdleAction(action);
 
     if (!idleMode && mixer) mixer.update(delta);
-
-    // VRM update（表情/物理）
     v.update(delta);
 
-    // 非 idle + 播 clip：吃 root motion（避免沉/漂）
     if (!idleMode && mixer && inPlace && v.humanoid) {
       const hips = v.humanoid.getNormalizedBoneNode("hips");
       if (hips) {
@@ -374,12 +357,10 @@ export default function Avatar3D({
       }
     }
 
-    // ===== 程序式（Idle 或 沒 clip）=====
     const proc = proceduralRef.current || "idle";
     const base = basePoseRef.current;
 
     if (v.humanoid && base) {
-      // 每幀先回到 base，保證不累積
       restoreBasePose(v, base);
 
       tRef.current += delta;
@@ -405,9 +386,9 @@ export default function Avatar3D({
       const lLowerLeg = v.humanoid.getNormalizedBoneNode("leftLowerLeg");
       const rLowerLeg = v.humanoid.getNormalizedBoneNode("rightLowerLeg");
 
-      // 共用：呼吸/重心（很小）
-      const breath = Math.sin(t * 1.45) * 0.018;
-      const sway = Math.sin(t * 0.85) * 0.012;
+      // ✅ 市售感：呼吸/重心更小、更慢
+      const breath = Math.sin(t * 1.15) * 0.012;
+      const sway = Math.sin(t * 0.65) * 0.008;
 
       if (spine) {
         spine.rotation.x += breath * 0.55;
@@ -419,62 +400,66 @@ export default function Avatar3D({
       }
       if (neck) neck.rotation.y += sway * 0.25;
       if (head) {
-        head.rotation.y += sway * 0.35;
-        head.rotation.x += Math.sin(t * 1.05) * 0.01;
+        head.rotation.y += sway * 0.25;
+        head.rotation.x += Math.sin(t * 0.9) * 0.008;
       }
 
-      // ===== 動作分支 =====
+      // ===== 動作分支（全部降幅 + 降速）=====
       if (proc === "wave") {
-        // 右手揮手
+        // ✅ 揮手：比較像「打招呼」不是「狂揮」
+        const w = Math.sin(t * 4.2); // 降速
         if (rUpperArm) {
-          rUpperArm.rotation.z += d2r(-65);
-          rUpperArm.rotation.x += d2r(15);
+          rUpperArm.rotation.z += d2r(-45); // 原本 -65
+          rUpperArm.rotation.x += d2r(10);
         }
-        if (rLowerArm) rLowerArm.rotation.z += d2r(-25);
-        const w = Math.sin(t * 6.5);
-        if (rHand) rHand.rotation.y += w * d2r(25);
-        if (rLowerArm) rLowerArm.rotation.y += w * d2r(12);
+        if (rLowerArm) rLowerArm.rotation.z += d2r(-18);
+        if (rHand) rHand.rotation.y += w * d2r(14); // 原本 25
+        if (rLowerArm) rLowerArm.rotation.y += w * d2r(6); // 原本 12
       } else if (proc === "nod") {
-        // 點頭
-        const n = Math.sin(t * 3.2);
-        if (head) head.rotation.x += n * d2r(10);
-        if (neck) neck.rotation.x += n * d2r(6);
+        // ✅ 點頭：小幅度
+        const n = Math.sin(t * 2.4);
+        if (head) head.rotation.x += n * d2r(6); // 原本 10
+        if (neck) neck.rotation.x += n * d2r(3.5); // 原本 6
       } else if (proc === "walk") {
-        // 原地走路（上下半身都有節奏）
-        const step = Math.sin(t * 4.2);
-        const step2 = Math.sin(t * 4.2 + Math.PI);
+        // ✅ 原地走：像展示動作，不像跑步
+        const speed = 3.0;
+        const step = Math.sin(t * speed);
+        const step2 = Math.sin(t * speed + Math.PI);
 
-        if (lUpperLeg) lUpperLeg.rotation.x += step * d2r(22);
-        if (rUpperLeg) rUpperLeg.rotation.x += step2 * d2r(22);
+        const legSwing = d2r(14);  // 原本 22
+        const kneeBend = d2r(10);  // 原本 18
+        const armSwing = d2r(7);   // 原本 12
 
-        if (lLowerLeg) lLowerLeg.rotation.x += Math.max(0, -step) * d2r(18);
-        if (rLowerLeg) rLowerLeg.rotation.x += Math.max(0, -step2) * d2r(18);
+        if (lUpperLeg) lUpperLeg.rotation.x += step * legSwing;
+        if (rUpperLeg) rUpperLeg.rotation.x += step2 * legSwing;
 
-        // 手臂反向擺
-        if (lUpperArm) lUpperArm.rotation.x += step2 * d2r(12);
-        if (rUpperArm) rUpperArm.rotation.x += step * d2r(12);
+        if (lLowerLeg) lLowerLeg.rotation.x += Math.max(0, -step) * kneeBend;
+        if (rLowerLeg) rLowerLeg.rotation.x += Math.max(0, -step2) * kneeBend;
 
-        if (chest) chest.rotation.y += step * d2r(2);
+        if (lUpperArm) lUpperArm.rotation.x += step2 * armSwing;
+        if (rUpperArm) rUpperArm.rotation.x += step * armSwing;
+
+        if (chest) chest.rotation.y += step * d2r(1.2); // 原本 2
       } else if (proc === "crouch") {
-        // 蹲下（骨架屈膝 + 身體前傾）
-        const k = 0.85; // 蹲的深度 0~1
-        if (lUpperLeg) lUpperLeg.rotation.x += d2r(-35) * k;
-        if (rUpperLeg) rUpperLeg.rotation.x += d2r(-35) * k;
-        if (lLowerLeg) lLowerLeg.rotation.x += d2r(55) * k;
-        if (rLowerLeg) rLowerLeg.rotation.x += d2r(55) * k;
-        if (spine) spine.rotation.x += d2r(10) * k;
-        if (chest) chest.rotation.x += d2r(8) * k;
+        // ✅ 蹲下：別蹲太深（更像選角展示）
+        const k = 0.62; // 原本 0.85
+        if (lUpperLeg) lUpperLeg.rotation.x += d2r(-26) * k;
+        if (rUpperLeg) rUpperLeg.rotation.x += d2r(-26) * k;
+        if (lLowerLeg) lLowerLeg.rotation.x += d2r(40) * k;
+        if (rLowerLeg) rLowerLeg.rotation.x += d2r(40) * k;
+        if (spine) spine.rotation.x += d2r(7) * k;
+        if (chest) chest.rotation.x += d2r(6) * k;
       } else if (proc === "angry") {
-        // 生氣（表情已在 effect 設過，這裡加姿勢）
-        if (chest) chest.rotation.x += d2r(6);
-        if (head) head.rotation.x += d2r(-3);
-        if (lShoulder) lShoulder.rotation.z += d2r(6);
-        if (rShoulder) rShoulder.rotation.z += d2r(-6);
+        // ✅ 生氣：姿勢微壓迫，不要太戲
+        if (chest) chest.rotation.x += d2r(3.5); // 原本 6
+        if (head) head.rotation.x += d2r(-2);   // 原本 -3
+        if (lShoulder) lShoulder.rotation.z += d2r(4.5);
+        if (rShoulder) rShoulder.rotation.z += d2r(-4.5);
       } else if (proc === "smile") {
-        // 微笑（表情已設過，加一點「開心」點頭感）
-        const s = Math.sin(t * 1.6);
-        if (head) head.rotation.x += s * d2r(3);
-        if (chest) chest.rotation.x += d2r(-2);
+        // ✅ 微笑：像「友善點頭」很輕
+        const s = Math.sin(t * 1.2);
+        if (head) head.rotation.x += s * d2r(2.2); // 原本 3
+        if (chest) chest.rotation.x += d2r(-1.2); // 原本 -2
       }
     }
 
@@ -495,4 +480,4 @@ export default function Avatar3D({
 
   if (!vrm) return null;
   return <primitive object={vrm.scene} />;
-      }
+        }
