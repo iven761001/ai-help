@@ -1,4 +1,4 @@
-//AvatarStage.jsx v002.002
+//AvatarStage.jsx v002.004
 // app/components/AvatarVRM/AvatarStage.jsx
 "use client";
 
@@ -129,7 +129,7 @@ export default function AvatarStage({
   vrmId = "C1",
   variant = "sky",
   emotion = "idle",
-  action. = "idle",
+  action = "idle",
   previewYaw = 0
 }) {
   const camera = useMemo(() => ({ position: [0, 1.3, 2.8], fov: 35 }), []);
