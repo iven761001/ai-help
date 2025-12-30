@@ -1,4 +1,4 @@
-//AvatarStage.jsx v002.006
+//AvatarStage.jsx v002.008
 // app/components/AvatarVRM/AvatarStage.jsx
 "use client";
 
@@ -37,46 +37,53 @@ class StageErrorBoundary extends React.Component {
 }
 
 /**
- * 市售選角 framing（超通用）
- * - 腳底貼地（y=0）
- * - 相機距離用高度算，保證全身入鏡
- * - lookAt 看模型中段（避免只拍到腳/只拍到頭）
+ * 每幀鎖地板（避免播放動作後角色往下沉）
+ * 原理：每幀算 bbox.min.y，把 root 往上/下補到 minY=0
  */
 function GroundClamp({ targetRef, enabled = true }) {
-  const yRef = React.useRef(0); // 讓偏移穩定
+  const lastYRef = useRef(0);
+
   useFrame(() => {
     if (!enabled) return;
+
     const root = targetRef.current;
-    if (!root || !root.children || root.children.length === 0) return;
+    if (!root) return;
+
+    // 避免還沒載到 mesh 時 bbox 炸掉
+    if (!root.children || root.children.length === 0) return;
 
     const box = new THREE.Box3().setFromObject(root);
     const minY = box.min.y;
-
     if (!Number.isFinite(minY)) return;
 
-    // 目標：minY 要到 0，所以 root 要加上 -minY 的修正
-    const targetY = yRef.current - minY;
-
-    // 平滑一點，不要抖
+    // 目標：minY → 0，所以 root.position.y 要減掉 minY
+    // 用 lastYRef 做平滑基準，減少抖動
+    const targetY = lastYRef.current - minY;
     root.position.y = THREE.MathUtils.lerp(root.position.y, targetY, 0.35);
+
+    lastYRef.current = root.position.y;
   });
 
   return null;
 }
 
+/**
+ * 市售選角 framing（超通用）
+ * - 第一次：水平置中（x/z）
+ * - 腳底貼地（minY -> 0）
+ * - 以高度算相機距離，保證頭到腳入鏡
+ * - lookAt 看模型中段（避免只拍到腳/只拍到頭）
+ */
 function MarketFrame({
   targetRef,
   mode = "normal", // normal | full
-  bumpLook = 0, // 視線往上微調（0~0.2）
+  bumpLook = 0, // 0 ~ 0.2
   onDebug,
   triggerKey,
-  groundLock=true,//動畫時鎖地板
 }) {
   const { camera } = useThree();
   const doneRef = useRef(false);
   const retryRef = useRef(0);
-
-  const padding = mode === "full" ? 1.45 : 1.20;
 
   useEffect(() => {
     doneRef.current = false;
@@ -84,32 +91,33 @@ function MarketFrame({
   }, [triggerKey, mode, bumpLook]);
 
   useFrame(() => {
-  const root = targetRef.current;
-  if (!root) return;
+    if (doneRef.current) return;
 
-  // ===== ① 初次 framing（只做一次）=====
-  if (!doneRef.current) {
+    const root = targetRef.current;
+    if (!root) return;
+
     const box = new THREE.Box3().setFromObject(root);
     const size = new THREE.Vector3();
     const center = new THREE.Vector3();
     box.getSize(size);
     box.getCenter(center);
 
-    if (!isFinite(size.y) || size.y < 0.01) {
+    // bbox 還沒好：等幾幀
+    if (!Number.isFinite(size.y) || size.y < 0.01) {
       retryRef.current += 1;
       if (retryRef.current > 240) doneRef.current = true;
       return;
     }
 
-    // 水平置中
+    // 1) 水平置中（x/z）
     root.position.x -= center.x;
     root.position.z -= center.z;
 
-    // 腳底貼地（第一次）
+    // 2) 腳貼地（minY -> 0）
     const box2 = new THREE.Box3().setFromObject(root);
     root.position.y -= box2.min.y;
 
-    // 重新計算 bbox
+    // 3) 重新算 bbox（最終）
     const box3 = new THREE.Box3().setFromObject(root);
     const size3 = new THREE.Vector3();
     const center3 = new THREE.Vector3();
@@ -118,8 +126,12 @@ function MarketFrame({
 
     const height = Math.max(0.0001, size3.y);
     const padding = mode === "full" ? 1.45 : 1.20;
+
+    // 4) 相機距離（保證頭到腳）
     const fov = (camera.fov * Math.PI) / 180;
     const dist = (height * padding) / (2 * Math.tan(fov / 2));
+
+    // 5) 視線看中段（55%~65%）
     const lookAtY = box3.min.y + height * (0.58 + bumpLook);
 
     camera.position.set(center3.x, lookAtY + height * 0.08, center3.z + dist);
@@ -140,60 +152,6 @@ function MarketFrame({
       padding: padding.toFixed(2),
       lookAtRatio: (0.58 + bumpLook).toFixed(2),
     });
-
-    return;
-  }
-
-  // ===== ② Ground Lock（每幀鎖地板）=====
-  const box = new THREE.Box3().setFromObject(root);
-  const minY = box.min.y;
-  if (isFinite(minY) && Math.abs(minY) > 0.0005) {
-    root.position.y -= minY;
-  }
-});
-
-    // 2) 水平置中（x/z）
-    root.position.x -= center.x;
-    root.position.z -= center.z;
-
-    // 3) 腳貼地：minY -> 0
-    const box2 = new THREE.Box3().setFromObject(root);
-    root.position.y -= box2.min.y;
-
-    // 4) 最終 bbox
-    const box3 = new THREE.Box3().setFromObject(root);
-    const size3 = new THREE.Vector3();
-    const center3 = new THREE.Vector3();
-    box3.getSize(size3);
-    box3.getCenter(center3);
-
-    const height = Math.max(0.0001, size3.y);
-
-    // 5) 相機距離（保證頭到腳）
-    const fov = (camera.fov * Math.PI) / 180;
-    const dist = (height * padding) / (2 * Math.tan(fov / 2));
-
-    // 6) 視線看中段
-    const lookAtY = box3.min.y + height * (0.58 + bumpLook);
-
-    camera.position.set(center3.x, lookAtY + height * 0.08, center3.z + dist);
-    camera.near = Math.max(0.01, dist / 100);
-    camera.far = dist * 50;
-    camera.updateProjectionMatrix();
-    camera.lookAt(center3.x, lookAtY, center3.z);
-
-    doneRef.current = true;
-
-    onDebug?.({
-      rawMinY: box.min.y.toFixed(3),
-      rawMaxY: box.max.y.toFixed(3),
-      height: height.toFixed(3),
-      centerY: center3.y.toFixed(3),
-      targetY: lookAtY.toFixed(3),
-      camZ: camera.position.z.toFixed(3),
-      padding: padding.toFixed(2),
-      lookAtRatio: (0.58 + bumpLook).toFixed(2)
-    });
   });
 
   return null;
@@ -204,7 +162,7 @@ export default function AvatarStage({
   variant = "sky",
   emotion = "idle",
   action = "idle",
-  previewYaw = 0
+  previewYaw = 0,
 }) {
   const camera = useMemo(() => ({ position: [0, 1.3, 2.8], fov: 35 }), []);
   const modelRoot = useRef();
@@ -221,7 +179,6 @@ export default function AvatarStage({
   const hardResetRoot = () => {
     const root = modelRoot.current;
     if (!root) return;
-    // ✅ 關鍵：避免「上一個模型置中的位移」殘留到下一個模型
     root.position.set(0, 0, 0);
     root.rotation.set(0, 0, 0);
     root.scale.set(1, 1, 1);
@@ -311,13 +268,13 @@ export default function AvatarStage({
                 action={action}
                 previewYaw={previewYaw}
                 onReady={() => {
-                  // ✅ 模型真正載好 → 先重置 root → 強制 reframe
                   hardResetRoot();
                   setReframeTick((n) => n + 1);
                 }}
               />
             </group>
 
+            {/* ✅ 第一次 framing：置中 + 腳貼地 + 相機對焦 */}
             <MarketFrame
               targetRef={modelRoot}
               mode={mode}
@@ -325,9 +282,10 @@ export default function AvatarStage({
               triggerKey={triggerKey}
               onDebug={setDebug}
             />
-            
+
+            {/* ✅ 每幀鎖地板：避免動畫沉下去 */}
             <GroundClamp targetRef={modelRoot} enabled />
-         
+
             <ContactShadows
               opacity={0.35}
               scale={6}
