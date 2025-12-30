@@ -1,4 +1,4 @@
-//Avatar3D.jsx v004.002
+//Avatar3D.jsx v004.003
 // app/components/AvatarVRM/Avatar3D.jsx
 "use client";
 
@@ -53,13 +53,11 @@ function applyIdlePose(vrm) {
   const lHand = get("leftHand");
   const rHand = get("rightHand");
 
-  // 身體微調
   if (spine) spine.rotation.x = d2r(2);
   if (chest) chest.rotation.x = d2r(3);
   if (neck) neck.rotation.x = d2r(2);
   if (head) head.rotation.x = d2r(-1);
 
-  // 肩放鬆（下沉 + 微後收）
   if (lShoulder) {
     lShoulder.rotation.z = d2r(6);
     lShoulder.rotation.y = d2r(4);
@@ -69,7 +67,6 @@ function applyIdlePose(vrm) {
     rShoulder.rotation.y = d2r(-4);
   }
 
-  // 手臂從 T pose 放下來
   if (lUpperArm) {
     lUpperArm.rotation.z = d2r(25);
     lUpperArm.rotation.x = d2r(6);
@@ -117,12 +114,11 @@ function pickClipByAction(clips, action) {
   };
 
   const keys = alias[want] || [want];
-
   for (const k of keys) {
     const hit = clips.find((c) => normActionName(c.name).includes(k));
     if (hit) return hit;
   }
-  return clips[0];
+  return null;
 }
 
 function isIdleAction(action) {
@@ -156,20 +152,21 @@ export default function Avatar3D({
   const mixerRef = useRef(null);
   const currentActionRef = useRef(null);
 
-  // ✅ 吃 root motion：鎖 hips 基準 position（只在播 clip 時才用）
+  // ✅ 吃 root motion（只在播 clip 時才用）
   const hipsBasePosRef = useRef(null);
 
-  // ✅ Idle 程序式：存一份 basePose（每幀從這裡回復，完全不漂移）
+  // ✅ Idle/程序式動作：存 base pose（每幀回復，完全不漂移）
   const basePoseRef = useRef(null);
 
-  // Idle 時間
-  const idleTRef = useRef(0);
+  // ✅ 目前是否在跑「程序式」動作（沒有 clip 時）
+  const proceduralRef = useRef("idle");
+
+  const tRef = useRef(0);
 
   const stopMixer = () => {
     const mixer = mixerRef.current;
     const v = vrmRef.current;
     if (!mixer || !v) return;
-
     try {
       mixer.stopAllAction();
       mixer.uncacheRoot(v.scene);
@@ -198,6 +195,12 @@ export default function Avatar3D({
       rLowerArm: snapRot(get("rightLowerArm")),
       lHand: snapRot(get("leftHand")),
       rHand: snapRot(get("rightHand")),
+      lUpperLeg: snapRot(get("leftUpperLeg")),
+      rUpperLeg: snapRot(get("rightUpperLeg")),
+      lLowerLeg: snapRot(get("leftLowerLeg")),
+      rLowerLeg: snapRot(get("rightLowerLeg")),
+      lFoot: snapRot(get("leftFoot")),
+      rFoot: snapRot(get("rightFoot")),
     };
   };
 
@@ -207,7 +210,6 @@ export default function Avatar3D({
     const put = (bone, q) => bone && q && bone.quaternion.copy(q);
 
     put(get("spine"), base.spine);
-    // chest 優先用 chest 的快照，沒有就 upperChest
     put(get("chest") || get("upperChest"), base.chest || base.upperChest);
     put(get("upperChest"), base.upperChest);
     put(get("neck"), base.neck);
@@ -221,6 +223,36 @@ export default function Avatar3D({
     put(get("rightLowerArm"), base.rLowerArm);
     put(get("leftHand"), base.lHand);
     put(get("rightHand"), base.rHand);
+
+    put(get("leftUpperLeg"), base.lUpperLeg);
+    put(get("rightUpperLeg"), base.rUpperLeg);
+    put(get("leftLowerLeg"), base.lLowerLeg);
+    put(get("rightLowerLeg"), base.rLowerLeg);
+    put(get("leftFoot"), base.lFoot);
+    put(get("rightFoot"), base.rFoot);
+  };
+
+  const setFace = (v, mode) => {
+    const em = v?.expressionManager;
+    if (!em) return;
+
+    // 先歸零常見表情（避免疊加）
+    const keys = ["happy", "angry", "sad", "relaxed", "neutral", "blink", "aa", "A"];
+    keys.forEach((k) => {
+      try {
+        if (em.getExpression?.(k)) em.setValue(k, 0);
+      } catch {}
+    });
+
+    if (mode === "smile") {
+      if (em.getExpression?.("happy")) em.setValue("happy", 0.9);
+    } else if (mode === "angry") {
+      if (em.getExpression?.("angry")) em.setValue("angry", 0.85);
+    } else {
+      if (em.getExpression?.("neutral")) em.setValue("neutral", 0.6);
+    }
+
+    em.update?.();
   };
 
   useEffect(() => {
@@ -230,28 +262,20 @@ export default function Avatar3D({
     applyIdlePose(vrm);
 
     vrmRef.current = vrm;
-
-    // ✅ 存一份「放鬆站姿」當 base（Idle 程序式用）
     basePoseRef.current = captureBasePose(vrm);
 
-    // ✅ 預設：如果不是 idle，才開 mixer 播動畫
+    // 開場先當 idle（程序式）
     stopMixer();
+    proceduralRef.current = "idle";
+    tRef.current = 0;
 
-    if (!isIdleAction(action)) {
-      const mixer = new THREE.AnimationMixer(vrm.scene);
-      mixerRef.current = mixer;
-      hipsBasePosRef.current = null;
-
-      const clips = gltf?.animations || [];
-      const clip = pickClipByAction(clips, action);
-      if (clip) {
-        const a = mixer.clipAction(clip);
-        a.reset().fadeIn(0.12).play();
-        currentActionRef.current = a;
-      }
+    // debug：看看 VRM 內建有哪些動畫
+    if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
+      const names = (gltf?.animations || []).map((c) => c.name);
+      // eslint-disable-next-line no-console
+      console.log(`[VRM ${vrmId}] clips:`, names.length ? names : "(none)");
     }
 
-    idleTRef.current = 0;
     onReady?.();
 
     return () => {
@@ -272,45 +296,61 @@ export default function Avatar3D({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vrm, gltf, vrmId]);
 
-  // action 變更：Idle <-> 非 Idle 切換 + 非 Idle crossfade
+  // action 變更：有 clip 播 clip；沒 clip 改程序式
   useEffect(() => {
     const v = vrmRef.current;
     if (!v) return;
 
-    // Idle：關 mixer（避免 clip 自己動）
-    if (isIdleAction(action)) {
+    const idleMode = isIdleAction(action);
+    const clips = gltf?.animations || [];
+
+    // idle：強制程序式，停 mixer
+    if (idleMode) {
       stopMixer();
-      hipsBasePosRef.current = null;
-      idleTRef.current = 0;
-      // 重新抓 base（有些模型載入後骨架晚一點才穩）
+      proceduralRef.current = "idle";
+      tRef.current = 0;
       basePoseRef.current = captureBasePose(v) || basePoseRef.current;
+      setFace(v, "idle");
       return;
     }
 
-    // 非 Idle：確保 mixer 存在
-    if (!mixerRef.current) {
-      mixerRef.current = new THREE.AnimationMixer(v.scene);
-      currentActionRef.current = null;
+    // 非 idle：先試著找 clip
+    const clip = pickClipByAction(clips, action);
+
+    if (clip) {
+      // ✅ 用動畫
+      if (!mixerRef.current) {
+        mixerRef.current = new THREE.AnimationMixer(v.scene);
+      }
+      const mixer = mixerRef.current;
+
+      const next = mixer.clipAction(clip);
+      next.reset().play();
+
+      const prev = currentActionRef.current;
+      if (prev && prev !== next) {
+        prev.fadeOut(0.12);
+        next.fadeIn(0.12);
+      } else {
+        next.fadeIn(0.12);
+      }
+
+      currentActionRef.current = next;
+      hipsBasePosRef.current = null;
+      proceduralRef.current = "idle"; // 不走程序式
+      tRef.current = 0;
+      setFace(v, "idle");
+      return;
     }
 
-    const mixer = mixerRef.current;
-    const clips = gltf?.animations || [];
-    const nextClip = pickClipByAction(clips, action);
-    if (!nextClip) return;
+    // ✅ 沒 clip：走程序式（一定要動）
+    stopMixer();
+    proceduralRef.current = normActionName(action);
+    tRef.current = 0;
 
-    const next = mixer.clipAction(nextClip);
-    next.reset().play();
-
-    const prev = currentActionRef.current;
-    if (prev && prev !== next) {
-      prev.fadeOut(0.12);
-      next.fadeIn(0.12);
-    } else {
-      next.fadeIn(0.12);
-    }
-
-    currentActionRef.current = next;
-    hipsBasePosRef.current = null;
+    if (proceduralRef.current === "smile") setFace(v, "smile");
+    else if (proceduralRef.current === "angry") setFace(v, "angry");
+    else setFace(v, "idle");
   }, [action, gltf]);
 
   useFrame((state, delta) => {
@@ -322,11 +362,11 @@ export default function Avatar3D({
 
     if (!idleMode && mixer) mixer.update(delta);
 
-    // VRM 必須 update（表情/物理）
+    // VRM update（表情/物理）
     v.update(delta);
 
-    // ===== 1) 非 Idle：吃掉 root motion（避免往下沉 / 往前漂）=====
-    if (!idleMode && inPlace && v.humanoid) {
+    // 非 idle + 播 clip：吃 root motion（避免沉/漂）
+    if (!idleMode && mixer && inPlace && v.humanoid) {
       const hips = v.humanoid.getNormalizedBoneNode("hips");
       if (hips) {
         if (!hipsBasePosRef.current) hipsBasePosRef.current = hips.position.clone();
@@ -334,24 +374,38 @@ export default function Avatar3D({
       }
     }
 
-    // ===== 2) Idle：程序式站姿（每幀回到 base，再加小動作）=====
-    if (idleMode && v.humanoid) {
-      const base = basePoseRef.current;
-      if (base) restoreBasePose(v, base);
+    // ===== 程序式（Idle 或 沒 clip）=====
+    const proc = proceduralRef.current || "idle";
+    const base = basePoseRef.current;
 
-      idleTRef.current += delta;
-      const t = idleTRef.current;
+    if (v.humanoid && base) {
+      // 每幀先回到 base，保證不累積
+      restoreBasePose(v, base);
+
+      tRef.current += delta;
+      const t = tRef.current;
+      const d2r = THREE.MathUtils.degToRad;
 
       const spine = v.humanoid.getNormalizedBoneNode("spine");
       const chest = v.humanoid.getNormalizedBoneNode("chest") || v.humanoid.getNormalizedBoneNode("upperChest");
       const neck = v.humanoid.getNormalizedBoneNode("neck");
       const head = v.humanoid.getNormalizedBoneNode("head");
+
       const lShoulder = v.humanoid.getNormalizedBoneNode("leftShoulder");
       const rShoulder = v.humanoid.getNormalizedBoneNode("rightShoulder");
       const lUpperArm = v.humanoid.getNormalizedBoneNode("leftUpperArm");
       const rUpperArm = v.humanoid.getNormalizedBoneNode("rightUpperArm");
+      const lLowerArm = v.humanoid.getNormalizedBoneNode("leftLowerArm");
+      const rLowerArm = v.humanoid.getNormalizedBoneNode("rightLowerArm");
+      const lHand = v.humanoid.getNormalizedBoneNode("leftHand");
+      const rHand = v.humanoid.getNormalizedBoneNode("rightHand");
 
-      // 非常小：像呼吸/重心微移（不會像搖頭娃娃）
+      const lUpperLeg = v.humanoid.getNormalizedBoneNode("leftUpperLeg");
+      const rUpperLeg = v.humanoid.getNormalizedBoneNode("rightUpperLeg");
+      const lLowerLeg = v.humanoid.getNormalizedBoneNode("leftLowerLeg");
+      const rLowerLeg = v.humanoid.getNormalizedBoneNode("rightLowerLeg");
+
+      // 共用：呼吸/重心（很小）
       const breath = Math.sin(t * 1.45) * 0.018;
       const sway = Math.sin(t * 0.85) * 0.012;
 
@@ -366,24 +420,72 @@ export default function Avatar3D({
       if (neck) neck.rotation.y += sway * 0.25;
       if (head) {
         head.rotation.y += sway * 0.35;
-        head.rotation.x += Math.sin(t * 1.05) * 0.01; // 微微點頭感（很小）
+        head.rotation.x += Math.sin(t * 1.05) * 0.01;
       }
 
-      // 肩與手臂跟著呼吸一點點（更像活的）
-      if (lShoulder) lShoulder.rotation.x += breath * 0.18;
-      if (rShoulder) rShoulder.rotation.x += breath * 0.18;
-      if (lUpperArm) lUpperArm.rotation.x += breath * 0.14;
-      if (rUpperArm) rUpperArm.rotation.x += breath * 0.14;
+      // ===== 動作分支 =====
+      if (proc === "wave") {
+        // 右手揮手
+        if (rUpperArm) {
+          rUpperArm.rotation.z += d2r(-65);
+          rUpperArm.rotation.x += d2r(15);
+        }
+        if (rLowerArm) rLowerArm.rotation.z += d2r(-25);
+        const w = Math.sin(t * 6.5);
+        if (rHand) rHand.rotation.y += w * d2r(25);
+        if (rLowerArm) rLowerArm.rotation.y += w * d2r(12);
+      } else if (proc === "nod") {
+        // 點頭
+        const n = Math.sin(t * 3.2);
+        if (head) head.rotation.x += n * d2r(10);
+        if (neck) neck.rotation.x += n * d2r(6);
+      } else if (proc === "walk") {
+        // 原地走路（上下半身都有節奏）
+        const step = Math.sin(t * 4.2);
+        const step2 = Math.sin(t * 4.2 + Math.PI);
+
+        if (lUpperLeg) lUpperLeg.rotation.x += step * d2r(22);
+        if (rUpperLeg) rUpperLeg.rotation.x += step2 * d2r(22);
+
+        if (lLowerLeg) lLowerLeg.rotation.x += Math.max(0, -step) * d2r(18);
+        if (rLowerLeg) rLowerLeg.rotation.x += Math.max(0, -step2) * d2r(18);
+
+        // 手臂反向擺
+        if (lUpperArm) lUpperArm.rotation.x += step2 * d2r(12);
+        if (rUpperArm) rUpperArm.rotation.x += step * d2r(12);
+
+        if (chest) chest.rotation.y += step * d2r(2);
+      } else if (proc === "crouch") {
+        // 蹲下（骨架屈膝 + 身體前傾）
+        const k = 0.85; // 蹲的深度 0~1
+        if (lUpperLeg) lUpperLeg.rotation.x += d2r(-35) * k;
+        if (rUpperLeg) rUpperLeg.rotation.x += d2r(-35) * k;
+        if (lLowerLeg) lLowerLeg.rotation.x += d2r(55) * k;
+        if (rLowerLeg) rLowerLeg.rotation.x += d2r(55) * k;
+        if (spine) spine.rotation.x += d2r(10) * k;
+        if (chest) chest.rotation.x += d2r(8) * k;
+      } else if (proc === "angry") {
+        // 生氣（表情已在 effect 設過，這裡加姿勢）
+        if (chest) chest.rotation.x += d2r(6);
+        if (head) head.rotation.x += d2r(-3);
+        if (lShoulder) lShoulder.rotation.z += d2r(6);
+        if (rShoulder) rShoulder.rotation.z += d2r(-6);
+      } else if (proc === "smile") {
+        // 微笑（表情已設過，加一點「開心」點頭感）
+        const s = Math.sin(t * 1.6);
+        if (head) head.rotation.x += s * d2r(3);
+        if (chest) chest.rotation.x += d2r(-2);
+      }
     }
 
-    // ===== 3) 預覽 yaw：只做「上半身」微量，不扭壞整套動作 =====
+    // ===== 預覽 yaw：上半身微量，不扭壞動作 =====
     if (v.humanoid) {
       const spine = v.humanoid.getNormalizedBoneNode("spine");
       const neck = v.humanoid.getNormalizedBoneNode("neck");
       const head = v.humanoid.getNormalizedBoneNode("head");
 
       const bodyYaw = previewYaw * 0.22;
-      const headYaw = previewYaw * 0.60;
+      const headYaw = previewYaw * 0.6;
 
       if (spine) spine.rotation.y = THREE.MathUtils.lerp(spine.rotation.y, bodyYaw, 0.18);
       if (neck) neck.rotation.y = THREE.MathUtils.lerp(neck.rotation.y, headYaw * 0.35, 0.22);
@@ -393,4 +495,4 @@ export default function Avatar3D({
 
   if (!vrm) return null;
   return <primitive object={vrm.scene} />;
-}
+      }
