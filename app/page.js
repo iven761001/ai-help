@@ -1,3 +1,4 @@
+//page.js v1.001
 // app/page.js
 "use client";
 
@@ -52,18 +53,25 @@ export default function Page() {
     setBooted(true);
   }, []);
 
-  // ===== 舞台角色（create / chat 用）=====
+  // ✅ 關鍵：依 step 決定舞台用哪一份資料
+  // - create：用 draft（輪盤即時變）
+  // - chat：用 user（按確定後才定版）
+  // - bind：不會載入 AvatarStage
   const stageProfile = useMemo(() => {
-    const base = user?.email ? { ...draft, ...user } : draft;
+    const base =
+      step === "chat"
+        ? (user || draft)
+        : (draft || user || {});
+
     return {
-      email: base.email || "",
-      vrmId: base.vrmId || "C1",
+      email: base.email || user?.email || "",
+      vrmId: base.vrmId || user?.vrmId || "C1",
       color: base.color || base.avatar || "sky",
       avatar: base.avatar || base.color || "sky",
       voice: base.voice || "warm",
       nickname: base.nickname || ""
     };
-  }, [user, draft]);
+  }, [step, user, draft]);
 
   const stageEmotion = sending ? "thinking" : "idle";
 
@@ -90,12 +98,12 @@ export default function Page() {
   // ===== 完成選角 =====
   const onDoneCreator = () => {
     const profile = {
-      ...user,
-      ...draft,
+      ...(user || {}),
+      ...(draft || {}),
       email: user?.email || draft.email,
-      vrmId: draft.vrmId || user?.vrmId || "C1",
-      color: draft.color || draft.avatar || "sky",
-      avatar: draft.avatar || draft.color || "sky"
+      vrmId: draft?.vrmId || user?.vrmId || "C1",
+      color: draft?.color || draft?.avatar || user?.color || "sky",
+      avatar: draft?.avatar || draft?.color || user?.avatar || "sky"
     };
     setUser(profile);
     saveUser(profile);
@@ -174,14 +182,12 @@ export default function Page() {
               {...(step !== "bind" ? bind : {})}
               style={{ WebkitTapHighlightColor: "transparent" }}
             >
-              {/* bind 時不載入 3D（避免 client-side exception 影響第一頁） */}
               {step === "bind" ? (
                 <div className="w-full h-full flex items-center justify-center">
                   <div className="text-white/60 text-sm">角色舞台準備中…</div>
                 </div>
               ) : (
                 <AvatarStage
-                  key={stageProfile.vrmId} 
                   vrmId={stageProfile.vrmId || "C1"}
                   variant={stageProfile.color}
                   emotion={stageEmotion}
