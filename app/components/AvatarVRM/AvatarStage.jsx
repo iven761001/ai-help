@@ -1,4 +1,4 @@
-//AvatarStage.jsx v002.005
+//AvatarStage.jsx v002.006
 // app/components/AvatarVRM/AvatarStage.jsx
 "use client";
 
@@ -42,20 +42,23 @@ class StageErrorBoundary extends React.Component {
  * - 相機距離用高度算，保證全身入鏡
  * - lookAt 看模型中段（避免只拍到腳/只拍到頭）
  */
-
 function GroundClamp({ targetRef, enabled = true }) {
+  const yRef = React.useRef(0); // 讓偏移穩定
   useFrame(() => {
     if (!enabled) return;
     const root = targetRef.current;
-    if (!root) return;
+    if (!root || !root.children || root.children.length === 0) return;
 
-    // 每幀都把最低點抬回 y=0，避免動畫沉下去
     const box = new THREE.Box3().setFromObject(root);
     const minY = box.min.y;
 
-    if (isFinite(minY) && minY < 0) {
-      root.position.y -= minY; // minY -> 0
-    }
+    if (!Number.isFinite(minY)) return;
+
+    // 目標：minY 要到 0，所以 root 要加上 -minY 的修正
+    const targetY = yRef.current - minY;
+
+    // 平滑一點，不要抖
+    root.position.y = THREE.MathUtils.lerp(root.position.y, targetY, 0.35);
   });
 
   return null;
