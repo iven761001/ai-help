@@ -1,4 +1,4 @@
-//Avatar3D.jsx v003.000
+//Avatar3D.jsx v004.000
 // app/components/AvatarVRM/Avatar3D.jsx
 "use client";
 
@@ -119,8 +119,6 @@ function pickClipByAction(clips, action) {
     const hit = clips.find((c) => normActionName(c.name).includes(k));
     if (hit) return hit;
   }
-
-  // 找不到就回傳第一個（至少會動）
   return clips[0];
 }
 
@@ -131,7 +129,10 @@ export default function Avatar3D({
   action = "idle",
   previewYaw = 0,
   onReady,
-  /** ✅ 重點：把動畫位移吃掉，變成「原地動作」 */
+  /**
+   * ✅ 原地動作：只吃掉水平位移（X/Z）
+   * - 保留 Y：蹲下/走路上下起伏才自然
+   */
   inPlace = true,
 }) {
   const url = useMemo(() => `/vrm/${vrmId}.vrm`, [vrmId]);
@@ -151,12 +152,19 @@ export default function Avatar3D({
   const mixerRef = useRef(null);
   const currentActionRef = useRef(null);
 
-  // ✅ 用來「吃掉 root motion」：鎖 hips 的基準 position
+  // ✅ 吃掉 root motion：鎖 hips 的「水平」基準
   const hipsBasePosRef = useRef(null);
 
-  // ✅ 呼吸/輕微動作基準（不跟動畫打架）
+  // ✅ 呼吸/活著感：存基準 rotation（避免 += 累積）
+  const baseRotRef = useRef({
+    chest: null,
+    upperChest: null,
+    head: null,
+  });
+
   const tRef = useRef(0);
 
+  // ===== ① 模型載入/初始化（只跟 vrm/url 走）=====
   useEffect(() => {
     if (!vrm) return;
 
@@ -165,21 +173,25 @@ export default function Avatar3D({
 
     vrmRef.current = vrm;
 
-    // AnimationMixer：掛在 vrm.scene
+    // mixer
     const mixer = new THREE.AnimationMixer(vrm.scene);
     mixerRef.current = mixer;
 
-    // 重置 hipsBase（換模型就重抓）
+    // reset bases
     hipsBasePosRef.current = null;
 
-    // 先播放一次（避免空白）
-    const clips = gltf?.animations || [];
-    const clip = pickClipByAction(clips, action);
-    if (clip) {
-      const a = mixer.clipAction(clip);
-      a.reset().fadeIn(0.12).play();
-      currentActionRef.current = a;
-    }
+    const get = (name) => vrm.humanoid?.getNormalizedBoneNode(name);
+    const chest = get("chest");
+    const upperChest = get("upperChest");
+    const head = get("head");
+
+    baseRotRef.current = {
+      chest: chest ? chest.rotation.clone() : null,
+      upperChest: upperChest ? upperChest.rotation.clone() : null,
+      head: head ? head.rotation.clone() : null,
+    };
+
+    tRef.current = 0;
 
     onReady?.();
 
@@ -187,6 +199,7 @@ export default function Avatar3D({
       try {
         currentActionRef.current = null;
         hipsBasePosRef.current = null;
+        baseRotRef.current = { chest: null, upperChest: null, head: null };
 
         mixer.stopAllAction();
         mixer.uncacheRoot(vrm.scene);
@@ -203,10 +216,9 @@ export default function Avatar3D({
         });
       } catch {}
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vrm, gltf, action]);
+  }, [vrm, url, onReady]);
 
-  // action 變更：crossfade
+  // ===== ② action 變更：只做 crossfade（不要重建 mixer）=====
   useEffect(() => {
     const v = vrmRef.current;
     const mixer = mixerRef.current;
@@ -228,7 +240,7 @@ export default function Avatar3D({
     }
     currentActionRef.current = next;
 
-    // ✅ 換動作時也重抓一次 hips base（避免 crouch/walk 一開始就把 base 設錯）
+    // ✅ 換動作重抓水平基準（避免一開始就被偏移）
     hipsBasePosRef.current = null;
   }, [action, gltf]);
 
@@ -239,18 +251,18 @@ export default function Avatar3D({
     const mixer = mixerRef.current;
     if (mixer) mixer.update(delta);
 
-    // VRM 必須 update
     v.update(delta);
 
-    // ===== A) 把 root motion 吃掉（重點）=====
+    // ===== A) 原地動作：只吃掉 hips 的 X/Z =====
     if (inPlace && v.humanoid) {
       const hips = v.humanoid.getNormalizedBoneNode("hips");
       if (hips) {
         if (!hipsBasePosRef.current) {
           hipsBasePosRef.current = hips.position.clone();
         }
-        // 把 animation 帶的位移全部吃掉（x/y/z 都鎖回去）
-        hips.position.copy(hipsBasePosRef.current);
+        hips.position.x = hipsBasePosRef.current.x;
+        hips.position.z = hipsBasePosRef.current.z;
+        // ✅ 不鎖 y（蹲下/上下起伏才自然）
       }
     }
 
@@ -268,17 +280,34 @@ export default function Avatar3D({
       if (head) head.rotation.y = THREE.MathUtils.lerp(head.rotation.y, headYaw, 0.25);
     }
 
-    // ===== C) 很輕的活著感（不動 root，只動上半身 rotation）=====
+    // ===== C) 活著感：用 base + offset（避免 += 累積）=====
     tRef.current += delta;
     const t = tRef.current;
 
     if (v.humanoid) {
-      const chest = v.humanoid.getNormalizedBoneNode("chest") || v.humanoid.getNormalizedBoneNode("upperChest");
+      const chest = v.humanoid.getNormalizedBoneNode("chest");
+      const upperChest = v.humanoid.getNormalizedBoneNode("upperChest");
       const head = v.humanoid.getNormalizedBoneNode("head");
-      const breath = Math.sin(t * 1.6) * 0.012;
 
-      if (chest) chest.rotation.x += breath;
-      if (head) head.rotation.x += Math.sin(t * 1.1) * 0.006;
+      const base = baseRotRef.current;
+
+      // 呼吸幅度（很小）
+      const breath = Math.sin(t * 1.6) * 0.012;
+      const nod = Math.sin(t * 1.1) * 0.006;
+
+      // 胸口：chest 有就用 chest，沒有就用 upperChest
+      if (chest && base.chest) {
+        chest.rotation.copy(base.chest);
+        chest.rotation.x += breath;
+      } else if (upperChest && base.upperChest) {
+        upperChest.rotation.copy(base.upperChest);
+        upperChest.rotation.x += breath;
+      }
+
+      if (head && base.head) {
+        head.rotation.copy(base.head);
+        head.rotation.x += nod;
+      }
     }
   });
 
