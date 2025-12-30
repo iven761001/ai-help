@@ -1,3 +1,4 @@
+//AvatarStage.jsx v1.001
 // app/components/AvatarVRM/AvatarStage.jsx
 "use client";
 
@@ -40,24 +41,20 @@ class StageErrorBoundary extends React.Component {
  * - 腳底貼地（y=0）
  * - 相機距離用高度算，保證全身入鏡
  * - lookAt 看模型中段（避免只拍到腳/只拍到頭）
- *
- * 你可以用 mode 切換「看更全」或「更近」
  */
 function MarketFrame({
   targetRef,
   mode = "normal", // normal | full
   bumpLook = 0, // 視線往上微調（0~0.2）
   onDebug,
-  triggerKey, // vrmId 或任意字串變化時重置
+  triggerKey,
 }) {
   const { camera } = useThree();
   const doneRef = useRef(false);
   const retryRef = useRef(0);
 
-  // 依模式決定 padding（越大 = 看更全；越小 = 更近）
   const padding = mode === "full" ? 1.45 : 1.20;
 
-  // 每次 triggerKey 變動就重做
   useEffect(() => {
     doneRef.current = false;
     retryRef.current = 0;
@@ -69,7 +66,12 @@ function MarketFrame({
     const root = targetRef.current;
     if (!root) return;
 
-    // 1) 算 bbox（注意：有些模型一開始 bbox 會是 0，要等幾幀）
+    // ✅ 超關鍵：每次 framing 先重置 root，避免位移累積
+    root.position.set(0, 0, 0);
+    root.rotation.set(0, 0, 0);
+    root.scale.set(1, 1, 1);
+
+    // 1) 算 bbox（有些模型一開始 bbox 會是 0，要等幾幀）
     const box = new THREE.Box3().setFromObject(root);
     const size = new THREE.Vector3();
     const center = new THREE.Vector3();
@@ -82,17 +84,16 @@ function MarketFrame({
       return;
     }
 
-    // 2) 先把模型水平置中（x/z）
-    //    這裡只動 root，不動 VRM 內部骨架
+    // 2) 水平置中（x/z）
     root.position.x -= center.x;
     root.position.z -= center.z;
 
-    // 3) 腳底貼地：讓 minY 變成 0
+    // 3) 腳底貼地：minY -> 0
     const box2 = new THREE.Box3().setFromObject(root);
     const minY = box2.min.y;
     root.position.y -= minY;
 
-    // 4) 重新算 bbox（已貼地、已置中）
+    // 4) 重新算 bbox
     const box3 = new THREE.Box3().setFromObject(root);
     const size3 = new THREE.Vector3();
     const center3 = new THREE.Vector3();
@@ -101,19 +102,15 @@ function MarketFrame({
 
     const height = Math.max(0.0001, size3.y);
 
-    // 5) 用 FOV 算相機距離（以高度為準，保證頭到腳）
-    //    dist = (height * padding) / (2 * tan(fov/2))
+    // 5) 用 FOV 算相機距離
     const fov = (camera.fov * Math.PI) / 180;
     const dist = (height * padding) / (2 * Math.tan(fov / 2));
 
-    // 6) lookAt 用「中段」而不是 bbox center.y（避免只看到腳）
-    //    市售選角常看身體 55%~65% 高度
-    const lookAtY = box3.min.y + height * (0.58 + bumpLook); // bumpLook 讓你按「視線↑」
+    // 6) 市售 lookAt：看 58% 身高（可 bump）
+    const lookAtY = box3.min.y + height * (0.58 + bumpLook);
 
-    // 7) 相機位置
-    //    y 放在中段略上，z 在 dist，x 跟著 center3.x（通常已接近 0）
+    // 7) 相機位置：正前方 + 稍微抬高
     camera.position.set(center3.x, lookAtY + height * 0.08, center3.z + dist);
-
     camera.near = Math.max(0.01, dist / 100);
     camera.far = dist * 50;
     camera.updateProjectionMatrix();
@@ -142,18 +139,14 @@ export default function AvatarStage({
   emotion = "idle",
   previewYaw = 0,
 }) {
-  // 相機初始值不重要（會被 MarketFrame 覆寫）
   const camera = useMemo(() => ({ position: [0, 1.3, 2.8], fov: 35 }), []);
-
   const modelRoot = useRef();
 
-  // UI 狀態
   const [mode, setMode] = useState("normal"); // normal | full
-  const [bumpLook, setBumpLook] = useState(0); // 0 or 0.08
+  const [bumpLook, setBumpLook] = useState(0);
   const [debug, setDebug] = useState(null);
   const [showDebug, setShowDebug] = useState(false);
 
-  // 一鍵置中觸發：改變 triggerKey 讓 MarketFrame 重跑
   const [reframeTick, setReframeTick] = useState(0);
   const triggerKey = `${vrmId}-${mode}-${bumpLook}-${reframeTick}`;
 
@@ -161,7 +154,6 @@ export default function AvatarStage({
 
   return (
     <div className="w-full h-full relative">
-      {/* 右上角控制鈕（在 Canvas 外，用絕對定位疊上去） */}
       <div className="absolute top-3 right-3 z-10 flex flex-col gap-2">
         <button
           type="button"
@@ -172,6 +164,17 @@ export default function AvatarStage({
         </button>
 
         <div className="flex gap-2 justify-end">
+          <button
+            type="button"
+            onClick={() => {
+              setMode("normal");
+              setReframeTick((n) => n + 1);
+            }}
+            className="px-3 py-2 rounded-full bg-white/10 border border-white/10 text-white/80 text-xs backdrop-blur"
+          >
+            標準
+          </button>
+
           <button
             type="button"
             onClick={() => {
@@ -204,7 +207,6 @@ export default function AvatarStage({
         </button>
       </div>
 
-      {/* Debug 面板 */}
       {showDebug && debug && (
         <div className="absolute top-14 right-3 z-10 rounded-2xl bg-black/60 border border-white/10 text-white/80 text-xs p-3 backdrop-blur">
           <div className="font-semibold mb-1">Debug</div>
@@ -225,13 +227,11 @@ export default function AvatarStage({
           gl={{ alpha: true, antialias: true }}
           style={{ background: "transparent" }}
         >
-          {/* 光 */}
           <ambientLight intensity={0.85} />
           <directionalLight position={[3, 6, 4]} intensity={1.15} />
           <directionalLight position={[-3, 2, -2]} intensity={0.55} />
 
           <Suspense fallback={null}>
-            {/* 這個 group 是整個模型根節點：我們只動這個，最安全 */}
             <group ref={modelRoot}>
               <Avatar3D
                 vrmId={vrmId}
@@ -241,7 +241,6 @@ export default function AvatarStage({
               />
             </group>
 
-            {/* ✅ 市售 framing（保證頭到腳） */}
             <MarketFrame
               targetRef={modelRoot}
               mode={mode}
