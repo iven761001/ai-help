@@ -420,27 +420,47 @@ export default function Avatar3D({
         const n = Math.sin(t * 2.4);
         if (head) head.rotation.x += n * d2r(6); // 原本 10
         if (neck) neck.rotation.x += n * d2r(3.5); // 原本 6
-      } else if (proc === "walk") {
-        // ✅ 原地走：像展示動作，不像跑步
-        const speed = 3.0;
-        const step = Math.sin(t * speed);
-        const step2 = Math.sin(t * speed + Math.PI);
+} else if (proc === "walk") {
+  // ✅ 更像市售角色的「原地走路」：腿部步態 + 膝彎 + 腳掌微抬 + 手臂反向擺
+  const speed = 3.6;                // 走路速度（越大越快）
+  const phase = t * speed;
+  const stepL = Math.sin(phase);    // 左腿相位
+  const stepR = Math.sin(phase + Math.PI);
 
-        const legSwing = d2r(14);  // 原本 22
-        const kneeBend = d2r(10);  // 原本 18
-        const armSwing = d2r(7);   // 原本 12
+  const liftL = Math.max(0, stepL); // 抬腳期（0~1）
+  const liftR = Math.max(0, stepR);
 
-        if (lUpperLeg) lUpperLeg.rotation.x += step * legSwing;
-        if (rUpperLeg) rUpperLeg.rotation.x += step2 * legSwing;
+  // 幅度（可微調）
+  const hipSwing = d2r(16);         // 大腿前後
+  const kneeBend = d2r(28);         // 膝蓋彎曲
+  const ankle = d2r(10);            // 腳踝
+  const armSwing = d2r(14);         // 手臂前後
+  const elbow = d2r(10);            // 手肘自然彎
 
-        if (lLowerLeg) lLowerLeg.rotation.x += Math.max(0, -step) * kneeBend;
-        if (rLowerLeg) rLowerLeg.rotation.x += Math.max(0, -step2) * kneeBend;
+  // 下半身：大腿前後 + 抬腳期膝彎 + 腳掌微抬
+  if (lUpperLeg) lUpperLeg.rotation.x += stepL * hipSwing;
+  if (rUpperLeg) rUpperLeg.rotation.x += stepR * hipSwing;
 
-        if (lUpperArm) lUpperArm.rotation.x += step2 * armSwing;
-        if (rUpperArm) rUpperArm.rotation.x += step * armSwing;
+  if (lLowerLeg) lLowerLeg.rotation.x += liftL * kneeBend;
+  if (rLowerLeg) rLowerLeg.rotation.x += liftR * kneeBend;
 
-        if (chest) chest.rotation.y += step * d2r(1.2); // 原本 2
-      } else if (proc === "crouch") {
+  // 腳掌：抬腳期微微翹起，落地期回到 base（因為每幀 restoreBasePose）
+  const lFoot = v.humanoid.getNormalizedBoneNode("leftFoot");
+  const rFoot = v.humanoid.getNormalizedBoneNode("rightFoot");
+  if (lFoot) lFoot.rotation.x += liftL * ankle;
+  if (rFoot) rFoot.rotation.x += liftR * ankle;
+
+  // 上半身：手臂反向擺（跟腿相反）+ 手肘彎一點比較自然
+  if (lUpperArm) lUpperArm.rotation.x += stepR * armSwing;
+  if (rUpperArm) rUpperArm.rotation.x += stepL * armSwing;
+
+  if (lLowerArm) lLowerArm.rotation.x += Math.abs(stepR) * elbow;
+  if (rLowerArm) rLowerArm.rotation.x += Math.abs(stepL) * elbow;
+
+  // 胸口/頭：一點點節奏感，不要太誇張
+  if (chest) chest.rotation.y += Math.sin(phase) * d2r(1.6);
+  if (spine) spine.rotation.y += Math.sin(phase) * d2r(1.0);
+} else if (proc === "crouch") {
         // ✅ 蹲下：別蹲太深（更像選角展示）
         const k = 0.62; // 原本 0.85
         if (lUpperLeg) lUpperLeg.rotation.x += d2r(-26) * k;
