@@ -1,4 +1,4 @@
-//AvatarStage.jsx v002.004
+//AvatarStage.jsx v002.005
 // app/components/AvatarVRM/AvatarStage.jsx
 "use client";
 
@@ -42,6 +42,25 @@ class StageErrorBoundary extends React.Component {
  * - 相機距離用高度算，保證全身入鏡
  * - lookAt 看模型中段（避免只拍到腳/只拍到頭）
  */
+
+function GroundClamp({ targetRef, enabled = true }) {
+  useFrame(() => {
+    if (!enabled) return;
+    const root = targetRef.current;
+    if (!root) return;
+
+    // 每幀都把最低點抬回 y=0，避免動畫沉下去
+    const box = new THREE.Box3().setFromObject(root);
+    const minY = box.min.y;
+
+    if (isFinite(minY) && minY < 0) {
+      root.position.y -= minY; // minY -> 0
+    }
+  });
+
+  return null;
+}
+
 function MarketFrame({
   targetRef,
   mode = "normal", // normal | full
@@ -142,7 +161,7 @@ export default function AvatarStage({
 
   // ✅ 置中/重 framing 觸發
   const [reframeTick, setReframeTick] = useState(0);
-  const triggerKey = `${vrmId}-${mode}-${bumpLook}-${reframeTick}`;
+  const triggerKey = `${vrmId}-${action}-${mode}-${bumpLook}-${reframeTick}`;
 
   const hardResetRoot = () => {
     const root = modelRoot.current;
@@ -251,7 +270,9 @@ export default function AvatarStage({
               triggerKey={triggerKey}
               onDebug={setDebug}
             />
-
+            
+            <GroundClamp targetRef={modelRoot} enabled />
+         
             <ContactShadows
               opacity={0.35}
               scale={6}
