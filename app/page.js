@@ -55,7 +55,18 @@ export default function Page() {
 
   // ===== 舞台角色（create / chat 用）=====
   const stageProfile = useMemo(() => {
-    const base = user?.email ? { ...draft, ...user } : draft;
+
+    if (step === "create") {
+    return {
+      email: user?.email || draft.email || "",
+      vrmId: draft.vrmId || "C1",
+      color: draft.color || draft.avatar || "sky",
+      avatar: draft.avatar || draft.color || "sky",
+      voice: draft.voice || "warm",
+      nickname: draft.nickname || ""
+    };
+  }
+    const base = user || draft;
     return {
       email: base.email || "",
       vrmId: base.vrmId || "C1",
@@ -64,7 +75,7 @@ export default function Page() {
       voice: base.voice || "warm",
       nickname: base.nickname || ""
     };
-  }, [user, draft]);
+  }, [user, draft, step]);
 
   // ✅ v001.002：舞台即時預覽用 profile（create 階段只看 draft，不混 user）
   const stagePreview = useMemo(() => {
