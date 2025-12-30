@@ -1,4 +1,4 @@
-//Avatar3D.jsx v004.004
+//Avatar3D.jsx v004.006
 // app/components/AvatarVRM/Avatar3D.jsx
 "use client";
 
@@ -8,7 +8,7 @@ import { useFrame, useLoader } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 
-/** 放鬆站姿（避免 T pose 太僵） */
+/** 放鬆站姿（比 v004.005 更不 T-pose） */
 function applyIdlePose(vrm) {
   if (!vrm?.humanoid) return;
   const get = (name) => vrm.humanoid.getNormalizedBoneNode(name);
@@ -53,41 +53,44 @@ function applyIdlePose(vrm) {
   const lHand = get("leftHand");
   const rHand = get("rightHand");
 
+  // 身體微微挺胸、頭微收
   if (spine) spine.rotation.x = d2r(2);
-  if (chest) chest.rotation.x = d2r(3);
+  if (chest) chest.rotation.x = d2r(4);
   if (neck) neck.rotation.x = d2r(2);
-  if (head) head.rotation.x = d2r(-1);
+  if (head) head.rotation.x = d2r(-2);
 
+  // 肩膀下沉一點（不會那麼「張」）
   if (lShoulder) {
-    lShoulder.rotation.z = d2r(6);
-    lShoulder.rotation.y = d2r(4);
+    lShoulder.rotation.z = d2r(4);
+    lShoulder.rotation.y = d2r(3);
   }
   if (rShoulder) {
-    rShoulder.rotation.z = d2r(-6);
-    rShoulder.rotation.y = d2r(-4);
+    rShoulder.rotation.z = d2r(-4);
+    rShoulder.rotation.y = d2r(-3);
   }
 
+  // 手臂不要抬太開：把上臂外展角度降低
   if (lUpperArm) {
-    lUpperArm.rotation.z = d2r(25);
+    lUpperArm.rotation.z = d2r(14);
     lUpperArm.rotation.x = d2r(6);
-    lUpperArm.rotation.y = d2r(8);
+    lUpperArm.rotation.y = d2r(6);
   }
   if (rUpperArm) {
-    rUpperArm.rotation.z = d2r(-25);
+    rUpperArm.rotation.z = d2r(-14);
     rUpperArm.rotation.x = d2r(6);
-    rUpperArm.rotation.y = d2r(-8);
+    rUpperArm.rotation.y = d2r(-6);
   }
 
-  if (lLowerArm) lLowerArm.rotation.z = d2r(18);
-  if (rLowerArm) rLowerArm.rotation.z = d2r(-18);
+  if (lLowerArm) lLowerArm.rotation.z = d2r(10);
+  if (rLowerArm) rLowerArm.rotation.z = d2r(-10);
 
   if (lHand) {
-    lHand.rotation.z = d2r(6);
-    lHand.rotation.x = d2r(4);
+    lHand.rotation.z = d2r(3);
+    lHand.rotation.x = d2r(3);
   }
   if (rHand) {
-    rHand.rotation.z = d2r(-6);
-    rHand.rotation.x = d2r(4);
+    rHand.rotation.z = d2r(-3);
+    rHand.rotation.x = d2r(3);
   }
 }
 
@@ -152,13 +155,13 @@ export default function Avatar3D({
   const mixerRef = useRef(null);
   const currentActionRef = useRef(null);
 
-  // ✅ 吃 root motion（只在播 clip 時才用）
+  // 吃 root motion（播 clip 才用）
   const hipsBasePosRef = useRef(null);
 
-  // ✅ Idle/程序式動作：存 base pose（每幀回復，完全不漂移）
+  // 程序式動作的 base pose（每幀回復，避免累積漂移）
   const basePoseRef = useRef(null);
 
-  // ✅ 目前是否在跑「程序式」動作（沒有 clip 時）
+  // 程序式模式（idle / wave / walk / ...）
   const proceduralRef = useRef("idle");
 
   const tRef = useRef(0);
@@ -179,28 +182,29 @@ export default function Avatar3D({
   const captureBasePose = (v) => {
     if (!v?.humanoid) return null;
     const get = (name) => v.humanoid.getNormalizedBoneNode(name);
-    const snapRot = (b) => (b ? b.quaternion.clone() : null);
+    const snap = (b) => (b ? b.quaternion.clone() : null);
 
     return {
-      spine: snapRot(get("spine")),
-      chest: snapRot(get("chest") || get("upperChest")),
-      upperChest: snapRot(get("upperChest")),
-      neck: snapRot(get("neck")),
-      head: snapRot(get("head")),
-      lShoulder: snapRot(get("leftShoulder")),
-      rShoulder: snapRot(get("rightShoulder")),
-      lUpperArm: snapRot(get("leftUpperArm")),
-      rUpperArm: snapRot(get("rightUpperArm")),
-      lLowerArm: snapRot(get("leftLowerArm")),
-      rLowerArm: snapRot(get("rightLowerArm")),
-      lHand: snapRot(get("leftHand")),
-      rHand: snapRot(get("rightHand")),
-      lUpperLeg: snapRot(get("leftUpperLeg")),
-      rUpperLeg: snapRot(get("rightUpperLeg")),
-      lLowerLeg: snapRot(get("leftLowerLeg")),
-      rLowerLeg: snapRot(get("rightLowerLeg")),
-      lFoot: snapRot(get("leftFoot")),
-      rFoot: snapRot(get("rightFoot")),
+      hips: snap(get("hips")),
+      spine: snap(get("spine")),
+      chest: snap(get("chest") || get("upperChest")),
+      upperChest: snap(get("upperChest")),
+      neck: snap(get("neck")),
+      head: snap(get("head")),
+      lShoulder: snap(get("leftShoulder")),
+      rShoulder: snap(get("rightShoulder")),
+      lUpperArm: snap(get("leftUpperArm")),
+      rUpperArm: snap(get("rightUpperArm")),
+      lLowerArm: snap(get("leftLowerArm")),
+      rLowerArm: snap(get("rightLowerArm")),
+      lHand: snap(get("leftHand")),
+      rHand: snap(get("rightHand")),
+      lUpperLeg: snap(get("leftUpperLeg")),
+      rUpperLeg: snap(get("rightUpperLeg")),
+      lLowerLeg: snap(get("leftLowerLeg")),
+      rLowerLeg: snap(get("rightLowerLeg")),
+      lFoot: snap(get("leftFoot")),
+      rFoot: snap(get("rightFoot")),
     };
   };
 
@@ -209,6 +213,7 @@ export default function Avatar3D({
     const get = (name) => v.humanoid.getNormalizedBoneNode(name);
     const put = (bone, q) => bone && q && bone.quaternion.copy(q);
 
+    put(get("hips"), base.hips);
     put(get("spine"), base.spine);
     put(get("chest") || get("upperChest"), base.chest || base.upperChest);
     put(get("upperChest"), base.upperChest);
@@ -244,10 +249,9 @@ export default function Avatar3D({
     });
 
     if (mode === "smile") {
-      if (em.getExpression?.("happy")) em.setValue("happy", 0.75);
-      if (em.getExpression?.("relaxed")) em.setValue("relaxed", 0.2);
+      if (em.getExpression?.("happy")) em.setValue("happy", 0.9);
     } else if (mode === "angry") {
-      if (em.getExpression?.("angry")) em.setValue("angry", 0.75);
+      if (em.getExpression?.("angry")) em.setValue("angry", 0.85);
     } else {
       if (em.getExpression?.("neutral")) em.setValue("neutral", 0.6);
     }
@@ -264,7 +268,7 @@ export default function Avatar3D({
     vrmRef.current = vrm;
     basePoseRef.current = captureBasePose(vrm);
 
-    // 開場先當 idle（程序式）
+    // 開場先 idle（程序式）
     stopMixer();
     proceduralRef.current = "idle";
     tRef.current = 0;
@@ -324,7 +328,7 @@ export default function Avatar3D({
 
       currentActionRef.current = next;
       hipsBasePosRef.current = null;
-      proceduralRef.current = "idle";
+      proceduralRef.current = "idle"; // clip 模式不跑程序式
       tRef.current = 0;
       setFace(v, "idle");
       return;
@@ -349,6 +353,7 @@ export default function Avatar3D({
     if (!idleMode && mixer) mixer.update(delta);
     v.update(delta);
 
+    // clip 模式：吃掉 root motion（避免沉/漂）
     if (!idleMode && mixer && inPlace && v.humanoid) {
       const hips = v.humanoid.getNormalizedBoneNode("hips");
       if (hips) {
@@ -357,6 +362,7 @@ export default function Avatar3D({
       }
     }
 
+    // 程序式：每幀回 base 再加動作（不累積）
     const proc = proceduralRef.current || "idle";
     const base = basePoseRef.current;
 
@@ -367,6 +373,7 @@ export default function Avatar3D({
       const t = tRef.current;
       const d2r = THREE.MathUtils.degToRad;
 
+      const hips = v.humanoid.getNormalizedBoneNode("hips");
       const spine = v.humanoid.getNormalizedBoneNode("spine");
       const chest = v.humanoid.getNormalizedBoneNode("chest") || v.humanoid.getNormalizedBoneNode("upperChest");
       const neck = v.humanoid.getNormalizedBoneNode("neck");
@@ -385,105 +392,95 @@ export default function Avatar3D({
       const rUpperLeg = v.humanoid.getNormalizedBoneNode("rightUpperLeg");
       const lLowerLeg = v.humanoid.getNormalizedBoneNode("leftLowerLeg");
       const rLowerLeg = v.humanoid.getNormalizedBoneNode("rightLowerLeg");
+      const lFoot = v.humanoid.getNormalizedBoneNode("leftFoot");
+      const rFoot = v.humanoid.getNormalizedBoneNode("rightFoot");
 
-      // ✅ 市售感：呼吸/重心更小、更慢
-      const breath = Math.sin(t * 1.15) * 0.012;
-      const sway = Math.sin(t * 0.65) * 0.008;
+      // 共用：呼吸/微晃（很小）
+      const breath = Math.sin(t * 1.45) * 0.016;
+      const sway = Math.sin(t * 0.85) * 0.010;
 
       if (spine) {
         spine.rotation.x += breath * 0.55;
         spine.rotation.y += sway * 0.55;
       }
       if (chest) {
-        chest.rotation.x += breath * 0.85;
-        chest.rotation.y += sway * 0.55;
+        chest.rotation.x += breath * 0.9;
+        chest.rotation.y += sway * 0.6;
       }
       if (neck) neck.rotation.y += sway * 0.25;
       if (head) {
-        head.rotation.y += sway * 0.25;
-        head.rotation.x += Math.sin(t * 0.9) * 0.008;
+        head.rotation.y += sway * 0.35;
+        head.rotation.x += Math.sin(t * 1.05) * 0.008;
       }
 
-      // ===== 動作分支（全部降幅 + 降速）=====
       if (proc === "wave") {
-        // ✅ 揮手：比較像「打招呼」不是「狂揮」
-        const w = Math.sin(t * 4.2); // 降速
         if (rUpperArm) {
-          rUpperArm.rotation.z += d2r(-45); // 原本 -65
-          rUpperArm.rotation.x += d2r(10);
+          rUpperArm.rotation.z += d2r(-55);
+          rUpperArm.rotation.x += d2r(18);
         }
         if (rLowerArm) rLowerArm.rotation.z += d2r(-18);
-        if (rHand) rHand.rotation.y += w * d2r(14); // 原本 25
-        if (rLowerArm) rLowerArm.rotation.y += w * d2r(6); // 原本 12
+        const w = Math.sin(t * 6.5);
+        if (rHand) rHand.rotation.y += w * d2r(25);
+        if (rLowerArm) rLowerArm.rotation.y += w * d2r(12);
       } else if (proc === "nod") {
-        // ✅ 點頭：小幅度
-        const n = Math.sin(t * 2.4);
-        if (head) head.rotation.x += n * d2r(6); // 原本 10
-        if (neck) neck.rotation.x += n * d2r(3.5); // 原本 6
-} else if (proc === "walk") {
-  // ✅ 更像市售角色的「原地走路」：腿部步態 + 膝彎 + 腳掌微抬 + 手臂反向擺
-  const speed = 3.6;                // 走路速度（越大越快）
-  const phase = t * speed;
-  const stepL = Math.sin(phase);    // 左腿相位
-  const stepR = Math.sin(phase + Math.PI);
+        const n = Math.sin(t * 3.2);
+        if (head) head.rotation.x += n * d2r(10);
+        if (neck) neck.rotation.x += n * d2r(6);
+      } else if (proc === "walk") {
+        // ✅ 改善 walk：加髖部重心 + 脚踝 + 手臂反向 + 身體 counter-rotate
+        const speed = 4.6;
+        const step = Math.sin(t * speed);
+        const step2 = Math.sin(t * speed + Math.PI);
 
-  const liftL = Math.max(0, stepL); // 抬腳期（0~1）
-  const liftR = Math.max(0, stepR);
+        const lift = Math.max(0, -step);   // 後擺抬腳
+        const lift2 = Math.max(0, -step2);
 
-  // 幅度（可微調）
-  const hipSwing = d2r(16);         // 大腿前後
-  const kneeBend = d2r(28);         // 膝蓋彎曲
-  const ankle = d2r(10);            // 腳踝
-  const armSwing = d2r(14);         // 手臂前後
-  const elbow = d2r(10);            // 手肘自然彎
+        if (hips) {
+          hips.rotation.y += step * d2r(3.5);     // 髖部左右扭
+          hips.rotation.z += step * d2r(2.2);     // 重心左右
+          hips.rotation.x += Math.abs(step) * d2r(1.4); // 微微前後
+        }
 
-  // 下半身：大腿前後 + 抬腳期膝彎 + 腳掌微抬
-  if (lUpperLeg) lUpperLeg.rotation.x += stepL * hipSwing;
-  if (rUpperLeg) rUpperLeg.rotation.x += stepR * hipSwing;
+        if (lUpperLeg) lUpperLeg.rotation.x += step * d2r(26);
+        if (rUpperLeg) rUpperLeg.rotation.x += step2 * d2r(26);
 
-  if (lLowerLeg) lLowerLeg.rotation.x += liftL * kneeBend;
-  if (rLowerLeg) rLowerLeg.rotation.x += liftR * kneeBend;
+        if (lLowerLeg) lLowerLeg.rotation.x += lift * d2r(22);
+        if (rLowerLeg) rLowerLeg.rotation.x += lift2 * d2r(22);
 
-  // 腳掌：抬腳期微微翹起，落地期回到 base（因為每幀 restoreBasePose）
-  const lFoot = v.humanoid.getNormalizedBoneNode("leftFoot");
-  const rFoot = v.humanoid.getNormalizedBoneNode("rightFoot");
-  if (lFoot) lFoot.rotation.x += liftL * ankle;
-  if (rFoot) rFoot.rotation.x += liftR * ankle;
+        // 腳踝：抬腳時微翹，落地時微踩
+        if (lFoot) lFoot.rotation.x += (lift * d2r(10)) + (Math.max(0, step) * d2r(-6));
+        if (rFoot) rFoot.rotation.x += (lift2 * d2r(10)) + (Math.max(0, step2) * d2r(-6));
 
-  // 上半身：手臂反向擺（跟腿相反）+ 手肘彎一點比較自然
-  if (lUpperArm) lUpperArm.rotation.x += stepR * armSwing;
-  if (rUpperArm) rUpperArm.rotation.x += stepL * armSwing;
+        // 手臂反向擺，幅度稍大一點才像走路
+        if (lUpperArm) lUpperArm.rotation.x += step2 * d2r(18);
+        if (rUpperArm) rUpperArm.rotation.x += step * d2r(18);
+        if (lLowerArm) lLowerArm.rotation.x += Math.max(0, step2) * d2r(6);
+        if (rLowerArm) rLowerArm.rotation.x += Math.max(0, step) * d2r(6);
 
-  if (lLowerArm) lLowerArm.rotation.x += Math.abs(stepR) * elbow;
-  if (rLowerArm) rLowerArm.rotation.x += Math.abs(stepL) * elbow;
-
-  // 胸口/頭：一點點節奏感，不要太誇張
-  if (chest) chest.rotation.y += Math.sin(phase) * d2r(1.6);
-  if (spine) spine.rotation.y += Math.sin(phase) * d2r(1.0);
-} else if (proc === "crouch") {
-        // ✅ 蹲下：別蹲太深（更像選角展示）
-        const k = 0.62; // 原本 0.85
-        if (lUpperLeg) lUpperLeg.rotation.x += d2r(-26) * k;
-        if (rUpperLeg) rUpperLeg.rotation.x += d2r(-26) * k;
-        if (lLowerLeg) lLowerLeg.rotation.x += d2r(40) * k;
-        if (rLowerLeg) rLowerLeg.rotation.x += d2r(40) * k;
-        if (spine) spine.rotation.x += d2r(7) * k;
-        if (chest) chest.rotation.x += d2r(6) * k;
+        // 上半身反向扭回來（避免整個人像木頭）
+        if (chest) chest.rotation.y += -step * d2r(3.0);
+        if (spine) spine.rotation.y += -step * d2r(1.6);
+      } else if (proc === "crouch") {
+        const k = 0.85;
+        if (lUpperLeg) lUpperLeg.rotation.x += d2r(-35) * k;
+        if (rUpperLeg) rUpperLeg.rotation.x += d2r(-35) * k;
+        if (lLowerLeg) lLowerLeg.rotation.x += d2r(55) * k;
+        if (rLowerLeg) rLowerLeg.rotation.x += d2r(55) * k;
+        if (spine) spine.rotation.x += d2r(10) * k;
+        if (chest) chest.rotation.x += d2r(8) * k;
       } else if (proc === "angry") {
-        // ✅ 生氣：姿勢微壓迫，不要太戲
-        if (chest) chest.rotation.x += d2r(3.5); // 原本 6
-        if (head) head.rotation.x += d2r(-2);   // 原本 -3
-        if (lShoulder) lShoulder.rotation.z += d2r(4.5);
-        if (rShoulder) rShoulder.rotation.z += d2r(-4.5);
+        if (chest) chest.rotation.x += d2r(6);
+        if (head) head.rotation.x += d2r(-3);
+        if (lShoulder) lShoulder.rotation.z += d2r(6);
+        if (rShoulder) rShoulder.rotation.z += d2r(-6);
       } else if (proc === "smile") {
-        // ✅ 微笑：像「友善點頭」很輕
-        const s = Math.sin(t * 1.2);
-        if (head) head.rotation.x += s * d2r(2.2); // 原本 3
-        if (chest) chest.rotation.x += d2r(-1.2); // 原本 -2
+        const s = Math.sin(t * 1.6);
+        if (head) head.rotation.x += s * d2r(3);
+        if (chest) chest.rotation.x += d2r(-2);
       }
     }
 
-    // ===== 預覽 yaw：上半身微量，不扭壞動作 =====
+    // 預覽 yaw：上半身微量，不扭壞動作
     if (v.humanoid) {
       const spine = v.humanoid.getNormalizedBoneNode("spine");
       const neck = v.humanoid.getNormalizedBoneNode("neck");
@@ -500,4 +497,4 @@ export default function Avatar3D({
 
   if (!vrm) return null;
   return <primitive object={vrm.scene} />;
-        }
+}
