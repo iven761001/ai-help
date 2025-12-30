@@ -1,4 +1,4 @@
-//AvatarStage.jsx v002.001
+//AvatarStage.jsx v002.002
 // app/components/AvatarVRM/AvatarStage.jsx
 "use client";
 
@@ -37,29 +37,23 @@ class StageErrorBoundary extends React.Component {
 }
 
 /**
- * ✅ v002.001：市售選角 framing（更穩）
- * 關鍵修正：
- * 1) 每次 framing 先把 root.position reset（避免累積位移）
- * 2) 使用「腳底貼地」+「水平置中」一次到位
- * 3) lookAt 直接鎖在「身體中段」(避免只看到腳)
+ * 市售選角 framing（超通用）
+ * - 腳底貼地（y=0）
+ * - 相機距離用高度算，保證全身入鏡
+ * - lookAt 看模型中段（避免只拍到腳/只拍到頭）
  */
 function MarketFrame({
   targetRef,
   mode = "normal", // normal | full
-  bumpLook = 0, // 0~0.2
-  triggerKey,
-  onDebug
+  bumpLook = 0, // 視線往上微調（0~0.2）
+  onDebug,
+  triggerKey
 }) {
   const { camera } = useThree();
   const doneRef = useRef(false);
   const retryRef = useRef(0);
 
-  // 讓「全身」更穩定：full 會看更全
-  const padding = mode === "full" ? 1.55 : 1.25;
-
-  // ✅ 記住 root 初始位置（這裡通常是 0,0,0，但保險）
-  const basePosRef = useRef(new THREE.Vector3(0, 0, 0));
-  const baseCapturedRef = useRef(false);
+  const padding = mode === "full" ? 1.45 : 1.20;
 
   useEffect(() => {
     doneRef.current = false;
@@ -68,43 +62,31 @@ function MarketFrame({
 
   useFrame(() => {
     if (doneRef.current) return;
-
     const root = targetRef.current;
     if (!root) return;
 
-    // capture base pos once
-    if (!baseCapturedRef.current) {
-      basePosRef.current.copy(root.position);
-      baseCapturedRef.current = true;
-    }
-
-    // ✅ 每次重新 framing 都先 reset（避免累積位移越跑越歪）
-    root.position.copy(basePosRef.current);
-
-    // 1) bbox（等模型真的有尺寸）
+    // 1) bbox
     const box = new THREE.Box3().setFromObject(root);
     const size = new THREE.Vector3();
     const center = new THREE.Vector3();
     box.getSize(size);
     box.getCenter(center);
 
-    if (!isFinite(size.y) || size.y < 0.05) {
+    if (!isFinite(size.y) || size.y < 0.01) {
       retryRef.current += 1;
       if (retryRef.current > 240) doneRef.current = true;
       return;
     }
 
-    // 2) 水平置中 + 腳貼地（一次到位）
-    //    x/z：把中心拉回 0
-    //    y：把 minY 拉到 0（腳底貼地）
-    root.position.x = basePosRef.current.x - center.x;
-    root.position.z = basePosRef.current.z - center.z;
+    // 2) 水平置中（x/z）
+    root.position.x -= center.x;
+    root.position.z -= center.z;
 
+    // 3) 腳貼地：minY -> 0
     const box2 = new THREE.Box3().setFromObject(root);
-    const minY = box2.min.y;
-    root.position.y = basePosRef.current.y - minY; // minY -> 0
+    root.position.y -= box2.min.y;
 
-    // 3) 再算一次 final bbox（用來算相機距離）
+    // 4) 最終 bbox
     const box3 = new THREE.Box3().setFromObject(root);
     const size3 = new THREE.Vector3();
     const center3 = new THREE.Vector3();
@@ -113,16 +95,14 @@ function MarketFrame({
 
     const height = Math.max(0.0001, size3.y);
 
-    // 4) 相機距離（保證全身）
+    // 5) 相機距離（保證頭到腳）
     const fov = (camera.fov * Math.PI) / 180;
     const dist = (height * padding) / (2 * Math.tan(fov / 2));
 
-    // 5) 視線：鎖「身體中段」55%~65%（避免只看到腳）
-    const lookAtRatio = 0.62 + bumpLook; // ✅ 比你原本 0.58 更往上（更像市售選角）
-    const lookAtY = box3.min.y + height * lookAtRatio;
+    // 6) 視線看中段
+    const lookAtY = box3.min.y + height * (0.58 + bumpLook);
 
-    // 6) 相機位置：y 稍微比 lookAt 再高一點點，z 在 dist
-    camera.position.set(center3.x, lookAtY + height * 0.10, center3.z + dist);
+    camera.position.set(center3.x, lookAtY + height * 0.08, center3.z + dist);
     camera.near = Math.max(0.01, dist / 100);
     camera.far = dist * 50;
     camera.updateProjectionMatrix();
@@ -131,22 +111,18 @@ function MarketFrame({
     doneRef.current = true;
 
     onDebug?.({
-      minY: box3.min.y.toFixed(3),
-      maxY: box3.max.y.toFixed(3),
+      rawMinY: box.min.y.toFixed(3),
+      rawMaxY: box.max.y.toFixed(3),
       height: height.toFixed(3),
-      lookAtY: lookAtY.toFixed(3),
-      ratio: lookAtRatio.toFixed(2),
-      camY: camera.position.y.toFixed(3),
+      centerY: center3.y.toFixed(3),
+      targetY: lookAtY.toFixed(3),
       camZ: camera.position.z.toFixed(3),
-      padding: padding.toFixed(2)
+      padding: padding.toFixed(2),
+      lookAtRatio: (0.58 + bumpLook).toFixed(2)
     });
   });
 
   return null;
-}
-
-function cx(...arr) {
-  return arr.filter(Boolean).join(" ");
 }
 
 export default function AvatarStage({
@@ -158,24 +134,37 @@ export default function AvatarStage({
   const camera = useMemo(() => ({ position: [0, 1.3, 2.8], fov: 35 }), []);
   const modelRoot = useRef();
 
-  const [mode, setMode] = useState("normal"); // normal | full
-  const [bumpLook, setBumpLook] = useState(0); // 0 / 0.06 / 0.12
+  const [mode, setMode] = useState("normal");
+  const [bumpLook, setBumpLook] = useState(0);
   const [debug, setDebug] = useState(null);
   const [showDebug, setShowDebug] = useState(false);
 
+  // ✅ 置中/重 framing 觸發
   const [reframeTick, setReframeTick] = useState(0);
   const triggerKey = `${vrmId}-${mode}-${bumpLook}-${reframeTick}`;
 
-  const onCenter = () => setReframeTick((n) => n + 1);
+  const hardResetRoot = () => {
+    const root = modelRoot.current;
+    if (!root) return;
+    // ✅ 關鍵：避免「上一個模型置中的位移」殘留到下一個模型
+    root.position.set(0, 0, 0);
+    root.rotation.set(0, 0, 0);
+    root.scale.set(1, 1, 1);
+  };
+
+  const onCenter = () => {
+    hardResetRoot();
+    setReframeTick((n) => n + 1);
+  };
 
   return (
     <div className="w-full h-full relative">
-      {/* 右上角控制鈕（Canvas 外疊上去） */}
+      {/* 右上角控制鈕 */}
       <div className="absolute top-3 right-3 z-10 flex flex-col gap-2">
         <button
           type="button"
           onClick={onCenter}
-          className="px-3 py-2 rounded-full bg-white/10 border border-white/10 text-white/80 text-xs backdrop-blur active:scale-95 transition"
+          className="px-3 py-2 rounded-full bg-white/10 border border-white/10 text-white/80 text-xs backdrop-blur"
         >
           置中
         </button>
@@ -184,22 +173,21 @@ export default function AvatarStage({
           <button
             type="button"
             onClick={() => {
-              setMode((m) => (m === "full" ? "normal" : "full"));
-              setReframeTick((n) => n + 1);
+              setMode("full");
+              onCenter();
             }}
-            className="px-3 py-2 rounded-full bg-white/10 border border-white/10 text-white/80 text-xs backdrop-blur active:scale-95 transition"
+            className="px-3 py-2 rounded-full bg-white/10 border border-white/10 text-white/80 text-xs backdrop-blur"
           >
-            {mode === "full" ? "正常" : "看更全"}
+            看更全
           </button>
 
           <button
             type="button"
             onClick={() => {
-              setBumpLook((v) => (v >= 0.12 ? 0 : v + 0.06));
-              setReframeTick((n) => n + 1);
+              setBumpLook((v) => (v > 0 ? 0 : 0.08));
+              onCenter();
             }}
-            className="px-3 py-2 rounded-full bg-white/10 border border-white/10 text-white/80 text-xs backdrop-blur active:scale-95 transition"
-            title="把視線往上移一點（避免切腳）"
+            className="px-3 py-2 rounded-full bg-white/10 border border-white/10 text-white/80 text-xs backdrop-blur"
           >
             視線↑
           </button>
@@ -208,23 +196,24 @@ export default function AvatarStage({
         <button
           type="button"
           onClick={() => setShowDebug((v) => !v)}
-          className="px-3 py-2 rounded-full bg-white/10 border border-white/10 text-white/60 text-xs backdrop-blur active:scale-95 transition"
+          className="px-3 py-2 rounded-full bg-white/10 border border-white/10 text-white/60 text-xs backdrop-blur"
         >
           Debug
         </button>
       </div>
 
+      {/* Debug 面板 */}
       {showDebug && debug && (
         <div className="absolute top-14 right-3 z-10 rounded-2xl bg-black/60 border border-white/10 text-white/80 text-xs p-3 backdrop-blur">
           <div className="font-semibold mb-1">Debug</div>
-          <div>minY: {debug.minY}</div>
-          <div>maxY: {debug.maxY}</div>
+          <div>rawMinY: {debug.rawMinY}</div>
+          <div>rawMaxY: {debug.rawMaxY}</div>
           <div>height: {debug.height}</div>
-          <div>lookAtY: {debug.lookAtY}</div>
-          <div>ratio: {debug.ratio}</div>
-          <div>camY: {debug.camY}</div>
+          <div>centerY: {debug.centerY}</div>
+          <div>targetY: {debug.targetY}</div>
           <div>camZ: {debug.camZ}</div>
           <div>padding: {debug.padding}</div>
+          <div>lookAt: {debug.lookAtRatio}</div>
         </div>
       )}
 
@@ -234,7 +223,6 @@ export default function AvatarStage({
           gl={{ alpha: true, antialias: true }}
           style={{ background: "transparent" }}
         >
-          {/* 光 */}
           <ambientLight intensity={0.85} />
           <directionalLight position={[3, 6, 4]} intensity={1.15} />
           <directionalLight position={[-3, 2, -2]} intensity={0.55} />
@@ -246,6 +234,11 @@ export default function AvatarStage({
                 variant={variant}
                 emotion={emotion}
                 previewYaw={previewYaw}
+                onReady={() => {
+                  // ✅ 模型真正載好 → 先重置 root → 強制 reframe
+                  hardResetRoot();
+                  setReframeTick((n) => n + 1);
+                }}
               />
             </group>
 
