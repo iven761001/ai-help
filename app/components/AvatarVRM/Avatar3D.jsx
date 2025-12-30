@@ -1,4 +1,4 @@
-//Avatar3D.jsx v004.001
+//Avatar3D.jsx v004.002
 // app/components/AvatarVRM/Avatar3D.jsx
 "use client";
 
@@ -53,11 +53,13 @@ function applyIdlePose(vrm) {
   const lHand = get("leftHand");
   const rHand = get("rightHand");
 
+  // 身體微調
   if (spine) spine.rotation.x = d2r(2);
   if (chest) chest.rotation.x = d2r(3);
   if (neck) neck.rotation.x = d2r(2);
   if (head) head.rotation.x = d2r(-1);
 
+  // 肩放鬆（下沉 + 微後收）
   if (lShoulder) {
     lShoulder.rotation.z = d2r(6);
     lShoulder.rotation.y = d2r(4);
@@ -67,6 +69,7 @@ function applyIdlePose(vrm) {
     rShoulder.rotation.y = d2r(-4);
   }
 
+  // 手臂從 T pose 放下來
   if (lUpperArm) {
     lUpperArm.rotation.z = d2r(25);
     lUpperArm.rotation.x = d2r(6);
@@ -119,9 +122,12 @@ function pickClipByAction(clips, action) {
     const hit = clips.find((c) => normActionName(c.name).includes(k));
     if (hit) return hit;
   }
-
-  // 找不到就回傳第一個（至少會動）
   return clips[0];
+}
+
+function isIdleAction(action) {
+  const a = normActionName(action);
+  return !a || a === "idle" || a === "stand" || a === "default";
 }
 
 export default function Avatar3D({
@@ -131,7 +137,6 @@ export default function Avatar3D({
   action = "idle",
   previewYaw = 0,
   onReady,
-  /** ✅ 把動畫位移吃掉，變成「原地動作」 */
   inPlace = true,
 }) {
   const url = useMemo(() => `/vrm/${vrmId}.vrm`, [vrmId]);
@@ -151,70 +156,108 @@ export default function Avatar3D({
   const mixerRef = useRef(null);
   const currentActionRef = useRef(null);
 
-  // ✅ 用來「吃掉 root motion」：鎖 hips 的基準 position
+  // ✅ 吃 root motion：鎖 hips 基準 position（只在播 clip 時才用）
   const hipsBasePosRef = useRef(null);
 
-  // ✅ 時間
-  const tRef = useRef(0);
+  // ✅ Idle 程序式：存一份 basePose（每幀從這裡回復，完全不漂移）
+  const basePoseRef = useRef(null);
 
-  // ✅ 每幀加在骨架上的「偏移量」記錄（避免 += 累積歪掉）
-  const offsetRef = useRef({
-    spineYaw: 0,
-    neckYaw: 0,
-    headYaw: 0,
-    chestBreathX: 0,
-    headBobX: 0,
-  });
+  // Idle 時間
+  const idleTRef = useRef(0);
+
+  const stopMixer = () => {
+    const mixer = mixerRef.current;
+    const v = vrmRef.current;
+    if (!mixer || !v) return;
+
+    try {
+      mixer.stopAllAction();
+      mixer.uncacheRoot(v.scene);
+    } catch {}
+    mixerRef.current = null;
+    currentActionRef.current = null;
+    hipsBasePosRef.current = null;
+  };
+
+  const captureBasePose = (v) => {
+    if (!v?.humanoid) return null;
+    const get = (name) => v.humanoid.getNormalizedBoneNode(name);
+    const snapRot = (b) => (b ? b.quaternion.clone() : null);
+
+    return {
+      spine: snapRot(get("spine")),
+      chest: snapRot(get("chest") || get("upperChest")),
+      upperChest: snapRot(get("upperChest")),
+      neck: snapRot(get("neck")),
+      head: snapRot(get("head")),
+      lShoulder: snapRot(get("leftShoulder")),
+      rShoulder: snapRot(get("rightShoulder")),
+      lUpperArm: snapRot(get("leftUpperArm")),
+      rUpperArm: snapRot(get("rightUpperArm")),
+      lLowerArm: snapRot(get("leftLowerArm")),
+      rLowerArm: snapRot(get("rightLowerArm")),
+      lHand: snapRot(get("leftHand")),
+      rHand: snapRot(get("rightHand")),
+    };
+  };
+
+  const restoreBasePose = (v, base) => {
+    if (!v?.humanoid || !base) return;
+    const get = (name) => v.humanoid.getNormalizedBoneNode(name);
+    const put = (bone, q) => bone && q && bone.quaternion.copy(q);
+
+    put(get("spine"), base.spine);
+    // chest 優先用 chest 的快照，沒有就 upperChest
+    put(get("chest") || get("upperChest"), base.chest || base.upperChest);
+    put(get("upperChest"), base.upperChest);
+    put(get("neck"), base.neck);
+    put(get("head"), base.head);
+
+    put(get("leftShoulder"), base.lShoulder);
+    put(get("rightShoulder"), base.rShoulder);
+    put(get("leftUpperArm"), base.lUpperArm);
+    put(get("rightUpperArm"), base.rUpperArm);
+    put(get("leftLowerArm"), base.lLowerArm);
+    put(get("rightLowerArm"), base.rLowerArm);
+    put(get("leftHand"), base.lHand);
+    put(get("rightHand"), base.rHand);
+  };
 
   useEffect(() => {
     if (!vrm) return;
-
-    // reset time / offsets (換模型要乾淨)
-    tRef.current = 0;
-    offsetRef.current = {
-      spineYaw: 0,
-      neckYaw: 0,
-      headYaw: 0,
-      chestBreathX: 0,
-      headBobX: 0,
-    };
 
     VRMUtils.rotateVRM0(vrm);
     applyIdlePose(vrm);
 
     vrmRef.current = vrm;
 
-    // AnimationMixer：掛在 vrm.scene
-    const mixer = new THREE.AnimationMixer(vrm.scene);
-    mixerRef.current = mixer;
+    // ✅ 存一份「放鬆站姿」當 base（Idle 程序式用）
+    basePoseRef.current = captureBasePose(vrm);
 
-    // 重置 hipsBase（換模型就重抓）
-    hipsBasePosRef.current = null;
+    // ✅ 預設：如果不是 idle，才開 mixer 播動畫
+    stopMixer();
 
-    // 先播放一次（避免空白）
-    const clips = gltf?.animations || [];
-    const clip = pickClipByAction(clips, action);
-    if (clip) {
-      const a = mixer.clipAction(clip);
-      a.reset().fadeIn(0.12).play();
-      currentActionRef.current = a;
-    } else {
-      currentActionRef.current = null;
+    if (!isIdleAction(action)) {
+      const mixer = new THREE.AnimationMixer(vrm.scene);
+      mixerRef.current = mixer;
+      hipsBasePosRef.current = null;
+
+      const clips = gltf?.animations || [];
+      const clip = pickClipByAction(clips, action);
+      if (clip) {
+        const a = mixer.clipAction(clip);
+        a.reset().fadeIn(0.12).play();
+        currentActionRef.current = a;
+      }
     }
 
+    idleTRef.current = 0;
     onReady?.();
 
     return () => {
       try {
-        currentActionRef.current = null;
-        hipsBasePosRef.current = null;
-
-        if (mixerRef.current) {
-          mixerRef.current.stopAllAction();
-          mixerRef.current.uncacheRoot(vrm.scene);
-        }
-
-        mixerRef.current = null;
+        stopMixer();
+        basePoseRef.current = null;
         vrmRef.current = null;
 
         vrm.scene?.traverse((obj) => {
@@ -227,14 +270,30 @@ export default function Avatar3D({
       } catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vrm, gltf, action]);
+  }, [vrm, gltf, vrmId]);
 
-  // action 變更：crossfade
+  // action 變更：Idle <-> 非 Idle 切換 + 非 Idle crossfade
   useEffect(() => {
     const v = vrmRef.current;
-    const mixer = mixerRef.current;
-    if (!v || !mixer) return;
+    if (!v) return;
 
+    // Idle：關 mixer（避免 clip 自己動）
+    if (isIdleAction(action)) {
+      stopMixer();
+      hipsBasePosRef.current = null;
+      idleTRef.current = 0;
+      // 重新抓 base（有些模型載入後骨架晚一點才穩）
+      basePoseRef.current = captureBasePose(v) || basePoseRef.current;
+      return;
+    }
+
+    // 非 Idle：確保 mixer 存在
+    if (!mixerRef.current) {
+      mixerRef.current = new THREE.AnimationMixer(v.scene);
+      currentActionRef.current = null;
+    }
+
+    const mixer = mixerRef.current;
     const clips = gltf?.animations || [];
     const nextClip = pickClipByAction(clips, action);
     if (!nextClip) return;
@@ -249,19 +308,9 @@ export default function Avatar3D({
     } else {
       next.fadeIn(0.12);
     }
+
     currentActionRef.current = next;
-
-    // ✅ 換動作時重抓 hips base（避免 crouch/walk 一開始就把 base 設錯）
     hipsBasePosRef.current = null;
-
-    // ✅ 也把偏移量清掉（避免上一個動作的 look/breath 殘留）
-    offsetRef.current = {
-      spineYaw: 0,
-      neckYaw: 0,
-      headYaw: 0,
-      chestBreathX: 0,
-      headBobX: 0,
-    };
   }, [action, gltf]);
 
   useFrame((state, delta) => {
@@ -269,72 +318,76 @@ export default function Avatar3D({
     if (!v) return;
 
     const mixer = mixerRef.current;
-    if (mixer) mixer.update(delta);
+    const idleMode = isIdleAction(action);
 
-    // VRM 必須 update
+    if (!idleMode && mixer) mixer.update(delta);
+
+    // VRM 必須 update（表情/物理）
     v.update(delta);
 
-    // ===== A) 把 root motion 吃掉（原地動作）=====
-    if (inPlace && v.humanoid) {
+    // ===== 1) 非 Idle：吃掉 root motion（避免往下沉 / 往前漂）=====
+    if (!idleMode && inPlace && v.humanoid) {
       const hips = v.humanoid.getNormalizedBoneNode("hips");
       if (hips) {
-        if (!hipsBasePosRef.current) {
-          hipsBasePosRef.current = hips.position.clone();
-        }
+        if (!hipsBasePosRef.current) hipsBasePosRef.current = hips.position.clone();
         hips.position.copy(hipsBasePosRef.current);
       }
     }
 
-    // 時間
-    tRef.current += delta;
-    const t = tRef.current;
+    // ===== 2) Idle：程序式站姿（每幀回到 base，再加小動作）=====
+    if (idleMode && v.humanoid) {
+      const base = basePoseRef.current;
+      if (base) restoreBasePose(v, base);
 
-    // ===== B) 預覽 yaw（用 offset，避免跟動畫打架/累積）=====
+      idleTRef.current += delta;
+      const t = idleTRef.current;
+
+      const spine = v.humanoid.getNormalizedBoneNode("spine");
+      const chest = v.humanoid.getNormalizedBoneNode("chest") || v.humanoid.getNormalizedBoneNode("upperChest");
+      const neck = v.humanoid.getNormalizedBoneNode("neck");
+      const head = v.humanoid.getNormalizedBoneNode("head");
+      const lShoulder = v.humanoid.getNormalizedBoneNode("leftShoulder");
+      const rShoulder = v.humanoid.getNormalizedBoneNode("rightShoulder");
+      const lUpperArm = v.humanoid.getNormalizedBoneNode("leftUpperArm");
+      const rUpperArm = v.humanoid.getNormalizedBoneNode("rightUpperArm");
+
+      // 非常小：像呼吸/重心微移（不會像搖頭娃娃）
+      const breath = Math.sin(t * 1.45) * 0.018;
+      const sway = Math.sin(t * 0.85) * 0.012;
+
+      if (spine) {
+        spine.rotation.x += breath * 0.55;
+        spine.rotation.y += sway * 0.55;
+      }
+      if (chest) {
+        chest.rotation.x += breath * 0.85;
+        chest.rotation.y += sway * 0.55;
+      }
+      if (neck) neck.rotation.y += sway * 0.25;
+      if (head) {
+        head.rotation.y += sway * 0.35;
+        head.rotation.x += Math.sin(t * 1.05) * 0.01; // 微微點頭感（很小）
+      }
+
+      // 肩與手臂跟著呼吸一點點（更像活的）
+      if (lShoulder) lShoulder.rotation.x += breath * 0.18;
+      if (rShoulder) rShoulder.rotation.x += breath * 0.18;
+      if (lUpperArm) lUpperArm.rotation.x += breath * 0.14;
+      if (rUpperArm) rUpperArm.rotation.x += breath * 0.14;
+    }
+
+    // ===== 3) 預覽 yaw：只做「上半身」微量，不扭壞整套動作 =====
     if (v.humanoid) {
       const spine = v.humanoid.getNormalizedBoneNode("spine");
       const neck = v.humanoid.getNormalizedBoneNode("neck");
       const head = v.humanoid.getNormalizedBoneNode("head");
 
-      const off = offsetRef.current;
+      const bodyYaw = previewYaw * 0.22;
+      const headYaw = previewYaw * 0.60;
 
-      // 先把上一幀 offset 拿掉（回到動畫本體）
-      if (spine) spine.rotation.y -= off.spineYaw;
-      if (neck) neck.rotation.y -= off.neckYaw;
-      if (head) head.rotation.y -= off.headYaw;
-
-      const targetSpineYaw = previewYaw * 0.25;
-      const targetHeadYaw = previewYaw * 0.75;
-
-      off.spineYaw = THREE.MathUtils.lerp(off.spineYaw, targetSpineYaw, 0.18);
-      off.neckYaw = THREE.MathUtils.lerp(off.neckYaw, targetHeadYaw * 0.35, 0.22);
-      off.headYaw = THREE.MathUtils.lerp(off.headYaw, targetHeadYaw, 0.25);
-
-      // 再加回新的 offset
-      if (spine) spine.rotation.y += off.spineYaw;
-      if (neck) neck.rotation.y += off.neckYaw;
-      if (head) head.rotation.y += off.headYaw;
-    }
-
-    // ===== C) 活著感（呼吸/微點頭）用 offset，避免 += 累積 =====
-    if (v.humanoid) {
-      const chest =
-        v.humanoid.getNormalizedBoneNode("chest") ||
-        v.humanoid.getNormalizedBoneNode("upperChest");
-      const head = v.humanoid.getNormalizedBoneNode("head");
-
-      const off = offsetRef.current;
-
-      // 先扣掉上一幀
-      if (chest) chest.rotation.x -= off.chestBreathX;
-      if (head) head.rotation.x -= off.headBobX;
-
-      // 算新的
-      off.chestBreathX = Math.sin(t * 1.6) * 0.012;
-      off.headBobX = Math.sin(t * 1.1) * 0.006;
-
-      // 加回去
-      if (chest) chest.rotation.x += off.chestBreathX;
-      if (head) head.rotation.x += off.headBobX;
+      if (spine) spine.rotation.y = THREE.MathUtils.lerp(spine.rotation.y, bodyYaw, 0.18);
+      if (neck) neck.rotation.y = THREE.MathUtils.lerp(neck.rotation.y, headYaw * 0.35, 0.22);
+      if (head) head.rotation.y = THREE.MathUtils.lerp(head.rotation.y, headYaw, 0.25);
     }
   });
 
