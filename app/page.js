@@ -1,4 +1,4 @@
-//page.js v1.001
+//page.js v001.002
 // app/page.js
 "use client";
 
@@ -53,25 +53,33 @@ export default function Page() {
     setBooted(true);
   }, []);
 
-  // ✅ 關鍵：依 step 決定舞台用哪一份資料
-  // - create：用 draft（輪盤即時變）
-  // - chat：用 user（按確定後才定版）
-  // - bind：不會載入 AvatarStage
+  // ===== 舞台角色（create / chat 用）=====
   const stageProfile = useMemo(() => {
-    const base =
-      step === "chat"
-        ? (user || draft)
-        : (draft || user || {});
-
+    const base = user?.email ? { ...draft, ...user } : draft;
     return {
-      email: base.email || user?.email || "",
-      vrmId: base.vrmId || user?.vrmId || "C1",
+      email: base.email || "",
+      vrmId: base.vrmId || "C1",
       color: base.color || base.avatar || "sky",
       avatar: base.avatar || base.color || "sky",
       voice: base.voice || "warm",
       nickname: base.nickname || ""
     };
-  }, [step, user, draft]);
+  }, [user, draft]);
+
+  // ✅ v001.002：舞台即時預覽用 profile（create 階段只看 draft，不混 user）
+  const stagePreview = useMemo(() => {
+    if (step === "create") {
+      return {
+        email: user?.email || draft.email || "",
+        vrmId: draft.vrmId || "C1",
+        color: draft.color || draft.avatar || "sky",
+        avatar: draft.avatar || draft.color || "sky",
+        voice: draft.voice || "warm",
+        nickname: draft.nickname || ""
+      };
+    }
+    return stageProfile; // chat 用已保存的 profile
+  }, [step, user?.email, draft, stageProfile]);
 
   const stageEmotion = sending ? "thinking" : "idle";
 
@@ -98,12 +106,12 @@ export default function Page() {
   // ===== 完成選角 =====
   const onDoneCreator = () => {
     const profile = {
-      ...(user || {}),
-      ...(draft || {}),
+      ...user,
+      ...draft,
       email: user?.email || draft.email,
-      vrmId: draft?.vrmId || user?.vrmId || "C1",
-      color: draft?.color || draft?.avatar || user?.color || "sky",
-      avatar: draft?.avatar || draft?.color || user?.avatar || "sky"
+      vrmId: draft.vrmId || user?.vrmId || "C1",
+      color: draft.color || draft.avatar || "sky",
+      avatar: draft.avatar || draft.color || "sky"
     };
     setUser(profile);
     saveUser(profile);
@@ -188,8 +196,10 @@ export default function Page() {
                 </div>
               ) : (
                 <AvatarStage
-                  vrmId={stageProfile.vrmId || "C1"}
-                  variant={stageProfile.color}
+                  // ✅ v001.002：關鍵改這裡 — create 用 stagePreview（輪盤即時更新）
+                  key={`${step}-${stagePreview.vrmId}`}
+                  vrmId={stagePreview.vrmId || "C1"}
+                  variant={stagePreview.color}
                   emotion={stageEmotion}
                   previewYaw={yaw}
                 />
@@ -198,10 +208,10 @@ export default function Page() {
 
             <div className="px-4 pt-3 pb-4 text-center">
               <div className="text-sm font-semibold text-white">
-                {stageProfile.nickname ? `「${stageProfile.nickname}」` : "尚未命名"}
+                {stagePreview.nickname ? `「${stagePreview.nickname}」` : "尚未命名"}
               </div>
               <div className="text-[11px] text-white/70 mt-1">
-                模型：{stageProfile.vrmId || "C1"} ／ 顏色：{stageProfile.color} ／ 聲線：{stageProfile.voice}
+                模型：{stagePreview.vrmId || "C1"} ／ 顏色：{stagePreview.color} ／ 聲線：{stagePreview.voice}
               </div>
             </div>
           </div>
@@ -267,4 +277,4 @@ export default function Page() {
       </section>
     </main>
   );
-}
+                  }
