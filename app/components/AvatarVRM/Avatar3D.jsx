@@ -1,3 +1,4 @@
+//Avatar3D.jsx v001.001
 // app/components/AvatarVRM/Avatar3D.jsx
 "use client";
 
@@ -10,10 +11,9 @@ import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 function applyIdlePose(vrm) {
   if (!vrm?.humanoid) return;
   const get = (name) => vrm.humanoid.getNormalizedBoneNode(name);
-
   const resetBone = (bone) => bone && bone.rotation.set(0, 0, 0);
 
-  const bonesToReset = [
+  [
     "hips","spine","chest","upperChest","neck","head",
     "leftShoulder","rightShoulder",
     "leftUpperArm","rightUpperArm",
@@ -22,8 +22,7 @@ function applyIdlePose(vrm) {
     "leftUpperLeg","rightUpperLeg",
     "leftLowerLeg","rightLowerLeg",
     "leftFoot","rightFoot"
-  ];
-  bonesToReset.forEach((b) => resetBone(get(b)));
+  ].forEach((b) => resetBone(get(b)));
 
   const spine = get("spine");
   const chest = get("chest") || get("upperChest");
@@ -80,11 +79,12 @@ export default function Avatar3D({
   vrmId = "C1",
   variant = "sky",
   emotion = "idle",
-  previewYaw = 0
+  previewYaw = 0,
+  onReady // ✅ 新增：模型 ready 時通知 Stage
 }) {
   const vrmRef = useRef(null);
 
-  // ✅ 依 vrmId 切換載入不同 VRM
+  // ✅ /vrm/<id>.vrm
   const url = useMemo(() => `/vrm/${vrmId}.vrm`, [vrmId]);
 
   const gltf = useLoader(
@@ -99,15 +99,18 @@ export default function Avatar3D({
   const vrm = useMemo(() => gltf?.userData?.vrm || null, [gltf]);
 
   useEffect(() => {
+    // vrmId 切換時，先清掉 ref，避免舊模型多跑一幀
+    vrmRef.current = null;
+
     if (!vrm) return;
 
-    // 統一朝向
     VRMUtils.rotateVRM0(vrm);
-
-    // 放鬆站姿
     applyIdlePose(vrm);
 
     vrmRef.current = vrm;
+
+    // ✅ 通知 Stage：可以開始做 bbox + reframe
+    onReady?.({ vrmId });
 
     return () => {
       try {
@@ -121,9 +124,10 @@ export default function Avatar3D({
         });
       } catch {}
     };
-  }, [vrm]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vrm, vrmId]);
 
-  useFrame((state, delta) => {
+  useFrame((_, delta) => {
     const v = vrmRef.current;
     if (!v) return;
     v.update(delta);
