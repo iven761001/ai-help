@@ -87,7 +87,7 @@ function MarketFrame({
   const root = targetRef.current;
   if (!root) return;
 
-  // ✅ 置中/取景：只做一次
+  // ===== ① 初次 framing（只做一次）=====
   if (!doneRef.current) {
     const box = new THREE.Box3().setFromObject(root);
     const size = new THREE.Vector3();
@@ -105,10 +105,9 @@ function MarketFrame({
     root.position.x -= center.x;
     root.position.z -= center.z;
 
-    // 腳底貼地（先貼一次）
+    // 腳底貼地（第一次）
     const box2 = new THREE.Box3().setFromObject(root);
-    const minY = box2.min.y;
-    root.position.y -= minY;
+    root.position.y -= box2.min.y;
 
     // 重新計算 bbox
     const box3 = new THREE.Box3().setFromObject(root);
@@ -118,8 +117,8 @@ function MarketFrame({
     box3.getCenter(center3);
 
     const height = Math.max(0.0001, size3.y);
-    const fov = (camera.fov * Math.PI) / 180;
     const padding = mode === "full" ? 1.45 : 1.20;
+    const fov = (camera.fov * Math.PI) / 180;
     const dist = (height * padding) / (2 * Math.tan(fov / 2));
     const lookAtY = box3.min.y + height * (0.58 + bumpLook);
 
@@ -145,13 +144,11 @@ function MarketFrame({
     return;
   }
 
-  // ✅ Ground Lock：每幀把腳底拉回 y=0，避免動畫造成下沉
-  if (groundLock) {
-    const box = new THREE.Box3().setFromObject(root);
-    const minY = box.min.y;
-    if (isFinite(minY) && Math.abs(minY) > 0.0005) {
-      root.position.y -= minY; // 把 minY 拉回 0
-    }
+  // ===== ② Ground Lock（每幀鎖地板）=====
+  const box = new THREE.Box3().setFromObject(root);
+  const minY = box.min.y;
+  if (isFinite(minY) && Math.abs(minY) > 0.0005) {
+    root.position.y -= minY;
   }
 });
 
