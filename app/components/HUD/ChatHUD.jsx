@@ -1,5 +1,5 @@
-
-// app/components/ChatHUD.jsx
+//ChatHUD.jsx v1.000
+// app/components/HUD/ChatHUD.jsx
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
