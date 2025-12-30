@@ -1,5 +1,5 @@
-
-// app/components/WheelPicker.jsx
+//
+// app/components/Creator/WheelPicker.jsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
