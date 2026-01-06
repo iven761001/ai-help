@@ -3,18 +3,20 @@
 
 import { useState, useEffect } from "react";
 
-// --- 1. 修改引用路徑 (改用相對路徑，避開 alias 錯誤) ---
-// components 在 app 資料夾內，所以用 ./ 開頭
+// --- 路徑修正重點 ---
+// components 和 lib 都跟 page.js 在同一個 app 資料夾內
+// 所以全部都要用 ./ (同層) 開頭
+
 import Avatar3D from "./components/AvatarVRM/Avatar3D";
 import CompassCreator from "./components/Creator/CompassCreator";
 import ChatHUD from "./components/HUD/ChatHUD";
 
-// lib 在 app 資料夾外面 (根目錄)，所以用 ../ 往上一層找
-import { getCharacter, saveCharacter } from "../lib/storage"; 
+// ❌ 原本錯的： import { ... } from "../lib/storage"; (這是往上一層找)
+// ✅ 這次對的： 改成 ./lib/storage (這是找隔壁鄰居)
+import { getCharacter, saveCharacter } from "./lib/storage"; 
 
 export default function Home() {
   // --- 狀態管理區 ---
-  // step: 'loading' | 'email' | 'create' | 'chat'
   const [step, setStep] = useState("loading");
   
   // 使用者資料
@@ -24,7 +26,6 @@ export default function Home() {
 
   // 1. 初始化檢查
   useEffect(() => {
-    // 加上 try-catch 避免 storage 出錯導致白畫面
     try {
       const saved = getCharacter();
       if (saved && saved.email) {
@@ -45,7 +46,6 @@ export default function Home() {
   const handleEmailSubmit = (e) => {
     e.preventDefault();
     if (!email.trim()) return alert("請輸入信箱喔！");
-    // 進入選角模式
     setStep("create");
   };
 
@@ -122,7 +122,6 @@ export default function Home() {
 
                 <form onSubmit={handleEmailSubmit} className="space-y-6">
                   <div className="relative">
-                    {/* 把 Mail Icon 換成文字符號，避免報錯 */}
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">📧</span>
                     <input 
                       type="email" 
@@ -173,17 +172,4 @@ export default function Home() {
             <div className="relative w-full h-full animate-fadeIn">
                <ChatHUD />
                
-               <button 
-                 onClick={handleReset}
-                 className="absolute top-4 left-4 z-50 text-[10px] text-white/20 hover:text-white/80"
-               >
-                 RESET
-               </button>
-            </div>
-          )}
-
-        </div>
-      </div>
-    </main>
-  );
-}
+               
