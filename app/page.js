@@ -6,12 +6,17 @@ import Avatar3D from "./components/AvatarVRM/Avatar3D";
 import CompassCreator from "./components/Creator/CompassCreator";
 import ChatHUD from "./components/HUD/ChatHUD";
 
-// ❌ 不依賴外部檔案，直接定義存檔函數，避免路徑或引用錯誤
+// --- 安全存檔工具 (放在同檔案最安全) ---
 const SAFE_STORAGE_KEY = "my_ai_character";
 
 function safeSave(data) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(SAFE_STORAGE_KEY, JSON.stringify(data));
+  try {
+    localStorage.setItem(SAFE_STORAGE_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.error("Save failed:", e);
+    alert("存檔失敗，可能是瀏覽器限制：" + e.message);
+  }
 }
 
 function safeLoad() {
@@ -30,8 +35,11 @@ export default function Home() {
   const [email, setEmail] = useState("");
   const [tempConfig, setTempConfig] = useState(null); 
   const [finalCharacter, setFinalCharacter] = useState(null); 
+  const [isClient, setIsClient] = useState(false); // 避免黑屏的關鍵
 
+  // 1. 初始化
   useEffect(() => {
+    setIsClient(true); // 確認已經在瀏覽器端
     try {
       const saved = safeLoad();
       if (saved && saved.email) {
@@ -41,11 +49,16 @@ export default function Home() {
         setStep("email");
       }
     } catch (e) {
-      console.error(e);
       setStep("email");
     }
   }, []);
 
+  // 如果還沒準備好瀏覽器環境，先顯示 Loading，避免黑屏
+  if (!isClient) {
+    return <div className="flex items-center justify-center h-screen bg-black text-white">Loading...</div>;
+  }
+
+  // --- 動作處理 ---
   const handleEmailSubmit = (e) => {
     e.preventDefault();
     if (!email.trim()) return alert("請輸入信箱喔！");
@@ -57,9 +70,7 @@ export default function Home() {
   };
 
   const handleFinishCreate = () => {
-    // 🌟 加上 try-catch 診斷
     try {
-      // 1. 準備資料
       const configToSave = tempConfig || { model: "C1", personality: "warm" };
       
       const newCharacter = {
@@ -69,26 +80,23 @@ export default function Home() {
         createdAt: new Date().toISOString()
       };
 
-      // 2. 嘗試存檔
+      // 存檔
       safeSave(newCharacter);
       
-      // 3. 更新狀態
+      // 更新狀態
       setFinalCharacter(newCharacter);
       
-      // 4. 切換頁面 (如果這裡沒執行，代表上面有錯)
+      // 切換頁面
       setStep("chat");
 
     } catch (error) {
-      // 🚨 如果崩潰，這裡會跳出錯誤訊息
       alert("程式出錯了：" + error.message);
     }
   };
 
   const handleReset = () => {
     if(confirm("確定要重置嗎？")) {
-        if (typeof window !== "undefined") {
-            localStorage.removeItem(SAFE_STORAGE_KEY);
-        }
+        localStorage.removeItem(SAFE_STORAGE_KEY);
         setFinalCharacter(null);
         setEmail("");
         setStep("email");
@@ -105,12 +113,7 @@ export default function Home() {
   return (
     <main className="relative w-full h-screen overflow-hidden bg-black text-white font-sans">
       
-      {/* 1. Loading */}
-      {step === "loading" && (
-         <div className="flex items-center justify-center h-full text-blue-400">Loading...</div>
-      )}
-
-      {/* 2. Email 頁面 */}
+      {/* 1. Email 頁面 */}
       {step === "email" && (
         <div className="flex flex-col items-center justify-center h-full px-6 animate-fadeIn z-20 relative">
           <div className="w-full max-w-md bg-gray-900/80 p-8 rounded-3xl border border-white/10 backdrop-blur-md shadow-2xl">
@@ -137,33 +140,30 @@ export default function Home() {
         </div>
       )}
 
-      {/* 3. 3D 背景層 (Create & Chat 共用) */}
+      {/* 2. 3D 背景層 (Create & Chat 共用) */}
       {(step === 'create' || step === 'chat') && (
         <div className="absolute inset-0 z-0 bg-gradient-to-b from-gray-900 to-black">
-          {/* 加上 key 確保狀態重置 */}
-          <Suspense fallback={<div className="text-white/20 text-center pt-20">載入 3D 模型中...</div>}>
+          <Suspense fallback={<div className="text-white/20 text-center pt-20">Loading 3D...</div>}>
             <Avatar3D 
               key={currentModelId} 
               vrmId={currentModelId}
               emotion={currentEmotion}
             />
           </Suspense>
-          {/* 底部漸層 */}
           <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
         </div>
       )}
 
-      {/* 4. 選角 UI */}
+      {/* 3. 選角 UI */}
       {step === "create" && (
         <div className="absolute inset-0 z-10 flex flex-col justify-end pb-safe-bottom pointer-events-none">
-          {/* 上半部：按鈕區 (允許互動) */}
+          {/* 按鈕區 */}
           <div className="w-full px-6 mb-4 flex justify-between items-end animate-slideUp pointer-events-auto">
              <div>
                 <h2 className="text-xl font-bold text-white">角色設定</h2>
                 <p className="text-[10px] text-blue-400 tracking-widest font-bold">CUSTOMIZE</p>
              </div>
              
-             {/* 🌟 按鈕：加上 z-50 確保在最上層 */}
              <button
                onClick={handleFinishCreate}
                className="group bg-blue-600 hover:bg-blue-500 text-white px-5 py-3 rounded-full font-bold shadow-lg shadow-blue-600/30 transition-all active:scale-95 flex items-center gap-2 z-50 cursor-pointer"
@@ -173,14 +173,14 @@ export default function Home() {
              </button>
           </div>
 
-          {/* 下半部：轉輪區 (允許互動) */}
+          {/* 轉輪區 */}
           <div className="w-full pointer-events-auto bg-gradient-to-t from-black to-transparent pt-4">
              <CompassCreator onChange={handleConfigChange} />
           </div>
         </div>
       )}
 
-      {/* 5. 聊天 UI */}
+      {/* 4. 聊天 UI */}
       {step === "chat" && finalCharacter && (
         <div className="relative z-10 w-full h-full animate-fadeIn pointer-events-none">
            <div className="pointer-events-auto w-full h-full">
