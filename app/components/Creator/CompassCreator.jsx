@@ -14,7 +14,7 @@ const WHEEL_CONFIG = [
     options: [
       { id: "C1", label: "碳1 · C1" },
       { id: "C2", label: "碳2 · C2" },
-      { id: "C3", label: "碳3 · C3" }, // 預留
+  //    { id: "C3", label: "碳3 · C3" }, // 預留
     ]
   },
   {
