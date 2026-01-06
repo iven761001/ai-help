@@ -1,22 +1,31 @@
 // components/AvatarVRM/Avatar3D.jsx
 "use client";
 
-import React, { useEffect, useMemo, useState, Suspense } from "react";
+import React, { useEffect, useMemo, useState, Suspense, useRef } from "react";
 import { Canvas, useLoader, useFrame } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
-import { OrbitControls } from "@react-three/drei"; // 👈 使用標準控制器
 
-// 錯誤邊界：如果模型掛了，顯示紅色方塊
+// 🌟 1. 原生攝影師：不需要外部套件，直接控制鏡頭
+function CameraRig() {
+  useFrame((state) => {
+    // 每一幀都強迫攝影機看著 (x=0, y=1.3, z=0) -> 角色胸口
+    // 這樣絕對不會跑掉！
+    state.camera.lookAt(0, 1.3, 0);
+  });
+  return null;
+}
+
+// 🌟 2. 錯誤保護：如果模型讀取失敗，顯示紅球
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false }; }
   static getDerivedStateFromError(error) { return { hasError: true }; }
   render() {
     if (this.state.hasError) {
       return (
-        <mesh position={[0, 1.3, 0]}>
-          <boxGeometry args={[0.5, 0.5, 0.5]} />
-          <meshBasicMaterial color="red" wireframe />
+        <mesh position={[0, 1.5, 0]}>
+          <sphereGeometry args={[0.3, 32, 32]} />
+          <meshStandardMaterial color="red" />
         </mesh>
       );
     }
@@ -24,6 +33,7 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+// 🌟 3. 模型本體
 function AvatarModel({ vrmId, emotion }) {
   const url = useMemo(() => `/vrm/${vrmId}.vrm`, [vrmId]);
   
@@ -33,8 +43,7 @@ function AvatarModel({ vrmId, emotion }) {
   });
 
   const [vrm, setVrm] = useState(null);
-  // 使用 React.useRef 確保引用正確
-  const tRef = React.useRef(0);
+  const tRef = useRef(0);
 
   useEffect(() => {
     if (!gltf?.userData?.vrm) return;
@@ -54,40 +63,44 @@ function AvatarModel({ vrmId, emotion }) {
   useFrame((state, delta) => {
     if (!vrm) return;
     
-    // 簡單眨眼邏輯
-    const blinkVal = Math.max(0, Math.sin(state.clock.elapsedTime * 2) * 5 - 4);
+    // 眨眼
+    const blinkVal = Math.max(0, Math.sin(state.clock.elapsedTime * 2.5) * 5 - 4);
     if (vrm.expressionManager) {
       vrm.expressionManager.setValue('blink', Math.min(1, blinkVal));
+      
+      // 表情
       vrm.expressionManager.setValue('happy', emotion === 'happy' ? 1.0 : 0);
       vrm.expressionManager.setValue('neutral', emotion === 'neutral' ? 0.5 : 0);
+      
       vrm.expressionManager.update();
     }
     
-    // 簡單呼吸
+    // 呼吸
     tRef.current += delta;
     if (vrm.humanoid) {
        const spine = vrm.humanoid.getNormalizedBoneNode('spine');
-       if(spine) spine.rotation.x = Math.sin(tRef.current * 1.5) * 0.02;
+       if(spine) spine.rotation.x = Math.sin(tRef.current) * 0.02;
     }
+    
     vrm.update(delta);
   });
 
   return vrm ? <primitive object={vrm.scene} /> : null;
 }
 
+// 🌟 4. 主入口
 export default function Avatar3D(props) {
   return (
-    <div className="w-full h-full relative" style={{ background: 'transparent' }}>
+    <div className="w-full h-full relative">
       <Canvas 
         shadows 
-        dpr={[1, 1.5]} 
-        camera={{ position: [0, 1.4, 3.8], fov: 30 }} // 相機拉遠一點
+        // 為了手機，把鏡頭拉遠一點 (Z=4.0)
+        camera={{ position: [0, 1.4, 4.0], fov: 30 }}
+        dpr={[1, 1.5]}
         gl={{ preserveDrawingBuffer: true, alpha: true }}
       >
-        {/* 🌟 使用 OrbitControls 自動對焦 */}
-        {/* target=[0, 1.3, 0] 代表鏡頭中心鎖定在角色的「胸口高度」 */}
-        {/* enableZoom={false} 禁止縮放，避免誤觸 */}
-        <OrbitControls target={[0, 1.3, 0]} enableZoom={false} enablePan={false} />
+        {/* 呼叫原生攝影師 */}
+        <CameraRig />
 
         <ambientLight intensity={1.0} />
         <spotLight position={[2, 2, 2]} intensity={2.0} castShadow shadow-mapSize={[512, 512]} color="#fff0f0" />
