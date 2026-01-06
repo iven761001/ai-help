@@ -1,4 +1,3 @@
-//Avatar3D.jsx v004.006
 // app/components/AvatarVRM/Avatar3D.jsx
 "use client";
 
@@ -37,6 +36,8 @@ function applyIdlePose(vrm) {
     "rightLowerLeg",
     "leftFoot",
     "rightFoot",
+    "leftEye", // 確保眼睛也重置
+    "rightEye",
   ].forEach((n) => reset(get(n)));
 
   const spine = get("spine");
@@ -158,7 +159,7 @@ export default function Avatar3D({
   // 吃 root motion（播 clip 才用）
   const hipsBasePosRef = useRef(null);
 
-  // 程序式動作的 base pose（每幀回復，避免累積漂移）
+  // 程序式動作的 base pose
   const basePoseRef = useRef(null);
 
   // 程序式模式（idle / wave / walk / ...）
@@ -241,7 +242,8 @@ export default function Avatar3D({
     const em = v?.expressionManager;
     if (!em) return;
 
-    const keys = ["happy", "angry", "sad", "relaxed", "neutral", "blink", "aa", "A"];
+    // blink 先不歸零，交給 useFrame 控制
+    const keys = ["happy", "angry", "sad", "relaxed", "neutral", "aa", "A"];
     keys.forEach((k) => {
       try {
         if (em.getExpression?.(k)) em.setValue(k, 0);
@@ -268,7 +270,7 @@ export default function Avatar3D({
     vrmRef.current = vrm;
     basePoseRef.current = captureBasePose(vrm);
 
-    // 開場先 idle（程序式）
+    // 開場先 idle
     stopMixer();
     proceduralRef.current = "idle";
     tRef.current = 0;
@@ -328,7 +330,7 @@ export default function Avatar3D({
 
       currentActionRef.current = next;
       hipsBasePosRef.current = null;
-      proceduralRef.current = "idle"; // clip 模式不跑程序式
+      proceduralRef.current = "idle";
       tRef.current = 0;
       setFace(v, "idle");
       return;
@@ -347,13 +349,27 @@ export default function Avatar3D({
     const v = vrmRef.current;
     if (!v) return;
 
+    // --- 新增：自動眨眼邏輯 ---
+    const blinkTimer = state.clock.elapsedTime;
+    // 創造一個週期波，每隔幾秒出現一個尖峰
+    const blinkTrigger = Math.sin(blinkTimer * 1.5); // 調整 1.5 可改變眨眼頻率
+    // 透過 math計算，只取波峰部分，並限制在 0~1 之間
+    const blinkVal = THREE.MathUtils.clamp(blinkTrigger * 6 - 5, 0, 1);
+    
+    if (v.expressionManager) {
+        // 如果目前不是生氣或大笑這種極端表情，就疊加眨眼
+        // 這裡直接設定數值
+        v.expressionManager.setValue('blink', blinkVal);
+        v.expressionManager.update();
+    }
+    // -------------------------
+
     const mixer = mixerRef.current;
     const idleMode = isIdleAction(action);
 
     if (!idleMode && mixer) mixer.update(delta);
     v.update(delta);
 
-    // clip 模式：吃掉 root motion（避免沉/漂）
     if (!idleMode && mixer && inPlace && v.humanoid) {
       const hips = v.humanoid.getNormalizedBoneNode("hips");
       if (hips) {
@@ -362,7 +378,6 @@ export default function Avatar3D({
       }
     }
 
-    // 程序式：每幀回 base 再加動作（不累積）
     const proc = proceduralRef.current || "idle";
     const base = basePoseRef.current;
 
@@ -394,8 +409,25 @@ export default function Avatar3D({
       const rLowerLeg = v.humanoid.getNormalizedBoneNode("rightLowerLeg");
       const lFoot = v.humanoid.getNormalizedBoneNode("leftFoot");
       const rFoot = v.humanoid.getNormalizedBoneNode("rightFoot");
+      
+      // --- 新增：眼球微動 (生物感) ---
+      const lEye = v.humanoid.getNormalizedBoneNode("leftEye");
+      const rEye = v.humanoid.getNormalizedBoneNode("rightEye");
+      if(lEye && rEye) {
+          // 產生非常微小的隨機飄動
+          const eyeSwayX = Math.sin(t * 0.4) * 0.04;
+          const eyeSwayY = Math.cos(t * 0.25) * 0.03;
+          
+          // 如果有 previewYaw (轉動視角)，眼睛可以比頭轉得更多一點 (Lead the turn)
+          const lookBias = previewYaw * 0.5;
 
-      // 共用：呼吸/微晃（很小）
+          lEye.rotation.y = eyeSwayX + lookBias;
+          lEye.rotation.x = eyeSwayY;
+          rEye.rotation.y = eyeSwayX + lookBias;
+          rEye.rotation.x = eyeSwayY;
+      }
+      // -----------------------------
+
       const breath = Math.sin(t * 1.45) * 0.016;
       const sway = Math.sin(t * 0.85) * 0.010;
 
@@ -427,18 +459,17 @@ export default function Avatar3D({
         if (head) head.rotation.x += n * d2r(10);
         if (neck) neck.rotation.x += n * d2r(6);
       } else if (proc === "walk") {
-        // ✅ 改善 walk：加髖部重心 + 脚踝 + 手臂反向 + 身體 counter-rotate
         const speed = 4.6;
         const step = Math.sin(t * speed);
         const step2 = Math.sin(t * speed + Math.PI);
 
-        const lift = Math.max(0, -step);   // 後擺抬腳
+        const lift = Math.max(0, -step);
         const lift2 = Math.max(0, -step2);
 
         if (hips) {
-          hips.rotation.y += step * d2r(3.5);     // 髖部左右扭
-          hips.rotation.z += step * d2r(2.2);     // 重心左右
-          hips.rotation.x += Math.abs(step) * d2r(1.4); // 微微前後
+          hips.rotation.y += step * d2r(3.5);
+          hips.rotation.z += step * d2r(2.2);
+          hips.rotation.x += Math.abs(step) * d2r(1.4);
         }
 
         if (lUpperLeg) lUpperLeg.rotation.x += step * d2r(26);
@@ -447,17 +478,14 @@ export default function Avatar3D({
         if (lLowerLeg) lLowerLeg.rotation.x += lift * d2r(22);
         if (rLowerLeg) rLowerLeg.rotation.x += lift2 * d2r(22);
 
-        // 腳踝：抬腳時微翹，落地時微踩
         if (lFoot) lFoot.rotation.x += (lift * d2r(10)) + (Math.max(0, step) * d2r(-6));
         if (rFoot) rFoot.rotation.x += (lift2 * d2r(10)) + (Math.max(0, step2) * d2r(-6));
 
-        // 手臂反向擺，幅度稍大一點才像走路
         if (lUpperArm) lUpperArm.rotation.x += step2 * d2r(18);
         if (rUpperArm) rUpperArm.rotation.x += step * d2r(18);
         if (lLowerArm) lLowerArm.rotation.x += Math.max(0, step2) * d2r(6);
         if (rLowerArm) rLowerArm.rotation.x += Math.max(0, step) * d2r(6);
 
-        // 上半身反向扭回來（避免整個人像木頭）
         if (chest) chest.rotation.y += -step * d2r(3.0);
         if (spine) spine.rotation.y += -step * d2r(1.6);
       } else if (proc === "crouch") {
@@ -480,7 +508,7 @@ export default function Avatar3D({
       }
     }
 
-    // 預覽 yaw：上半身微量，不扭壞動作
+    // 預覽 yaw
     if (v.humanoid) {
       const spine = v.humanoid.getNormalizedBoneNode("spine");
       const neck = v.humanoid.getNormalizedBoneNode("neck");
