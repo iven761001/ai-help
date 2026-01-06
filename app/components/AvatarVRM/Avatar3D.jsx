@@ -7,12 +7,12 @@ import { Canvas, useFrame, useLoader } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 
-// --- 1. 內部核心組件：負責控制模型動作 (Model Logic) ---
-function AvatarModel({ vrmId, action, emotion }) {
+// --- 1. 內部核心組件：負責控制模型動作 ---
+function AvatarModel({ vrmId, action, emotion, previewYaw, inPlace }) {
   // 動態計算模型路徑
   const url = useMemo(() => `/vrm/${vrmId}.vrm`, [vrmId]);
 
-  // 載入模型
+  // 載入模型 (這個步驟會觸發 Suspense 等待)
   const gltf = useLoader(GLTFLoader, url, (loader) => {
     loader.crossOrigin = "anonymous";
     loader.register((parser) => new VRMLoaderPlugin(parser));
@@ -29,18 +29,16 @@ function AvatarModel({ vrmId, action, emotion }) {
     VRMUtils.rotateVRM0(loadedVrm); // 修正舊版 VRM 方向
     setVrm(loadedVrm);
 
-    // 為了讓光影更好看，開啟陰影
+    // 開啟陰影與材質修正
     loadedVrm.scene.traverse((obj) => {
       if (obj.isMesh) {
         obj.castShadow = true;
         obj.receiveShadow = true;
-        // 手機優化：不要強制渲染視角外的東西，但衣服要保留
-        obj.frustumCulled = false; 
+        obj.frustumCulled = false; // 防止轉身時衣服消失
       }
     });
 
     return () => {
-      // 離開時清理記憶體，防止手機崩潰
       setVrm(null);
     };
   }, [gltf]);
@@ -50,7 +48,7 @@ function AvatarModel({ vrmId, action, emotion }) {
      if (!v || !v.expressionManager) return;
      const em = v.expressionManager;
      
-     // 重置表情
+     // 重置所有表情
      ['happy', 'angry', 'sad', 'relaxed', 'neutral'].forEach(k => {
         if(em.getExpression(k)) em.setValue(k, 0);
      });
@@ -64,9 +62,10 @@ function AvatarModel({ vrmId, action, emotion }) {
   useFrame((state, delta) => {
     if (!vrm) return;
 
-    // 1. 自動眨眼 (Auto Blink)
+    // 1. 自動眨眼
     const blinkTimer = state.clock.elapsedTime;
-    const blinkVal = THREE.MathUtils.clamp(Math.sin(blinkTimer * 1.5) * 8 - 7, 0, 1);
+    const blinkTrigger = Math.sin(blinkTimer * 1.5);
+    const blinkVal = THREE.MathUtils.clamp(blinkTrigger * 8 - 7, 0, 1);
     
     if (vrm.expressionManager) {
       vrm.expressionManager.setValue('blink', blinkVal);
@@ -76,21 +75,30 @@ function AvatarModel({ vrmId, action, emotion }) {
     // 2. 表情更新
     updateFace(vrm, emotion);
 
-    // 3. 呼吸感 (Breathing)
+    // 3. 呼吸與微動作
     tRef.current += delta;
     const t = tRef.current;
     
     if (vrm.humanoid) {
        const spine = vrm.humanoid.getNormalizedBoneNode('spine');
        const head = vrm.humanoid.getNormalizedBoneNode('head');
+       const leftEye = vrm.humanoid.getNormalizedBoneNode('leftEye');
+       const rightEye = vrm.humanoid.getNormalizedBoneNode('rightEye');
 
        // 呼吸
        const breath = Math.sin(t * 1.5) * 0.02;
        if(spine) spine.rotation.x = breath;
-       if(head) head.rotation.x = -breath * 0.5; // 頭部補償，保持視線水平
+       if(head) head.rotation.x = -breath * 0.5;
+
+       // 眼神微動
+       if(leftEye && rightEye) {
+          const eyeX = Math.sin(t * 0.3) * 0.05;
+          leftEye.rotation.y = eyeX;
+          rightEye.rotation.y = eyeX;
+       }
     }
 
-    // 4. 更新 VRM 物理 (頭髮飄動)
+    // 4. 更新 VRM 物理
     vrm.update(delta);
   });
 
@@ -101,9 +109,10 @@ function AvatarModel({ vrmId, action, emotion }) {
 export default function Avatar3D(props) {
   return (
     <div className="w-full h-full">
-      {/* 🌟 關鍵優化區 🌟
-         dpr={[1, 1.5]}: 強制限制手機畫質倍率，避免過熱黑屏 (原本可能是 3 或 4)
-         gl={{ preserveDrawingBuffer: true }}: 防止切換畫面時閃爍
+      {/* Canvas 設定重點：
+         1. shadows: 開啟陰影
+         2. dpr={[1, 1.5]}: 限制手機解析度，避免黑屏關鍵！
+         3. gl={{ preserveDrawingBuffer: true }}: 避免閃爍
       */}
       <Canvas 
         shadows 
@@ -111,26 +120,22 @@ export default function Avatar3D(props) {
         camera={{ position: [0, 1.4, 3.5], fov: 25 }}
         gl={{ preserveDrawingBuffer: true, alpha: true }}
       >
-        {/* 燈光設置 */}
         <ambientLight intensity={0.8} />
-        
-        {/* 手機優化：降低陰影解析度 mapSize 到 512 */}
         <spotLight 
            position={[2, 2, 2]} 
            intensity={2} 
            color="#ffd0d0" 
            castShadow 
-           shadow-mapSize={[512, 512]} 
+           shadow-mapSize={[512, 512]} // 手機優化：降低陰影解析度
         />
         <spotLight position={[-2, 2, 2]} intensity={2} color="#d0d0ff" />
         <directionalLight position={[0, 5, 5]} intensity={1.5} />
 
-        {/* 讀取時的 Loading 佔位 */}
+        {/* Suspense 必須包在 Canvas 裡面 */}
         <Suspense fallback={null}>
            <AvatarModel {...props} />
         </Suspense>
 
-        {/* 地板陰影 */}
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
           <planeGeometry args={[10, 10]} />
           <shadowMaterial opacity={0.3} />
