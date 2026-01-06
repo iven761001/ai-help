@@ -3,16 +3,10 @@
 
 import { useState, useEffect } from "react";
 
-// --- 路徑修正重點 ---
-// components 和 lib 都跟 page.js 在同一個 app 資料夾內
-// 所以全部都要用 ./ (同層) 開頭
-
+// --- 引用路徑 (維持修正後的正確版) ---
 import Avatar3D from "./components/AvatarVRM/Avatar3D";
 import CompassCreator from "./components/Creator/CompassCreator";
 import ChatHUD from "./components/HUD/ChatHUD";
-
-// ❌ 原本錯的： import { ... } from "../lib/storage"; (這是往上一層找)
-// ✅ 這次對的： 改成 ./lib/storage (這是找隔壁鄰居)
 import { getCharacter, saveCharacter } from "./lib/storage"; 
 
 export default function Home() {
@@ -21,8 +15,8 @@ export default function Home() {
   
   // 使用者資料
   const [email, setEmail] = useState("");
-  const [tempConfig, setTempConfig] = useState(null); // 選角時的暫存設定
-  const [finalCharacter, setFinalCharacter] = useState(null); // 最終確定的角色
+  const [tempConfig, setTempConfig] = useState(null); 
+  const [finalCharacter, setFinalCharacter] = useState(null); 
 
   // 1. 初始化檢查
   useEffect(() => {
@@ -172,4 +166,18 @@ export default function Home() {
             <div className="relative w-full h-full animate-fadeIn">
                <ChatHUD />
                
-               
+               <button 
+                 onClick={handleReset}
+                 className="absolute top-4 left-4 z-50 text-[10px] text-white/20 hover:text-white/80"
+               >
+                 RESET
+               </button>
+            </div>
+          )}
+
+        </div>
+      </div>
+    </main>
+  );
+}
+// ⬆️ 記得一定要複製到這裡！要有這個「}」結尾符號才算結束喔！
