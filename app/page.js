@@ -1,24 +1,20 @@
 // app/page.js
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react"; // 👈 1. 引入 Suspense
 
-// --- 引用路徑 (維持修正後的正確版) ---
 import Avatar3D from "./components/AvatarVRM/Avatar3D";
 import CompassCreator from "./components/Creator/CompassCreator";
 import ChatHUD from "./components/HUD/ChatHUD";
 import { getCharacter, saveCharacter } from "./lib/storage"; 
 
 export default function Home() {
-  // --- 狀態管理區 ---
   const [step, setStep] = useState("loading");
   
-  // 使用者資料
   const [email, setEmail] = useState("");
   const [tempConfig, setTempConfig] = useState(null); 
   const [finalCharacter, setFinalCharacter] = useState(null); 
 
-  // 1. 初始化檢查
   useEffect(() => {
     try {
       const saved = getCharacter();
@@ -34,28 +30,24 @@ export default function Home() {
     }
   }, []);
 
-  // --- 動作處理區 ---
-
-  // A. 信箱頁按下確定
   const handleEmailSubmit = (e) => {
     e.preventDefault();
     if (!email.trim()) return alert("請輸入信箱喔！");
     setStep("create");
   };
 
-  // B. 選角頁：當轉輪轉動時
   const handleConfigChange = (newConfig) => {
     setTempConfig(newConfig);
   };
 
-  // C. 選角頁：按下完成
   const handleFinishCreate = () => {
-    if (!tempConfig) return;
+    // 這裡做個安全檢查，如果使用者手太快，預設值還沒載入，就用預設的
+    const configToSave = tempConfig || { model: "C1", personality: "warm" };
 
     const newCharacter = {
       email: email,
       name: "My AI Buddy",
-      ...tempConfig,
+      ...configToSave,
       createdAt: new Date().toISOString()
     };
 
@@ -64,7 +56,6 @@ export default function Home() {
     setStep("chat");
   };
 
-  // D. 聊天頁：重置
   const handleReset = () => {
     localStorage.removeItem("my_ai_character");
     setFinalCharacter(null);
@@ -72,7 +63,16 @@ export default function Home() {
     setStep("email");
   };
 
-  // --- 畫面渲染區 ---
+  // 🌟 安全的 VRM ID 取得邏輯
+  // 如果是選角模式 (create)，就看 tempConfig，還沒載入就給 "C1"
+  // 如果是聊天模式 (chat)，就看 finalCharacter
+  const currentModelId = step === 'create' 
+    ? (tempConfig?.model || "C1") 
+    : (finalCharacter?.model || "C1");
+
+  const currentEmotion = (step === 'create' ? tempConfig?.personality : finalCharacter?.personality) === 'cool' 
+    ? 'neutral' 
+    : 'happy';
 
   return (
     <main className="relative w-full h-screen overflow-hidden bg-black text-white font-sans">
@@ -80,14 +80,17 @@ export default function Home() {
       {/* --- 共用背景層 (3D 角色) --- */}
       {(step === 'create' || step === 'chat') && (
         <div className="absolute inset-0 z-0">
-          <Avatar3D 
-            vrmId={step === 'create' ? tempConfig?.model : finalCharacter?.model}
-            emotion={
-              (step === 'create' ? tempConfig?.personality : finalCharacter?.personality) === 'cool' 
-              ? 'neutral' : 'happy'
-            }
-            action="idle" 
-          />
+          
+          {/* 🌟 2. 加上 Suspense 等待區 */}
+          {/* fallback={null} 代表載入時不顯示額外東西（或妳可以放 Loading 文字） */}
+          <Suspense fallback={<div className="text-white/20 p-10">載入模型中...</div>}>
+            <Avatar3D 
+              vrmId={currentModelId}
+              emotion={currentEmotion}
+              action="idle" 
+            />
+          </Suspense>
+
           <div className="absolute inset-x-0 bottom-0 h-[60%] bg-gradient-to-t from-black via-black/60 to-transparent pointer-events-none" />
         </div>
       )}
@@ -180,4 +183,3 @@ export default function Home() {
     </main>
   );
 }
-// ⬆️ 記得一定要複製到這裡！要有這個「}」結尾符號才算結束喔！
