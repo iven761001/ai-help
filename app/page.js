@@ -5,7 +5,25 @@ import { useState, useEffect, Suspense } from "react";
 import Avatar3D from "./components/AvatarVRM/Avatar3D";
 import CompassCreator from "./components/Creator/CompassCreator";
 import ChatHUD from "./components/HUD/ChatHUD";
-import { getCharacter, saveCharacter } from "./lib/storage"; 
+
+// ❌ 不依賴外部檔案，直接定義存檔函數，避免路徑或引用錯誤
+const SAFE_STORAGE_KEY = "my_ai_character";
+
+function safeSave(data) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(SAFE_STORAGE_KEY, JSON.stringify(data));
+}
+
+function safeLoad() {
+  if (typeof window === "undefined") return null;
+  const raw = localStorage.getItem(SAFE_STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    return null;
+  }
+}
 
 export default function Home() {
   const [step, setStep] = useState("loading");
@@ -15,7 +33,7 @@ export default function Home() {
 
   useEffect(() => {
     try {
-      const saved = getCharacter();
+      const saved = safeLoad();
       if (saved && saved.email) {
         setFinalCharacter(saved);
         setStep("chat");
@@ -23,6 +41,7 @@ export default function Home() {
         setStep("email");
       }
     } catch (e) {
+      console.error(e);
       setStep("email");
     }
   }, []);
@@ -38,22 +57,38 @@ export default function Home() {
   };
 
   const handleFinishCreate = () => {
-    const configToSave = tempConfig || { model: "C1", personality: "warm" };
-    const newCharacter = {
-      email: email,
-      name: "My AI Buddy",
-      ...configToSave,
-      createdAt: new Date().toISOString()
-    };
+    // 🌟 加上 try-catch 診斷
+    try {
+      // 1. 準備資料
+      const configToSave = tempConfig || { model: "C1", personality: "warm" };
+      
+      const newCharacter = {
+        email: email,
+        name: "My AI Buddy",
+        ...configToSave,
+        createdAt: new Date().toISOString()
+      };
 
-    saveCharacter(newCharacter);
-    setFinalCharacter(newCharacter);
-    setStep("chat");
+      // 2. 嘗試存檔
+      safeSave(newCharacter);
+      
+      // 3. 更新狀態
+      setFinalCharacter(newCharacter);
+      
+      // 4. 切換頁面 (如果這裡沒執行，代表上面有錯)
+      setStep("chat");
+
+    } catch (error) {
+      // 🚨 如果崩潰，這裡會跳出錯誤訊息
+      alert("程式出錯了：" + error.message);
+    }
   };
 
   const handleReset = () => {
     if(confirm("確定要重置嗎？")) {
-        localStorage.removeItem("my_ai_character");
+        if (typeof window !== "undefined") {
+            localStorage.removeItem(SAFE_STORAGE_KEY);
+        }
         setFinalCharacter(null);
         setEmail("");
         setStep("email");
@@ -105,14 +140,15 @@ export default function Home() {
       {/* 3. 3D 背景層 (Create & Chat 共用) */}
       {(step === 'create' || step === 'chat') && (
         <div className="absolute inset-0 z-0 bg-gradient-to-b from-gray-900 to-black">
-          <Suspense fallback={<div className="text-white/30 text-center pt-20">載入模型中...</div>}>
+          {/* 加上 key 確保狀態重置 */}
+          <Suspense fallback={<div className="text-white/20 text-center pt-20">載入 3D 模型中...</div>}>
             <Avatar3D 
-              key={currentModelId} // 確保切換模型時重新渲染
+              key={currentModelId} 
               vrmId={currentModelId}
               emotion={currentEmotion}
             />
           </Suspense>
-          {/* 底部漸層，讓 UI 比較清楚 */}
+          {/* 底部漸層 */}
           <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
         </div>
       )}
@@ -127,10 +163,10 @@ export default function Home() {
                 <p className="text-[10px] text-blue-400 tracking-widest font-bold">CUSTOMIZE</p>
              </div>
              
-             {/* 🌟 漂亮的完成按鈕 */}
+             {/* 🌟 按鈕：加上 z-50 確保在最上層 */}
              <button
                onClick={handleFinishCreate}
-               className="group bg-blue-600 hover:bg-blue-500 text-white px-5 py-3 rounded-full font-bold shadow-lg shadow-blue-600/30 transition-all active:scale-95 flex items-center gap-2 z-50"
+               className="group bg-blue-600 hover:bg-blue-500 text-white px-5 py-3 rounded-full font-bold shadow-lg shadow-blue-600/30 transition-all active:scale-95 flex items-center gap-2 z-50 cursor-pointer"
              >
                <span className="text-sm">完成</span>
                <span className="group-hover:translate-x-1 transition-transform">➜</span>
@@ -147,7 +183,6 @@ export default function Home() {
       {/* 5. 聊天 UI */}
       {step === "chat" && finalCharacter && (
         <div className="relative z-10 w-full h-full animate-fadeIn pointer-events-none">
-           {/* ChatHUD 內部已經有 pointer-events-auto */}
            <div className="pointer-events-auto w-full h-full">
              <ChatHUD />
              <button 
