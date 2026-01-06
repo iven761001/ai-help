@@ -1,292 +1,193 @@
-//page.js v001.003
 // app/page.js
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useState, useEffect } from "react";
+import { ArrowRight, Mail } from "lucide-react"; // 確保有安裝，沒有也沒關係，我有做備案
 
-import TechBackground from "./components/global/TechBackground";
-import AvatarStage from "./components/AvatarVRM/AvatarStage";
-import CompassCreator from "./components/Creator/CompassCreator";
-import ChatHUD from "./components/HUD/ChatHUD";
+// 引入妳的組件 (根據截圖路徑)
+import Avatar3D from "@/components/AvatarVRM/Avatar3D";
+import CompassCreator from "@/components/Creator/CompassCreator";
+import ChatHUD from "@/components/HUD/ChatHUD";
+import { getCharacter, saveCharacter } from "@/lib/storage"; 
 
-import useDragRotate from "./hooks/useDragRotate";
-import { loadUser, saveUser, clearUser } from "./lib/storage";
-
-export default function Page() {
-  // ===== 基本狀態 =====
-  const [booted, setBooted] = useState(false);
-  const [step, setStep] = useState("bind"); // bind → create → chat
-
-  // ===== 使用者 =====
-  const [user, setUser] = useState(null);
+export default function Home() {
+  // --- 狀態管理區 ---
+  // step: 'loading' | 'email' | 'create' | 'chat'
+  const [step, setStep] = useState("loading");
+  
+  // 使用者資料
   const [email, setEmail] = useState("");
+  const [tempConfig, setTempConfig] = useState(null); // 選角時的暫存設定
+  const [finalCharacter, setFinalCharacter] = useState(null); // 最終確定的角色
 
-  // ===== 角色草稿 =====
-  const [draft, setDraft] = useState({
-    email: "",
-    vrmId: "C1",
-    color: "sky",
-    avatar: "sky",
-    voice: "warm",
-    nickname: ""
-  });
-
-  // ===== Chat =====
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
-  const [sending, setSending] = useState(false);
-
-  // ===== 拖曳旋轉 =====
-  const { yaw, bind } = useDragRotate({ sensitivity: 0.01 });
-
-  // ===== 初始化 =====
+  // 1. 初始化檢查 (看看是不是老朋友)
   useEffect(() => {
-    const u = loadUser();
-    if (u?.email) {
-      setUser(u);
-      setDraft((d) => ({ ...d, ...u, vrmId: u.vrmId || d.vrmId || "C1" }));
-      setEmail(u.email);
-      setStep(u.nickname ? "chat" : "create");
+    const saved = getCharacter();
+    if (saved && saved.email) {
+      // 如果有存檔且有信箱，直接去聊天
+      setFinalCharacter(saved);
+      setStep("chat");
     } else {
-      setStep("bind");
+      // 否則從信箱頁開始
+      setStep("email");
     }
-    setBooted(true);
   }, []);
 
-  // ===== 舞台角色（create / chat 用）=====
-  const stageProfile = useMemo(() => {
+  // --- 動作處理區 ---
 
-    if (step === "create") {
-    return {
-      email: user?.email || draft.email || "",
-      vrmId: draft.vrmId || "C1",
-      color: draft.color || draft.avatar || "sky",
-      avatar: draft.avatar || draft.color || "sky",
-      voice: draft.voice || "warm",
-      nickname: draft.nickname || ""
-    };
-  }
-    const base = user || draft;
-    return {
-      email: base.email || "",
-      vrmId: base.vrmId || "C1",
-      color: base.color || base.avatar || "sky",
-      avatar: base.avatar || base.color || "sky",
-      voice: base.voice || "warm",
-      nickname: base.nickname || ""
-    };
-  }, [user, draft, step]);
-
-  // ✅ v001.002：舞台即時預覽用 profile（create 階段只看 draft，不混 user）
-  const stagePreview = useMemo(() => {
-    if (step === "create") {
-      return {
-        email: user?.email || draft.email || "",
-        vrmId: draft.vrmId || "C1",
-        color: draft.color || draft.avatar || "sky",
-        avatar: draft.avatar || draft.color || "sky",
-        voice: draft.voice || "warm",
-        nickname: draft.nickname || ""
-      };
-    }
-    return stageProfile; // chat 用已保存的 profile
-  }, [step, user?.email, draft, stageProfile]);
-
-  const stageEmotion = sending ? "thinking" : "idle";
-
-  // ===== 綁定信箱 =====
-  const submitEmail = (e) => {
+  // A. 信箱頁按下確定
+  const handleEmailSubmit = (e) => {
     e.preventDefault();
-    const mail = (email || "").trim();
-    if (!mail) return;
-
-    const next = {
-      email: mail,
-      vrmId: "C1",
-      color: "sky",
-      avatar: "sky",
-      voice: "warm",
-      nickname: ""
-    };
-    setUser(next);
-    setDraft(next);
-    saveUser(next);
+    if (!email.trim()) return alert("請輸入信箱喔！");
+    // 進入選角模式
     setStep("create");
   };
 
-  // ===== 完成選角 =====
-  const onDoneCreator = () => {
-    const profile = {
-      ...user,
-      ...draft,
-      email: user?.email || draft.email,
-      vrmId: draft.vrmId || user?.vrmId || "C1",
-      color: draft.color || draft.avatar || "sky",
-      avatar: draft.avatar || draft.color || "sky"
+  // B. 選角頁：當轉輪轉動時
+  const handleConfigChange = (newConfig) => {
+    setTempConfig(newConfig);
+  };
+
+  // C. 選角頁：按下完成
+  const handleFinishCreate = () => {
+    if (!tempConfig) return;
+
+    const newCharacter = {
+      email: email,
+      name: "My AI Buddy", // 這裡暫時寫死，之後可讓使用者改
+      ...tempConfig,       // 包含 model, color, personality...
+      createdAt: new Date().toISOString()
     };
-    setUser(profile);
-    saveUser(profile);
+
+    // 存檔並進入聊天
+    saveCharacter(newCharacter);
+    setFinalCharacter(newCharacter);
     setStep("chat");
   };
 
-  const onBackToCreator = () => setStep("create");
-
-  // ===== Chat 送出 =====
-  const onSend = async (text) => {
-    const t = (text || "").trim();
-    if (!t) return;
-
-    setSending(true);
-    setMessages((p) => [...p, { role: "user", content: t }]);
-
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user: stageProfile,
-          messages: [...messages, { role: "user", content: t }]
-        })
-      });
-
-      if (!res.ok) throw new Error("API error");
-      const data = await res.json();
-
-      setMessages((p) => [
-        ...p,
-        { role: "assistant", content: data.reply || "我有收到 👍" }
-      ]);
-    } catch {
-      setMessages((p) => [
-        ...p,
-        { role: "assistant", content: "連線失敗，請再試一次 🙏" }
-      ]);
-    } finally {
-      setSending(false);
-    }
-  };
-
-  const hardReset = () => {
-    clearUser();
-    setUser(null);
-    setDraft({
-      email: "",
-      vrmId: "C1",
-      color: "sky",
-      avatar: "sky",
-      voice: "warm",
-      nickname: ""
-    });
-    setMessages([]);
-    setInput("");
+  // D. 聊天頁：重置 (測試用)
+  const handleReset = () => {
+    localStorage.removeItem("my_ai_character");
+    setFinalCharacter(null);
     setEmail("");
-    setStep("bind");
+    setStep("email");
   };
 
-  if (!booted) return null;
+  // --- 畫面渲染區 ---
 
   return (
-    <main className="min-h-[100dvh] w-full relative overflow-hidden">
-      {/* 背景 */}
-      <div className="absolute inset-0 -z-10">
-        <TechBackground />
-      </div>
-
-      {/* ===== 上半部 Avatar 舞台 ===== */}
-      <section className="w-full px-4 pt-6">
-        <div className="mx-auto w-full max-w-md">
-          <div className="rounded-[32px] border border-white/10 bg-white/5 backdrop-blur-xl overflow-hidden">
-            <div
-              className="aspect-square w-full"
-              {...(step !== "bind" ? bind : {})}
-              style={{ WebkitTapHighlightColor: "transparent" }}
-            >
-              {step === "bind" ? (
-                <div className="w-full h-full flex items-center justify-center">
-                  <div className="text-white/60 text-sm">角色舞台準備中…</div>
-                </div>
-              ) : (
-                <AvatarStage
-                  // ✅ v001.002：關鍵改這裡 — create 用 stagePreview（輪盤即時更新）
-                  key={`${step}-${stagePreview.vrmId}`}
-                  vrmId={stagePreview.vrmId || "C1"}
-                  variant={stagePreview.color}
-                  emotion={stageEmotion}
-                  action="walk"
-                  previewYaw={yaw}
-                />
-              )}
-            </div>
-
-            <div className="px-4 pt-3 pb-4 text-center">
-              <div className="text-sm font-semibold text-white">
-                {stagePreview.nickname ? `「${stagePreview.nickname}」` : "尚未命名"}
-              </div>
-              <div className="text-[11px] text-white/70 mt-1">
-                模型：{stagePreview.vrmId || "C1"} ／ 顏色：{stagePreview.color} ／ 聲線：{stagePreview.voice}
-              </div>
-            </div>
-          </div>
+    <main className="relative w-full h-screen overflow-hidden bg-black text-white font-sans">
+      
+      {/* --- 共用背景層 (3D 角色) --- */}
+      {/* 只有在 'create' 或 'chat' 模式才顯示 3D */}
+      {(step === 'create' || step === 'chat') && (
+        <div className="absolute inset-0 z-0">
+          <Avatar3D 
+            // 如果是選角模式，讀取轉輪的暫存值 (tempConfig)
+            // 如果是聊天模式，讀取最終確定的值 (finalCharacter)
+            vrmId={step === 'create' ? tempConfig?.model : finalCharacter?.model}
+            // 根據個性簡單切換表情
+            emotion={
+              (step === 'create' ? tempConfig?.personality : finalCharacter?.personality) === 'cool' 
+              ? 'neutral' : 'happy'
+            }
+            action="idle" 
+          />
+          {/* 底部黑色漸層，讓 UI 更清楚 */}
+          <div className="absolute inset-x-0 bottom-0 h-[60%] bg-gradient-to-t from-black via-black/60 to-transparent pointer-events-none" />
         </div>
-      </section>
+      )}
 
-      {/* ===== 下半部 面板 ===== */}
-      <section className="w-full px-4 pb-6 mt-4">
-        <div className="mx-auto w-full max-w-md">
-          <div className="h-[44dvh] min-h-[360px]">
-            {step === "bind" && (
-              <div className="h-full rounded-[28px] bg-white/10 backdrop-blur-xl p-4 flex flex-col border border-white/15">
-                <div className="text-white font-semibold mb-2">綁定信箱</div>
+      {/* --- UI 內容層 --- */}
+      <div className="relative z-10 w-full h-full pointer-events-none">
+        <div className="pointer-events-auto w-full h-full">
 
-                <form onSubmit={submitEmail} className="flex flex-col gap-3 flex-1">
-                  <input
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@gmail.com"
-                    className="rounded-2xl px-4 py-3 bg-black/20 text-white outline-none border border-white/15 placeholder:text-white/40"
-                  />
+          {/* 1. Loading 畫面 */}
+          {step === "loading" && (
+             <div className="flex items-center justify-center h-full text-blue-400 animate-pulse">
+               系統啟動中...
+             </div>
+          )}
 
-                  <button
+          {/* 2. 信箱綁定頁 (Email) */}
+          {step === "email" && (
+            <div className="flex flex-col items-center justify-center h-full px-6 bg-gray-900 animate-fadeIn">
+              <div className="w-full max-w-md bg-gray-800/50 p-8 rounded-3xl border border-white/10 backdrop-blur-md shadow-2xl">
+                <div className="text-center mb-8">
+                  <h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400">
+                    IVAN LINK
+                  </h1>
+                  <p className="text-gray-400 text-sm mt-2">請綁定您的專屬信箱以啟動</p>
+                </div>
+
+                <form onSubmit={handleEmailSubmit} className="space-y-6">
+                  <div className="relative">
+                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={20} />
+                    <input 
+                      type="email" 
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="name@example.com"
+                      className="w-full bg-black/40 border border-gray-600 rounded-xl py-4 pl-12 pr-4 text-white focus:outline-none focus:border-blue-500 transition-colors"
+                      required
+                    />
+                  </div>
+                  <button 
                     type="submit"
-                    className="rounded-full py-3 bg-sky-500 text-white font-medium"
+                    className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg hover:shadow-blue-500/30 flex items-center justify-center gap-2"
                   >
-                    下一步
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={hardReset}
-                    className="text-xs text-white/50 underline underline-offset-4"
-                  >
-                    Debug：清除重來
+                    下一步 <ArrowRight size={18} />
                   </button>
                 </form>
               </div>
-            )}
+            </div>
+          )}
 
-            {step === "create" && (
-              <CompassCreator
-                value={{ ...draft, email: user?.email || draft.email }}
-                onChange={setDraft}
-                onDone={onDoneCreator}
-                disabled={false}
-              />
-            )}
+          {/* 3. 選角頁 (Creator) */}
+          {step === "create" && (
+            <div className="absolute inset-0 flex flex-col justify-end pb-safe-bottom">
+              {/* 按鈕區 (浮在轉輪上方) */}
+              <div className="w-full px-6 mb-4 flex justify-between items-end animate-slideUp">
+                 <div>
+                    <h2 className="text-xl font-bold text-white/90">角色設定</h2>
+                    <p className="text-[10px] text-blue-400 tracking-[0.2em] font-bold mt-1">CUSTOMIZE</p>
+                 </div>
+                 
+                 {/* 🌟 這是妳要的「下一頁」按鈕 */}
+                 <button
+                   onClick={handleFinishCreate}
+                   className="group bg-blue-600 hover:bg-blue-500 text-white px-5 py-3 rounded-full font-bold shadow-lg shadow-blue-600/30 transition-all active:scale-95 flex items-center gap-2"
+                 >
+                   <span className="text-sm">完成設定</span>
+                   <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform"/>
+                 </button>
+              </div>
 
-            {step === "chat" && (
-              <ChatHUD
-                user={stageProfile}
-                messages={messages}
-                sending={sending}
-                input={input}
-                setInput={setInput}
-                onSend={onSend}
-                onBackToCreator={onBackToCreator}
-              />
-            )}
-          </div>
+              {/* 轉輪區 */}
+              <div className="w-full bg-gradient-to-t from-black to-transparent pt-4">
+                 <CompassCreator onChange={handleConfigChange} />
+              </div>
+            </div>
+          )}
+
+          {/* 4. 聊天頁 (Chat) */}
+          {step === "chat" && finalCharacter && (
+            <div className="relative w-full h-full animate-fadeIn">
+               {/* 這裡直接放 ChatHUD，它會疊在 Avatar3D 上面 */}
+               <ChatHUD />
+               
+               {/* 測試用的重置按鈕 (左上角隱密處) */}
+               <button 
+                 onClick={handleReset}
+                 className="absolute top-4 left-4 z-50 text-[10px] text-white/20 hover:text-white/80"
+               >
+                 RESET
+               </button>
+            </div>
+          )}
+
         </div>
-      </section>
+      </div>
     </main>
   );
-                  }
+}
