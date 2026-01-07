@@ -1,111 +1,116 @@
 "use client";
 
-import React, { Suspense, useRef, useMemo, useState } from "react";
+import React, { Suspense, useRef, useMemo, useState, useEffect } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import Avatar3D from "./Avatar3D";
 
-// 🌟 錯誤處理升級：顯示它到底在找哪個檔案
+// 錯誤處理
 class StageErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false }; }
   static getDerivedStateFromError(error) { return { hasError: true, error }; }
   componentDidCatch(error) { console.error("3D Stage Error:", error); }
   render() {
-    if (this.state.hasError) {
-      // 這裡會顯示出到底是誰讀取失敗
-      return (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-red-500 text-sm bg-black/90 p-6 rounded-xl border border-red-500 text-center z-50 shadow-2xl">
-          <p className="text-xl mb-2">⚠️ 讀取失敗</p>
-          <p className="font-mono text-yellow-400 mb-4">
-            目標檔案: {this.props.vrmId}.vrm
-          </p>
-          <div className="text-xs text-gray-400 text-left space-y-1">
-            <p>可能原因：</p>
-            <p>1. Vercel 還沒更新完 (請等5分鐘)</p>
-            <p>2. 檔名大小寫不符</p>
-            <p>3. 瀏覽器記住舊的 C1 設定</p>
-          </div>
-        </div>
-      );
-    }
+    if (this.state.hasError) return (<div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-red-500 text-sm bg-black/90 p-4 rounded border border-red-500">⚠️ 3D Error: Model Load Failed</div>);
     return this.props.children;
   }
 }
 
-// 載入中的顯示畫面
 function LoadingFallback() {
-  return (
-    <mesh visible={false}>
-      <boxGeometry />
-      <meshBasicMaterial color="black" />
-    </mesh>
-  );
+  return (<mesh visible={false}><boxGeometry /><meshBasicMaterial color="black" /></mesh>);
 }
 
-const BeamShaderMaterial = {
-  uniforms: {
-    color: { value: new THREE.Color("#00ffff") },
-    time: { value: 0 },
-    opacity: { value: 0.4 }
-  },
-  vertexShader: `
-    varying vec2 vUv;
-    void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
-  `,
-  fragmentShader: `
-    uniform vec3 color; uniform float time; uniform float opacity; varying vec2 vUv;
-    void main() {
-      float verticalFade = smoothstep(0.8, 0.0, vUv.y); 
-      float bottomGlow = smoothstep(0.2, 0.0, vUv.y) * 0.5;
-      float scanline = sin(vUv.y * 30.0 - time * 3.0) * 0.05 + 0.95;
-      gl_FragColor = vec4(color * scanline + vec3(bottomGlow), opacity * verticalFade);
-    }
-  `
-};
-
-function HologramProjector() {
-  const beamRef = useRef();
-  const baseRef = useRef();
-  
-  const beamMat = useMemo(() => new THREE.ShaderMaterial({
-    ...BeamShaderMaterial, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
-  }), []);
-
+// --- 🌟 新元件：科幻平台底座 ---
+function SciFiPlatform() {
+  const ringsRef = useRef();
   useFrame((state) => {
-    const t = state.clock.elapsedTime;
-    if (beamMat) beamMat.uniforms.time.value = t;
-    if (baseRef.current) baseRef.current.rotation.z = t * 0.1;
+    // 讓外圈緩慢旋轉
+    if(ringsRef.current) ringsRef.current.rotation.y = state.clock.elapsedTime * 0.1;
   });
 
   return (
-    <group position={[0, 0, 0]}>
-      <mesh ref={beamRef} material={beamMat} position={[0, 1, 0]}>
-        <cylinderGeometry args={[0.9, 0.15, 2, 32, 1, true]} />
+    <group position={[0, -0.1, 0]}>
+      {/* 中心強力發光墊 */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[0.7, 64]} />
+        <meshStandardMaterial color="#00aaff" emissive="#00aaff" emissiveIntensity={1.5} transparent opacity={0.9} />
       </mesh>
-      <group ref={baseRef} rotation={[-Math.PI/2, 0, 0]}>
-         <mesh><circleGeometry args={[0.18, 32]} /><meshBasicMaterial color="#ffffff" transparent opacity={0.9} /></mesh>
-         <mesh position={[0,0,-0.01]}><ringGeometry args={[0.22, 0.4, 32]} /><meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.6} /></mesh>
-         <mesh position={[0,0,-0.02]}><ringGeometry args={[0.45, 0.48, 64]} /><meshBasicMaterial color="#0088ff" side={THREE.DoubleSide} transparent opacity={0.3} /></mesh>
+      
+      {/* 底部聚光燈 (從下往上打光) */}
+      <spotLight position={[0, -1, 0]} target-position={[0, 1, 0]} intensity={5} distance={5} angle={0.8} penumbra={1} color="#00ffff" />
+      <pointLight position={[0, 0.2, 0]} intensity={3} distance={3} color="#0088ff" />
+
+      {/* 旋轉的科技光環 */}
+      <group ref={ringsRef}>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]}>
+            <ringGeometry args={[0.75, 0.8, 64]} />
+            <meshBasicMaterial color="#00ffff" transparent opacity={0.6} side={THREE.DoubleSide} />
+          </mesh>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
+            <ringGeometry args={[0.85, 0.95, 64]} />
+            <meshBasicMaterial color="#0066ff" transparent opacity={0.4} side={THREE.DoubleSide} />
+          </mesh>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]}>
+            <ringGeometry args={[1.1, 1.12, 64]} />
+            <meshBasicMaterial color="#00ffff" transparent opacity={0.3} side={THREE.DoubleSide} />
+          </mesh>
       </group>
     </group>
   );
 }
 
+// --- 🌟 新元件：上升粒子特效 ---
+function RisingParticles() {
+    const count = 150; // 粒子數量
+    const pointsRef = useRef();
+
+    // 初始化粒子位置
+    const [positions] = useState(() => {
+        const pos = new Float32Array(count * 3);
+        for (let i = 0; i < count; i++) {
+            pos[i * 3] = (Math.random() - 0.5) * 3; // X 範圍
+            pos[i * 3 + 1] = Math.random() * 3;     // Y 高度範圍
+            pos[i * 3 + 2] = (Math.random() - 0.5) * 3; // Z 範圍
+        }
+        return pos;
+    });
+
+    // 動畫循環：讓粒子上升
+    useFrame((state, delta) => {
+        if (!pointsRef.current) return;
+        const positionsAttr = pointsRef.current.geometry.attributes.position;
+        for (let i = 0; i < count; i++) {
+            let y = positionsAttr.array[i * 3 + 1];
+            y += delta * (0.2 + Math.random() * 0.3); // 隨機上升速度
+            // 如果超過高度，重置到底部
+            if (y > 3.5) y = 0;
+            positionsAttr.array[i * 3 + 1] = y;
+        }
+        positionsAttr.needsUpdate = true;
+    });
+
+    return (
+        <points ref={pointsRef} position={[0, -0.5, 0]}>
+            <bufferGeometry>
+                <bufferAttribute attach="attributes-position" count={count} array={positions} itemSize={3} />
+            </bufferGeometry>
+            {/* 粒子材質 */}
+            <pointsMaterial size={0.03} color="#00ffff" transparent opacity={0.6} sizeAttenuation={true} blending={THREE.AdditiveBlending} depthWrite={false} />
+        </points>
+    );
+}
+
+// 運鏡邏輯 (保持不變)
 function MarketFrame({ targetRef, triggerKey }) {
   const { camera } = useThree();
   const doneRef = useRef(false);
-  
   React.useEffect(() => { doneRef.current = false; }, [triggerKey]);
-
   useFrame(() => {
-    if (doneRef.current || !targetRef.current) return;
-    const root = targetRef.current;
-    if (root.children.length === 0) return;
-
-    camera.position.lerp(new THREE.Vector3(0, 1.2, 3.5), 0.1);
-    camera.lookAt(0, 1.0, 0);
-    
-    if (Math.abs(camera.position.z - 3.5) < 0.1) doneRef.current = true;
+    if (doneRef.current || !targetRef.current || targetRef.current.children.length === 0) return;
+    // 稍微調整運鏡高度，配合浮空
+    camera.position.lerp(new THREE.Vector3(0, 1.3, 3.8), 0.1);
+    camera.lookAt(0, 1.1, 0);
+    if (Math.abs(camera.position.z - 3.8) < 0.1) doneRef.current = true;
   });
   return null;
 }
@@ -121,22 +126,25 @@ export default function AvatarStage({ vrmId = "avatar_01", emotion = "idle", unl
 
   return (
     <div className="w-full h-full relative">
-      {/* 🌟 傳入 vrmId 讓錯誤畫面可以顯示 */}
       <StageErrorBoundary key={vrmId} vrmId={vrmId}>
         <Canvas
           shadows
           dpr={[1, 1.5]}
           camera={{ position: [0, 1.4, 4], fov: 35 }}
-          gl={{ alpha: true, antialias: true, preserveDrawingBuffer: true }}
+          gl={{ alpha: true, antialias: true, preserveDrawingBuffer: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.2 }}
         >
-          <color attach="background" args={['#050510']} />
-          <fog attach="fog" args={['#050510', 5, 15]} />
+          {/* 調整背景色為更深的藍黑色 */}
+          <color attach="background" args={['#02020a']} />
+          <fog attach="fog" args={['#02020a', 4, 12]} />
 
-          <ambientLight intensity={0.8} color="#6666ff" />
-          <directionalLight position={[2, 5, 2]} intensity={2.5} color="#ccffff" castShadow />
-          <spotLight position={[0, 5, 0]} intensity={4} color="#00ffff" distance={8} angle={0.6} penumbra={1} />
-
-          <HologramProjector />
+          {/* 環境光稍微調暗，強調自發光 */}
+          <ambientLight intensity={0.4} color="#3333ff" />
+          {/* 主光源 */}
+          <directionalLight position={[2, 5, 2]} intensity={1.5} color="#ccffff" castShadow />
+          
+          {/* 🌟 替換成新的舞台與粒子系統 */}
+          <SciFiPlatform />
+          <RisingParticles />
 
           <Suspense fallback={<LoadingFallback />}>
             <group ref={modelRoot}>
@@ -149,9 +157,10 @@ export default function AvatarStage({ vrmId = "avatar_01", emotion = "idle", unl
             </group>
             <MarketFrame targetRef={modelRoot} triggerKey={vrmId + readyKey} />
             
-            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]} receiveShadow>
-              <planeGeometry args={[4, 4]} />
-              <shadowMaterial opacity={0.6} color="#000000" />
+            {/* 地面陰影 (稍微調淡) */}
+            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.09, 0]} receiveShadow>
+              <planeGeometry args={[6, 6]} />
+              <shadowMaterial opacity={0.4} color="#000000" />
             </mesh>
           </Suspense>
         </Canvas>
