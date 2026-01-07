@@ -1,27 +1,38 @@
 "use client";
 
-import React, { Suspense, useRef, useMemo, useState, useEffect } from "react";
+import React, { Suspense, useRef, useMemo, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import Avatar3D from "./Avatar3D";
 
-// 錯誤處理：如果出錯，顯示紅字
+// 🌟 錯誤處理升級：顯示它到底在找哪個檔案
 class StageErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false }; }
   static getDerivedStateFromError(error) { return { hasError: true, error }; }
   componentDidCatch(error) { console.error("3D Stage Error:", error); }
   render() {
-    if (this.state.hasError) return (
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-red-500 text-sm bg-black/80 p-4 rounded border border-red-500 text-center">
-        ⚠️ 3D Error: Model Load Failed<br/>
-        請檢查 Vercel 部署是否完成
-      </div>
-    );
+    if (this.state.hasError) {
+      // 這裡會顯示出到底是誰讀取失敗
+      return (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-red-500 text-sm bg-black/90 p-6 rounded-xl border border-red-500 text-center z-50 shadow-2xl">
+          <p className="text-xl mb-2">⚠️ 讀取失敗</p>
+          <p className="font-mono text-yellow-400 mb-4">
+            目標檔案: {this.props.vrmId}.vrm
+          </p>
+          <div className="text-xs text-gray-400 text-left space-y-1">
+            <p>可能原因：</p>
+            <p>1. Vercel 還沒更新完 (請等5分鐘)</p>
+            <p>2. 檔名大小寫不符</p>
+            <p>3. 瀏覽器記住舊的 C1 設定</p>
+          </div>
+        </div>
+      );
+    }
     return this.props.children;
   }
 }
 
-// 載入中的顯示畫面 (避免 Suspense 黑屏)
+// 載入中的顯示畫面
 function LoadingFallback() {
   return (
     <mesh visible={false}>
@@ -99,12 +110,10 @@ function MarketFrame({ targetRef, triggerKey }) {
   return null;
 }
 
-// 🌟 新增 onModelReady 屬性
 export default function AvatarStage({ vrmId = "avatar_01", emotion = "idle", unlocked = false, onModelReady }) {
   const modelRoot = useRef();
   const [readyKey, setReadyKey] = useState(0);
 
-  // 當 Avatar3D 載入完成呼叫 onReady 時，我們也通知父層
   const handleAvatarReady = (vrm) => {
     setReadyKey(k => k + 1);
     if (onModelReady) onModelReady();
@@ -112,7 +121,8 @@ export default function AvatarStage({ vrmId = "avatar_01", emotion = "idle", unl
 
   return (
     <div className="w-full h-full relative">
-      <StageErrorBoundary key={vrmId}>
+      {/* 🌟 傳入 vrmId 讓錯誤畫面可以顯示 */}
+      <StageErrorBoundary key={vrmId} vrmId={vrmId}>
         <Canvas
           shadows
           dpr={[1, 1.5]}
@@ -128,7 +138,6 @@ export default function AvatarStage({ vrmId = "avatar_01", emotion = "idle", unl
 
           <HologramProjector />
 
-          {/* 🌟 加上 Suspense Fallback 防止渲染崩潰 */}
           <Suspense fallback={<LoadingFallback />}>
             <group ref={modelRoot}>
               <Avatar3D
