@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from "react";
 
+// 🌟 這裡改成新的檔名 avatar_01, avatar_02
 const OPTIONS = {
   model: [
-    { id: "C1", label: "碳1·C1", desc: "標準原型機" },
-    { id: "C2", label: "碳2·C2", desc: "高機動型" },
+    { id: "avatar_01", label: "碳1·C1", desc: "標準原型機" },
+    { id: "avatar_02", label: "碳2·C2", desc: "高機動型" },
   ],
   color: [
     { id: "blue", label: "天空藍", value: "#3b82f6" },
@@ -18,8 +19,9 @@ const OPTIONS = {
 };
 
 export default function CompassCreator({ onChange }) {
+  // 🌟 預設值也要改
   const [config, setConfig] = useState({
-    model: "C1",
+    model: "avatar_01",
     color: "blue",
     personality: "warm"
   });
