@@ -1,19 +1,34 @@
 "use client";
 
-import React, { Suspense, useRef, useMemo, useState } from "react";
+import React, { Suspense, useRef, useMemo, useState, useEffect } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import Avatar3D from "./Avatar3D";
 
-// 錯誤處理
+// 錯誤處理：如果出錯，顯示紅字
 class StageErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false }; }
   static getDerivedStateFromError(error) { return { hasError: true, error }; }
   componentDidCatch(error) { console.error("3D Stage Error:", error); }
   render() {
-    if (this.state.hasError) return <div className="text-red-500 text-xs p-4">⚠️ 3D Error: Model Load Failed</div>;
+    if (this.state.hasError) return (
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-red-500 text-sm bg-black/80 p-4 rounded border border-red-500 text-center">
+        ⚠️ 3D Error: Model Load Failed<br/>
+        請檢查 Vercel 部署是否完成
+      </div>
+    );
     return this.props.children;
   }
+}
+
+// 載入中的顯示畫面 (避免 Suspense 黑屏)
+function LoadingFallback() {
+  return (
+    <mesh visible={false}>
+      <boxGeometry />
+      <meshBasicMaterial color="black" />
+    </mesh>
+  );
 }
 
 const BeamShaderMaterial = {
@@ -65,10 +80,35 @@ function HologramProjector() {
   );
 }
 
-// 🌟 預設值一定要改成 avatar_01
-export default function AvatarStage({ vrmId = "avatar_01", emotion = "idle", unlocked = false }) {
+function MarketFrame({ targetRef, triggerKey }) {
+  const { camera } = useThree();
+  const doneRef = useRef(false);
+  
+  React.useEffect(() => { doneRef.current = false; }, [triggerKey]);
+
+  useFrame(() => {
+    if (doneRef.current || !targetRef.current) return;
+    const root = targetRef.current;
+    if (root.children.length === 0) return;
+
+    camera.position.lerp(new THREE.Vector3(0, 1.2, 3.5), 0.1);
+    camera.lookAt(0, 1.0, 0);
+    
+    if (Math.abs(camera.position.z - 3.5) < 0.1) doneRef.current = true;
+  });
+  return null;
+}
+
+// 🌟 新增 onModelReady 屬性
+export default function AvatarStage({ vrmId = "avatar_01", emotion = "idle", unlocked = false, onModelReady }) {
   const modelRoot = useRef();
   const [readyKey, setReadyKey] = useState(0);
+
+  // 當 Avatar3D 載入完成呼叫 onReady 時，我們也通知父層
+  const handleAvatarReady = (vrm) => {
+    setReadyKey(k => k + 1);
+    if (onModelReady) onModelReady();
+  };
 
   return (
     <div className="w-full h-full relative">
@@ -88,13 +128,14 @@ export default function AvatarStage({ vrmId = "avatar_01", emotion = "idle", unl
 
           <HologramProjector />
 
-          <Suspense fallback={null}>
+          {/* 🌟 加上 Suspense Fallback 防止渲染崩潰 */}
+          <Suspense fallback={<LoadingFallback />}>
             <group ref={modelRoot}>
               <Avatar3D
                 vrmId={vrmId}
                 emotion={emotion}
                 unlocked={unlocked}
-                onReady={() => setReadyKey(k => k + 1)}
+                onReady={handleAvatarReady}
               />
             </group>
             <MarketFrame targetRef={modelRoot} triggerKey={vrmId + readyKey} />
