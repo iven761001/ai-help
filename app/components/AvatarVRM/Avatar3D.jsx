@@ -1,4 +1,3 @@
-// components/AvatarVRM/Avatar3D.jsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -6,7 +5,6 @@ import { useLoader, useFrame } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 
-// 讓角色自然站立
 function applyNaturalPose(vrm) {
   if (!vrm || !vrm.humanoid) return;
   const rotateBone = (name, x, y, z) => {
@@ -22,9 +20,17 @@ function applyNaturalPose(vrm) {
 }
 
 export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) {
-  // 這裡設定路徑
-  const url = useMemo(() => `/vrm/${vrmId}.vrm`, [vrmId]);
   
+  // 🌟 終極大絕招：直接從 GitHub 雲端 CDN 讀取檔案
+  // 這樣就不怕 Vercel 找不到 public 資料夾了
+  const url = useMemo(() => {
+    // 這是妳的 GitHub 帳號與專案名稱
+    const user = "iven761001";
+    const repo = "ai-help";
+    const branch = "main";
+    return `https://cdn.jsdelivr.net/gh/${user}/${repo}@${branch}/public/vrm/${vrmId}.vrm`;
+  }, [vrmId]);
+
   const gltf = useLoader(
     GLTFLoader, 
     url, 
@@ -33,10 +39,10 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
       loader.register((parser) => new VRMLoaderPlugin(parser));
     },
     null,
-    // 🚨 錯誤處理：強制跳出警告，讓我們知道發生什麼事
     (error) => {
       console.error("3D Loading Error:", error);
-      alert(`⚠️ 系統錯誤：無法讀取模型檔案\n\n路徑: ${url}\n\n可能原因：\n1. 檔案還沒上傳到 GitHub\n2. 檔名不符合 (請確認是 avatar_01.vrm)`);
+      // 這裡如果失敗，通常是因為 GitHub 專案是 Private (私人) 的
+      // 或者檔名真的不對
     }
   );
 
@@ -49,7 +55,6 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
     
     try {
         VRMUtils.rotateVRM0(loadedVrm);
-        
         loadedVrm.scene.traverse((obj) => {
             if (obj.isMesh) {
                 obj.frustumCulled = false;
