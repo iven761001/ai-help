@@ -7,7 +7,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 import * as THREE from "three";
 
-// Pose helper
+// 讓角色自然站立
 function applyNaturalPose(vrm) {
   if (!vrm || !vrm.humanoid) return;
   const rotateBone = (name, x, y, z) => {
@@ -22,17 +22,16 @@ function applyNaturalPose(vrm) {
   rotateBone('rightHand', 0, 0, -0.1);
 }
 
-// The Visual Ring that moves up
-function ScannerRing({ y, visible }) {
-  if (!visible) return null;
+// 掃描光環組件 (獨立存在)
+function ScannerRing({ ringRef }) {
   return (
-    <group position={[0, y, 0]}>
-      {/* Bright Ring */}
+    <group ref={ringRef} position={[0, 0, 0]}>
+      {/* 亮光圈 */}
       <mesh rotation={[-Math.PI/2, 0, 0]}>
         <ringGeometry args={[0.5, 0.55, 32]} />
         <meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.8} />
       </mesh>
-      {/* Glow effect */}
+      {/* 暈光 */}
       <mesh rotation={[-Math.PI/2, 0, 0]}>
         <ringGeometry args={[0.4, 0.7, 32]} />
         <meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.15} blending={THREE.AdditiveBlending} />
@@ -51,107 +50,128 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
 
   const [vrm, setVrm] = useState(null);
   
-  // 1. Create the Clipping Plane
-  // Plane(normal, constant). Normal (0, -1, 0) means "show things below this plane".
+  // 🌟 建立裁切平面：Normal (0, -1, 0) 代表保留平面「下方」的物體
+  // 初始 constant = 0 代表只顯示 y < 0 (也就是全部切掉，除了腳底板)
   const clippingPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, -1, 0), 0), []);
   
-  // Animation References
+  const scannerRef = useRef();
   const scanY = useRef(0);
-  const targetY = 2.0;
+  const targetY = 2.0; // 頭頂高度
 
+  // 1. 初始化模型 (只執行一次，絕對安全)
   useEffect(() => {
     if (!gltf?.userData?.vrm) return;
     const loadedVrm = gltf.userData.vrm;
+    
+    // VRM 初始化
     VRMUtils.rotateVRM0(loadedVrm);
     applyNaturalPose(loadedVrm);
 
-    // 2. Apply Materials ONLY ONCE (for performance)
+    // 遍歷材質，只做一次設定
     loadedVrm.scene.traverse((obj) => {
       if (obj.isMesh) {
-        obj.frustumCulled = false;
+        obj.frustumCulled = false; // 防止消失
         
-        // Save original material
-        if (!obj.userData.originalMat) obj.userData.originalMat = obj.material;
+        // 備份原始材質
+        if (!obj.userData.originalMat) {
+            obj.userData.originalMat = obj.material; 
+        }
 
-        // Apply Clipping Plane to ALL materials
-        // This ensures the scan effect works on everything
+        // 判斷眼睛
+        const isEye = obj.name.toLowerCase().includes("eye") || obj.material.name.toLowerCase().includes("eye");
+        obj.userData.isEye = isEye; 
+
+        // 🌟 關鍵：直接給原材質加上裁切平面
+        // 這樣骨架絕對不會壞！
         obj.material.clippingPlanes = [clippingPlane];
         obj.material.clipShadows = true; 
-        // Important: Use double side to prevent holes during scanning
-        obj.material.side = THREE.DoubleSide; 
       }
     });
 
     setVrm(loadedVrm);
     if (onReady) onReady(loadedVrm);
     
-    // Reset scan position
+    // 重置掃描狀態
     scanY.current = 0;
     clippingPlane.constant = 0;
 
   }, [gltf, onReady, clippingPlane]);
 
-  useFrame((state, delta) => {
-    // Animation Logic
-    if (!unlocked) {
-        // Scanning Animation: Move from 0 to 2.0
-        scanY.current = THREE.MathUtils.lerp(scanY.current, targetY + 0.1, delta * 0.8);
-        
-        // Update the Clipping Plane (Visual Reveal)
-        clippingPlane.constant = scanY.current;
+  // 2. 狀態切換監聽 (unlocked 改變時執行)
+  useEffect(() => {
+    if (!vrm) return;
+    
+    vrm.scene.traverse((obj) => {
+      if (obj.isMesh) {
+        if (!unlocked) {
+            // --- 鎖定模式 (Hologram) ---
+            if (!obj.userData.isEye) {
+                // 身體：變成線框、青色
+                // 直接修改屬性，不換材質
+                obj.material.wireframe = true;
+                obj.material.color.setHex(0x00ffff);
+                obj.material.emissive.setHex(0x001133);
+            }
+            // 眼睛：套用裁切
+            obj.material.clippingPlanes = [clippingPlane];
+        } else {
+            // --- 解鎖模式 (Normal) ---
+            // 恢復原狀
+            obj.material.wireframe = false;
+            obj.material.color.setHex(0xffffff);
+            obj.material.emissive.setHex(0x000000);
+            // 移除裁切 (設為 null)
+            obj.material.clippingPlanes = null;
+        }
+        obj.material.needsUpdate = true; // 通知 Three.js 更新
+      }
+    });
+    
+    if (unlocked) {
+        // 如果解鎖，把光環藏起來
+        if (scannerRef.current) scannerRef.current.visible = false;
     } else {
-        // Unlocked: Disable Clipping (Show Full Model)
-        clippingPlane.constant = 100.0;
+        // 如果重置，把光環顯示出來，並重置高度
+        if (scannerRef.current) scannerRef.current.visible = true;
+        scanY.current = 0;
     }
 
-    // Hologram Effect Logic (Wireframe vs Solid)
-    if (vrm) {
-        vrm.scene.traverse((obj) => {
-            if (obj.isMesh) {
-                // Determine if it's an eye part
-                const isEye = obj.name.toLowerCase().includes("eye") || obj.material.name.toLowerCase().includes("eye");
-                
-                if (!unlocked) {
-                    // --- LOCKED STATE (Scanning) ---
-                    if (!isEye) {
-                        // Body becomes Blue Wireframe
-                        obj.material.wireframe = true;
-                        obj.material.color.setHex(0x00ffff);
-                        obj.material.emissive.setHex(0x001133);
-                    } else {
-                        // Eyes appear only when scan reaches head level (approx 1.35m)
-                        obj.visible = scanY.current > 1.35;
-                        // Eyes remain solid (not wireframe) for "soul" effect
-                        obj.material.wireframe = false;
-                        obj.material.color.setHex(0xffffff); 
-                    }
-                } else {
-                    // --- UNLOCKED STATE (Solid) ---
-                    obj.visible = true;
-                    // Restore original look
-                    obj.material.wireframe = false;
-                    obj.material.color.setHex(0xffffff); 
-                    obj.material.emissive.setHex(0x000000); 
-                }
-            }
-        });
+  }, [unlocked, vrm, clippingPlane]);
 
-        // Blinking Animation
+
+  // 3. 動畫迴圈 (極輕量，只更新數值)
+  useFrame((state, delta) => {
+    if (unlocked) return; // 解鎖後就不跑這段，節省效能
+
+    // 讓掃描線上升 (Lerp 平滑移動)
+    scanY.current = THREE.MathUtils.lerp(scanY.current, targetY + 0.1, delta * 0.8);
+    
+    // 🌟 更新裁切平面高度
+    // 因為 plane.constant 是參照值，所有材質都會自動吃到這個更新，不需要遍歷！
+    clippingPlane.constant = scanY.current;
+
+    // 同步更新光環位置
+    if (scannerRef.current) {
+        scannerRef.current.position.y = scanY.current;
+        // 超過頭頂就隱藏光環
+        scannerRef.current.visible = scanY.current < 2.0;
+    }
+
+    // 眨眼動畫
+    if (vrm && vrm.expressionManager) {
         const blinkVal = Math.max(0, Math.sin(state.clock.elapsedTime * 2.5) * 5 - 4);
-        if (vrm.expressionManager) {
-            vrm.expressionManager.setValue('blink', Math.min(1, blinkVal));
-            vrm.expressionManager.update();
-        }
-        vrm.update(delta);
+        vrm.expressionManager.setValue('blink', Math.min(1, blinkVal));
+        vrm.expressionManager.update();
     }
   });
 
   return (
     <>
+      {/* 顯示模型 */}
       {vrm && <primitive object={vrm.scene} />}
       
-      {/* Scanner Ring Visual (Only show when locked and scanning) */}
-      {!unlocked && <ScannerRing y={scanY.current} visible={scanY.current < 2.0} />}
+      {/* 顯示掃描光環 (傳入 Ref) */}
+      <ScannerRing ringRef={scannerRef} />
     </>
   );
 }
