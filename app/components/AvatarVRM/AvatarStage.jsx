@@ -1,10 +1,55 @@
 // components/AvatarVRM/AvatarStage.jsx
 "use client";
 
-import React, { Suspense, useEffect, useRef, useState } from "react";
+import React, { Suspense, useEffect, useRef, useState, useMemo } from "react";
 import * as THREE from "three";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree, extend } from "@react-three/fiber";
+import { shaderMaterial } from "@react-three/drei"; // 如果妳有裝 drei，可以用這個；沒有的話我下面用原生寫法
 import Avatar3D from "./Avatar3D";
+
+// 🌟 1. 定義「投影光束著色器」 (這是讓光線漸層透明的關鍵)
+const BeamShaderMaterial = {
+  uniforms: {
+    color: { value: new THREE.Color("#00ffff") },
+    time: { value: 0 },
+    opacity: { value: 0.6 }
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    varying vec3 vPosition;
+    void main() {
+      vUv = uv;
+      vPosition = position;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform vec3 color;
+    uniform float time;
+    uniform float opacity;
+    varying vec2 vUv;
+    varying vec3 vPosition;
+
+    void main() {
+      // 1. 垂直漸層：底部(y=0)亮，頂部(y=1)透明
+      // 我們假設 UV.y 從 0 到 1
+      float verticalFade = 1.0 - vUv.y;
+      verticalFade = pow(verticalFade, 1.5); // 讓衰減更自然
+
+      // 2. 掃描線條感：利用 sin 波產生橫向條紋，模擬光束波動
+      float scanline = sin(vUv.y * 20.0 - time * 2.0) * 0.1 + 0.9;
+      
+      // 3. 邊緣亮光 (Fresnel-like)：讓圓錐邊緣比較亮，中間比較透
+      // 這裡簡單用 xz 平面的距離來模擬
+      // 這裡簡化處理，直接用純色混合
+      
+      vec3 finalColor = color * scanline;
+      float finalAlpha = opacity * verticalFade;
+
+      gl_FragColor = vec4(finalColor, finalAlpha);
+    }
+  `
+};
 
 class StageErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false }; }
@@ -16,99 +61,139 @@ class StageErrorBoundary extends React.Component {
   }
 }
 
-// 🌟 新增：動態適應投影光束
-function DynamicHologramBeam({ targetRef }) {
-  const groupRef = useRef();
-  const coneRef = useRef();
-  const ringsRef = useRef();
+// 🌟 2. 動態投影機 (Projector)
+function HologramProjector({ targetRef }) {
+  const beamRef = useRef();
+  const baseRef = useRef();
+  const particlesRef = useRef();
   
-  // 自動調整光束寬度
-  useFrame(() => {
-    if (!targetRef.current || !groupRef.current) return;
-    
-    // 抓取模型大小
-    const root = targetRef.current;
-    if (root.children.length === 0) return; // 還沒載入
+  // 建立 Shader Material 實例
+  const beamMat = useMemo(() => new THREE.ShaderMaterial({
+    ...BeamShaderMaterial,
+    transparent: true,
+    depthWrite: false, // 關鍵：不寫入深度，解決透明遮擋問題
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending, // 發光混合模式
+  }), []);
 
-    const box = new THREE.Box3().setFromObject(root);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    
-    // 計算目標半徑 (取 X 和 Z 的最大值，並加一點寬裕度)
-    const radius = Math.max(size.x, size.z) * 0.8; 
-    const height = size.y * 1.2; // 光束比人高一點
+  // 簡單粒子
+  const particlesCount = 20;
+  const particles = useMemo(() => {
+    const temp = [];
+    for(let i=0; i<particlesCount; i++) {
+      temp.push({
+        x: (Math.random() - 0.5) * 1.0,
+        y: Math.random() * 2.0,
+        z: (Math.random() - 0.5) * 1.0,
+        speed: 0.01 + Math.random() * 0.02,
+        offset: Math.random() * Math.PI
+      })
+    }
+    return temp;
+  }, []);
 
-    // 平滑過渡 (Lerp) 避免瞬間跳動
-    const currentScale = groupRef.current.scale;
-    currentScale.x = THREE.MathUtils.lerp(currentScale.x, radius, 0.1);
-    currentScale.z = THREE.MathUtils.lerp(currentScale.z, radius, 0.1);
-    currentScale.y = THREE.MathUtils.lerp(currentScale.y, height, 0.1);
-  });
-
-  // 動畫效果：旋轉與掃描
+  // 動態調整光束大小 (適應模型)
   useFrame((state) => {
     const t = state.clock.elapsedTime;
-    
-    if (coneRef.current) {
-      // 網格旋轉
-      coneRef.current.rotation.y = t * 0.2;
-      // 呼吸閃爍
-      coneRef.current.material.opacity = 0.1 + Math.sin(t * 3) * 0.05;
+
+    // A. 更新 Shader 時間 (讓光束波動)
+    if (beamMat) {
+      beamMat.uniforms.time.value = t;
     }
 
-    if (ringsRef.current) {
-      // 掃描圈圈往上跑 (利用 texture offset 或直接移動 mesh)
-      // 這裡簡單用 position y 循環
-      ringsRef.current.children.forEach((ring, i) => {
-        // 讓圈圈在 0 ~ 1 之間循環上升
-        const speed = 0.5;
-        const offset = i * 0.3;
-        ring.position.y = ((t * speed + offset) % 1.2) - 0.1;
+    // B. 自動調整光束寬度
+    if (targetRef.current && beamRef.current) {
+      const root = targetRef.current;
+      if (root.children.length > 0) {
+        const box = new THREE.Box3().setFromObject(root);
+        const size = new THREE.Vector3();
+        box.getSize(size);
         
-        // 靠近頂部和底部時透明度降低 (Fade edges)
-        const h = ring.position.y;
-        const fade = 1 - Math.pow((h - 0.5) * 2, 2); // 拋物線透明度
-        ring.material.opacity = Math.max(0, fade * 0.8);
+        // 計算半徑：讓光束比人稍微寬一點
+        const radius = Math.max(size.x, size.z) * 0.7; 
+        const height = size.y * 1.1;
+
+        // 平滑過渡
+        const currentScale = beamRef.current.scale;
+        beamRef.current.position.y = height / 2; // 圓錐中心點上移
         
-        // 隨高度縮放 (符合圓錐體形狀)
-        // 圓錐體：底大頭小 (假設頂點在 y=1, 底在 y=0) -> 半徑 = 1 - y
-        // 但我們光束是直的或是稍微錐形，這裡做一點點錐形效果
-        const scale = 1.2 - (h * 0.4); 
-        ring.scale.set(scale, scale, scale);
+        // X 和 Z 是寬度，Y 是高度
+        // CylinderGeometry(top, bottom, height) -> top=1, bottom=1
+        // 我們要上面寬(radius)，下面窄(0.2)
+        // 這裡我們直接用 Geometry 的參數比較難動態改，所以我們用 Scale 改寬度
+        // 但是圓錐比較特殊，我們用 Shader 或 Geometry 參數比較好。
+        // 為了簡單，我們固定 Geometry 為圓錐，然後縮放整體
+        
+        // 這裡稍微取巧：保持 scale.y 為高度，scale.x/z 為頂部寬度
+        // (假設 Geometry 是頂部半徑1，底部半徑0.2)
+        beamRef.current.scale.x = THREE.MathUtils.lerp(currentScale.x, radius, 0.1);
+        beamRef.current.scale.z = THREE.MathUtils.lerp(currentScale.z, radius, 0.1);
+        beamRef.current.scale.y = THREE.MathUtils.lerp(currentScale.y, height, 0.1);
+      }
+    }
+
+    // C. 底座旋轉
+    if (baseRef.current) {
+      baseRef.current.rotation.z = t * 0.2;
+    }
+
+    // D. 粒子動畫
+    if (particlesRef.current) {
+      particlesRef.current.children.forEach((p, i) => {
+        const data = particles[i];
+        p.position.y += data.speed;
+        p.material.opacity = 1.0 - (p.position.y / 2.0); // 越高越透明
+        
+        if (p.position.y > 2.0) {
+          p.position.y = 0;
+        }
       });
     }
   });
 
   return (
-    <group ref={groupRef} position={[0, 0, 0]}>
-      {/* A. 線框圓錐 (Wireframe Beam) - 創造線條感 */}
-      <mesh ref={coneRef} position={[0, 0.5, 0]}>
-        <cylinderGeometry args={[0.6, 1.2, 1, 16, 8, true]} />
-        <meshBasicMaterial 
-          color="#00ffff" 
-          wireframe={true} // 🌟 關鍵：線框模式
-          transparent 
-          opacity={0.1} 
-          side={THREE.DoubleSide}
-          blending={THREE.AdditiveBlending}
-        />
+    <group position={[0, 0, 0]}>
+      {/* 1. 投影光束 (Volumetric Cone) */}
+      {/* args: [topRadius, bottomRadius, height, radialSegments, heightSegments, openEnded] */}
+      {/* 我們設定 top=1, bottom=0.15 (投影孔), height=1 (之後用 scale 拉長) */}
+      <mesh ref={beamRef} material={beamMat} position={[0, 1, 0]}>
+        <cylinderGeometry args={[1, 0.15, 1, 32, 1, true]} />
       </mesh>
 
-      {/* B. 掃描光環組 (Moving Rings) - 創造動態掃描感 */}
-      <group ref={ringsRef}>
-        {[0, 1, 2].map((i) => (
-          <mesh key={i} rotation={[-Math.PI/2, 0, 0]}>
-            <ringGeometry args={[0.95, 1.0, 32]} />
-            <meshBasicMaterial color="#00ffff" transparent side={THREE.DoubleSide} blending={THREE.AdditiveBlending} />
-          </mesh>
+      {/* 2. 投影機底座 (Base) - 參考照片 */}
+      <group ref={baseRef} rotation={[-Math.PI/2, 0, 0]}>
+         {/* 內發光核心 */}
+         <mesh>
+            <circleGeometry args={[0.15, 32]} />
+            <meshBasicMaterial color="#ffffff" transparent opacity={0.8} />
+         </mesh>
+         {/* 第一圈光環 */}
+         <mesh position={[0,0,-0.01]}>
+            <ringGeometry args={[0.2, 0.25, 32]} />
+            <meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.6} />
+         </mesh>
+         {/* 第二圈機械環 (帶缺口) */}
+         <mesh position={[0,0,-0.02]} rotation={[0,0,1]}>
+            <ringGeometry args={[0.3, 0.35, 6, 2]} /> {/* thetaLength 做出缺口 */}
+            <meshBasicMaterial color="#0088ff" side={THREE.DoubleSide} transparent opacity={0.4} />
+         </mesh>
+         {/* 外圈大光盤 */}
+         <mesh position={[0,0,-0.05]}>
+            <ringGeometry args={[0.45, 0.46, 64]} />
+            <meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.2} />
+         </mesh>
+      </group>
+
+      {/* 3. 上升粒子 (Particles) */}
+      <group ref={particlesRef}>
+        {particles.map((p, i) => (
+           <mesh key={i} position={[p.x, p.y, p.z]}>
+             <sphereGeometry args={[0.015, 8, 8]} />
+             <meshBasicMaterial color="#00ffff" transparent />
+           </mesh>
         ))}
       </group>
 
-      {/* C. 底部強力光斑 */}
-      <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.01, 0]}>
-         <circleGeometry args={[1.2, 32]} />
-         <meshBasicMaterial color="#0088ff" transparent opacity={0.3} blending={THREE.AdditiveBlending} />
-      </mesh>
     </group>
   );
 }
@@ -129,6 +214,7 @@ function MarketFrame({ targetRef, triggerKey }) {
     if (size.y < 0.1) return;
 
     const height = size.y;
+    // 調整相機距離
     const dist = height * 1.5 + 2.0; 
     const lookAtY = height * 0.65; 
 
@@ -152,6 +238,7 @@ export default function AvatarStage({ vrmId = "C1", emotion = "idle", unlocked =
           camera={{ position: [0, 1.4, 3], fov: 35 }}
           gl={{ alpha: true, antialias: true, preserveDrawingBuffer: true }}
         >
+          {/* 背景色：深藍黑 */}
           <color attach="background" args={['#050510']} />
           <fog attach="fog" args={['#050510', 5, 15]} />
 
@@ -159,8 +246,8 @@ export default function AvatarStage({ vrmId = "C1", emotion = "idle", unlocked =
           <directionalLight position={[2, 5, 2]} intensity={2} color="#ccffff" castShadow />
           <spotLight position={[0, 5, 0]} intensity={3} color="#00ffff" distance={8} angle={0.5} penumbra={1} />
 
-          {/* 🌟 傳入 modelRoot 讓光束知道模型有多寬 */}
-          <DynamicHologramBeam targetRef={modelRoot} />
+          {/* 🌟 呼叫新的投影機 */}
+          <HologramProjector targetRef={modelRoot} />
 
           <Suspense fallback={null}>
             <group ref={modelRoot}>
@@ -172,6 +259,8 @@ export default function AvatarStage({ vrmId = "C1", emotion = "idle", unlocked =
               />
             </group>
             <MarketFrame targetRef={modelRoot} triggerKey={vrmId + readyKey} />
+            
+            {/* 地板陰影 */}
             <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]} receiveShadow>
               <planeGeometry args={[4, 4]} />
               <shadowMaterial opacity={0.5} color="#000000" />
