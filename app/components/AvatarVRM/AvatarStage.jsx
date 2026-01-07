@@ -1,7 +1,6 @@
-// components/AvatarVRM/AvatarStage.jsx
 "use client";
 
-import React, { Suspense, useRef, useMemo } from "react";
+import React, { Suspense, useRef, useMemo, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import Avatar3D from "./Avatar3D";
@@ -108,7 +107,6 @@ export default function AvatarStage({ vrmId = "C1", emotion = "idle", unlocked =
           shadows
           dpr={[1, 1.5]}
           camera={{ position: [0, 1.4, 4], fov: 35 }}
-          // ⚠️ 取消 localClippingEnabled，讓渲染更單純穩定
           gl={{ alpha: true, antialias: true, preserveDrawingBuffer: true }}
         >
           <color attach="background" args={['#050510']} />
