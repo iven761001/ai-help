@@ -7,17 +7,16 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 import * as THREE from "three";
 
-// 🌟 1. 定義全像掃描材質 (ShaderMaterial)
+// 🌟 全像掃描材質 (增加掃描線亮度)
 const HologramScanShader = {
   uniforms: {
     uColor: { value: new THREE.Color("#00ffff") },
-    uScanY: { value: -10.0 }, // 掃描高度，初始值很低代表看不見
+    uScanY: { value: -10.0 }, 
     uOpacity: { value: 0.15 }
   },
   vertexShader: `
     varying vec3 vWorldPosition;
     void main() {
-      // 計算世界座標，確保掃描線是水平的，不受模型姿勢影響
       vec4 worldPos = modelMatrix * vec4(position, 1.0);
       vWorldPosition = worldPos.xyz;
       gl_Position = projectionMatrix * viewMatrix * worldPos;
@@ -30,27 +29,25 @@ const HologramScanShader = {
     varying vec3 vWorldPosition;
 
     void main() {
-      // 如果像素高度高於掃描線，直接丟棄 (隱藏)
+      // 核心邏輯：高於掃描線的像素直接隱藏 (Discard)
       if (vWorldPosition.y > uScanY) discard;
 
-      // 計算掃描邊緣的發光線 (Scanline Glow)
-      // 距離掃描線越近越亮
+      // 掃描邊緣發光 (Glow)
       float dist = uScanY - vWorldPosition.y;
       float glow = 0.0;
-      if (dist < 0.1 && dist > 0.0) {
-         glow = (1.0 - dist / 0.1) * 0.8; // 0.1米範圍內發光
+      if (dist < 0.15 && dist > 0.0) {
+         // 讓發光帶寬一點、亮一點
+         glow = pow((1.0 - dist / 0.15), 2.0) * 1.5; 
       }
 
-      // 基礎顏色 + 發光
       vec3 finalColor = uColor + vec3(glow);
-      float finalAlpha = uOpacity + glow; // 掃描線處不透明度也增加
+      float finalAlpha = uOpacity + glow; 
 
       gl_FragColor = vec4(finalColor, finalAlpha);
     }
   `
 };
 
-// 自然站姿
 function applyNaturalPose(vrm) {
   if (!vrm || !vrm.humanoid) return;
   const rotateBone = (name, x, y, z) => {
@@ -65,61 +62,6 @@ function applyNaturalPose(vrm) {
   rotateBone('rightHand', 0, 0, -0.1);
 }
 
-// 應用材質
-function applyHologramEffect(vrm, isUnlocked, scanY) {
-  if (!vrm || !vrm.scene) return;
-
-  vrm.scene.traverse((obj) => {
-    if (obj.isMesh && obj.material) {
-      // 眼睛保護
-      const matName = obj.material.name || "";
-      const objName = obj.name || "";
-      const isEye = 
-        matName.toLowerCase().includes("eye") || 
-        matName.toLowerCase().includes("face") || 
-        objName.toLowerCase().includes("eye");
-
-      if (isEye) {
-        if (obj.userData.originalMat) obj.material = obj.userData.originalMat;
-        // 眼睛也要受掃描影響嗎？通常眼睛保持亮著比較有靈魂，但為了掃描感統一，我們可以讓眼睛一直顯示
-        // 或者我們簡單點：眼睛永遠顯示
-        if (obj.material.emissive) obj.material.emissive = new THREE.Color(0.2, 0.2, 0.2);
-        return; 
-      }
-
-      if (isUnlocked) {
-        // 解鎖：恢復原狀
-        if (obj.userData.originalMat) obj.material = obj.userData.originalMat;
-        obj.castShadow = true;
-        obj.receiveShadow = true;
-      } else {
-        // 鎖定：使用掃描 Shader
-        if (!obj.userData.originalMat) obj.userData.originalMat = obj.material;
-        
-        // 建立或更新 Shader Material
-        if (!obj.userData.hologramMat) {
-            // 複製一份 Shader 樣板
-            obj.userData.hologramMat = new THREE.ShaderMaterial({
-                uniforms: THREE.UniformsUtils.clone(HologramScanShader.uniforms),
-                vertexShader: HologramScanShader.vertexShader,
-                fragmentShader: HologramScanShader.fragmentShader,
-                transparent: true,
-                wireframe: true, // 線框模式
-                side: THREE.DoubleSide,
-            });
-        }
-
-        // 更新 Uniform (掃描高度)
-        obj.userData.hologramMat.uniforms.uScanY.value = scanY;
-        
-        obj.material = obj.userData.hologramMat;
-        obj.castShadow = false;
-        obj.receiveShadow = false;
-      }
-    }
-  });
-}
-
 export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) {
   const url = useMemo(() => `/vrm/${vrmId}.vrm`, [vrmId]);
   
@@ -129,31 +71,62 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
   });
 
   const [vrm, setVrm] = useState(null);
+  const [meshes, setMeshes] = useState({ eyes: [], body: [] }); // 分類儲存 mesh
   const tRef = useRef(0);
   
-  // 🌟 掃描動畫控制
-  const scanYRef = useRef(-1.0); // 從腳底以下開始
-  const targetScanY = 2.5; // 目標高度 (超過頭頂)
+  const scanYRef = useRef(-1.0); 
+  const targetScanY = 2.5;
 
   useEffect(() => {
     if (!gltf?.userData?.vrm) return;
     const loadedVrm = gltf.userData.vrm;
     
+    const eyeMeshes = [];
+    const bodyMeshes = [];
+
     try {
         VRMUtils.rotateVRM0(loadedVrm);
+        
         loadedVrm.scene.traverse((obj) => {
             if (obj.isMesh) {
                 obj.frustumCulled = false;
-                if (!obj.userData.originalMat) obj.userData.originalMat = obj.material;
+                
+                // 1. 備份原始材質
+                if (!obj.userData.originalMat) {
+                    obj.userData.originalMat = obj.material;
+                }
+
+                // 2. 建立全像材質 (每個 Mesh 獨立一份，以便共用 Uniform 但不干擾)
+                if (!obj.userData.hologramMat) {
+                    obj.userData.hologramMat = new THREE.ShaderMaterial({
+                        uniforms: THREE.UniformsUtils.clone(HologramScanShader.uniforms),
+                        vertexShader: HologramScanShader.vertexShader,
+                        fragmentShader: HologramScanShader.fragmentShader,
+                        transparent: true,
+                        wireframe: true, // 保持線框感
+                        side: THREE.DoubleSide,
+                    });
+                }
+
+                // 3. 分類：眼睛 vs 身體
+                const matName = obj.material.name || "";
+                const objName = obj.name || "";
+                const isEye = 
+                    matName.toLowerCase().includes("eye") || 
+                    matName.toLowerCase().includes("face") || 
+                    objName.toLowerCase().includes("eye");
+                
+                if (isEye) eyeMeshes.push(obj);
+                else bodyMeshes.push(obj);
             }
         });
+
         applyNaturalPose(loadedVrm);
-        
-        // 重置掃描高度 (每次換模型都重掃一次)
-        scanYRef.current = -1.0;
+        scanYRef.current = -1.0; // 重置掃描
 
     } catch (e) { console.error(e); }
 
+    setMeshes({ eyes: eyeMeshes, body: bodyMeshes });
     setVrm(loadedVrm);
     if (onReady) onReady(loadedVrm);
   }, [gltf, onReady]);
@@ -161,18 +134,54 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
   useFrame((state, delta) => {
     if (!vrm) return;
     
-    // 🌟 更新掃描高度動畫 (Lerp)
+    // --- 掃描與材質邏輯 ---
     if (!unlocked) {
-        // 慢慢往上升
+        // 1. 掃描線上升
         scanYRef.current = THREE.MathUtils.lerp(scanYRef.current, targetScanY, delta * 1.5); 
-        // 套用效果
-        applyHologramEffect(vrm, unlocked, scanYRef.current);
+
+        // 2. 更新所有 Mesh 的掃描高度 Uniform
+        const updateUniform = (mesh) => {
+             if (mesh.userData.hologramMat) {
+                 mesh.userData.hologramMat.uniforms.uScanY.value = scanYRef.current;
+             }
+        };
+        meshes.body.forEach(updateUniform);
+        meshes.eyes.forEach(updateUniform);
+
+        // 3. 眼睛特殊邏輯：掃描過頭部(y > 1.35)後，眼睛切換回實體 (亮起來！)
+        //    掃描未過頭部前，眼睛保持全像狀態 (這樣才會被 clip 掉，不會懸空)
+        const headHeight = 1.35;
+        const eyesShouldBeReal = scanYRef.current > headHeight;
+
+        meshes.eyes.forEach(eye => {
+            if (eyesShouldBeReal) {
+                 // 掃描通過 -> 變回實體 (Original)
+                 if (eye.material !== eye.userData.originalMat) eye.material = eye.userData.originalMat;
+                 // 確保實體眼睛微微發光
+                 if (eye.material.emissive) eye.material.emissive.setHex(0x333333);
+            } else {
+                 // 還沒掃到 -> 保持全像 (Hologram) 以便隱藏
+                 if (eye.material !== eye.userData.hologramMat) eye.material = eye.userData.hologramMat;
+            }
+        });
+
+        // 身體永遠保持全像狀態 (直到解鎖)
+        meshes.body.forEach(body => {
+            if (body.material !== body.userData.hologramMat) body.material = body.userData.hologramMat;
+        });
+
     } else {
-        // 如果解鎖了，直接顯示
-        applyHologramEffect(vrm, unlocked, 100.0);
+        // --- 解鎖狀態：全部變回實體 ---
+        meshes.eyes.concat(meshes.body).forEach(mesh => {
+            if (mesh.material !== mesh.userData.originalMat) {
+                mesh.material = mesh.userData.originalMat;
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+            }
+        });
     }
 
-    // 表情與呼吸
+    // --- 基礎動畫 (表情/呼吸) ---
     const blinkVal = Math.max(0, Math.sin(state.clock.elapsedTime * 2.5) * 5 - 4);
     if (vrm.expressionManager) {
       vrm.expressionManager.setValue('blink', Math.min(1, blinkVal));
