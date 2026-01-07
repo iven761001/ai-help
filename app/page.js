@@ -1,11 +1,10 @@
-// app/page.js
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-// 引入我們剛修好的舞台
+// 引入元件
 import AvatarStage from "./components/AvatarVRM/AvatarStage"; 
-import CompassCreator from "./components/Creator/CompassCreator";
-import ChatHUD from "./components/HUD/ChatHUD";
+import CompassCreator from "./components/Creator/CompassCreator"; // (之後會給)
+import ChatHUD from "./components/HUD/ChatHUD"; // (之後會給)
 
 // --- 存檔工具 ---
 const SAFE_STORAGE_KEY = "my_ai_character";
@@ -94,7 +93,8 @@ export default function Home() {
       if (saved && saved.email) {
         setFinalCharacter(saved);
         setStep("chat");
-        // 如果是舊用戶，是否要直接解鎖？這裡先設為 false 讓妳可以測試解鎖特效
+        // 舊用戶讀取後，如果想預設鎖定，保持 false
+        // 如果想直接解鎖，可以設為 true (依需求調整)
         // setIsUnlocked(true); 
       }
     } catch (e) {}
@@ -119,7 +119,7 @@ export default function Home() {
     setTimeout(() => {
       setStep("extracting");
       
-      // 3. 2.5秒後進入選角畫面 (這時候 3D 應該已經在背景預載好了)
+      // 3. 2.5秒後進入選角畫面
       setTimeout(() => {
         setStep("create");
       }, 2500); 
@@ -157,13 +157,12 @@ export default function Home() {
         setEmail("");
         setStep("boot"); 
         setIsEmailExiting(false);
-        setIsUnlocked(false); // 重置解鎖狀態
+        setIsUnlocked(false); 
     }
   };
 
   // 🌟 模擬達成任務 (解鎖按鈕邏輯)
   const handleMissionComplete = () => {
-    // 這裡未來可以接 API 或 QR Code 掃描結果
     alert("✨ 任務目標達成！身體組件下載完畢！ ✨");
     setIsUnlocked(true); // 觸發變身！
   };
@@ -227,7 +226,6 @@ export default function Home() {
       {step === "extracting" && <SystemExtracting />}
 
       {/* --- 4. 3D 舞台層 (核心) --- */}
-      {/* 在 extracting, create, chat 時都存在，確保過場流暢 */}
       {(step === 'extracting' || step === 'create' || step === 'chat') && (
         <div className={`
             absolute inset-0 z-0 bg-gradient-to-b from-gray-900 to-black 
@@ -235,7 +233,6 @@ export default function Home() {
             ${step === 'extracting' ? 'opacity-0' : 'opacity-100'}
         `}>
           <Suspense fallback={null}>
-            {/* 🌟 這裡將 isUnlocked 傳給舞台，舞台再傳給 Avatar3D */}
             <AvatarStage 
               vrmId={currentModelId}
               emotion={currentEmotion}
@@ -243,7 +240,7 @@ export default function Home() {
             />
           </Suspense>
           
-          {/* 底部漸層遮罩 (讓 UI 更清楚) */}
+          {/* 底部漸層遮罩 */}
           <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
         </div>
       )}
@@ -252,7 +249,7 @@ export default function Home() {
       {step === "create" && (
         <div className="absolute inset-0 z-10 flex flex-col justify-end pb-safe-bottom pointer-events-none animate-fadeIn">
           
-          {/* 頂部提示：投影中 */}
+          {/* 頂部提示 */}
           <div className="absolute top-24 w-full text-center pointer-events-none">
              <span className="bg-blue-500/10 text-blue-300 text-[10px] px-3 py-1 rounded-full border border-blue-500/20 backdrop-blur animate-pulse">
                 ⚠️ 實體化數據不足，僅顯示全像投影
@@ -272,7 +269,8 @@ export default function Home() {
           </div>
 
           <div className="w-full pointer-events-auto bg-gradient-to-t from-black to-transparent pt-4">
-             <CompassCreator onChange={handleConfigChange} />
+             {/* 這裡需要補上 CompassCreator */}
+             {CompassCreator ? <CompassCreator onChange={handleConfigChange} /> : <div className="text-white text-center p-4">Creator Loading...</div>}
           </div>
         </div>
       )}
@@ -281,7 +279,8 @@ export default function Home() {
       {step === "chat" && finalCharacter && (
         <div className="relative z-10 w-full h-full animate-fadeIn pointer-events-none">
            <div className="pointer-events-auto w-full h-full">
-             <ChatHUD />
+             {/* 這裡需要補上 ChatHUD */}
+             {ChatHUD ? <ChatHUD /> : null}
              
              {/* 測試按鈕區 */}
              <div className="absolute top-4 left-4 z-50 flex flex-col gap-2">
@@ -292,7 +291,6 @@ export default function Home() {
                     RESET SYSTEM
                 </button>
 
-                {/* 🌟 只有在「未解鎖」時才顯示這個按鈕 */}
                 {!isUnlocked && (
                     <button 
                         onClick={handleMissionComplete} 
