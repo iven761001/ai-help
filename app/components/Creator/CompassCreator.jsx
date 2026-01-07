@@ -1,83 +1,98 @@
-// components/Creator/CompassCreator.jsx
 "use client";
 
 import { useState, useEffect } from "react";
-import WheelPicker from "./WheelPicker";
 
-// 轉輪設定檔 (保持妳原本的設定，這裡只是範例)
-const WHEEL_CONFIG = [
-  {
-    id: "model", title: "MODEL", 
-    options: [ { id: "C1", label: "碳1·C1" }, { id: "C2", label: "碳2·C2" }, { id: "C3", label: "碳3·C3" } ]
-  },
-  {
-    id: "color", title: "COLOR", 
-    options: [ { id: "sky", label: "天空藍" }, { id: "mint", label: "薄荷綠" }, { id: "rose", label: "玫瑰粉" }, { id: "gold", label: "香檳金" } ]
-  },
-  {
-    id: "personality", title: "TYPE", 
-    options: [ { id: "warm", label: "溫暖" }, { id: "cool", label: "冷靜" }, { id: "energetic", label: "活潑" } ]
-  },
-  // 可以依需求增加更多
-];
+const OPTIONS = {
+  model: [
+    { id: "C1", label: "碳1·C1", desc: "標準原型機" },
+    { id: "C2", label: "碳2·C2", desc: "高機動型" },
+  ],
+  color: [
+    { id: "blue", label: "天空藍", value: "#3b82f6" },
+    { id: "purple", label: "霓虹紫", value: "#a855f7" },
+  ],
+  type: [
+    { id: "warm", label: "溫暖", desc: "總是充滿活力" },
+    { id: "cool", label: "冷靜", desc: "理性分析數據" },
+  ]
+};
 
 export default function CompassCreator({ onChange }) {
-  const [selections, setSelections] = useState(() => {
-    const init = {};
-    WHEEL_CONFIG.forEach((config) => {
-      if (config.options.length > 0) init[config.id] = config.options[0].id;
-    });
-    return init;
+  const [config, setConfig] = useState({
+    model: "C1",
+    color: "blue",
+    personality: "warm"
   });
 
-  const handleWheelChange = (configId, newValue) => {
-    setSelections((prev) => {
-      const next = { ...prev, [configId]: newValue };
-      if (onChange) onChange(next);
-      return next;
-    });
+  // 當設定改變時，通知父層 (Page.js)
+  useEffect(() => {
+    if(onChange) onChange(config);
+  }, [config, onChange]);
+
+  const updateConfig = (key, value) => {
+    setConfig(prev => ({ ...prev, [key]: value }));
   };
 
-  useEffect(() => { if (onChange) onChange(selections); }, []);
-
   return (
-    <div className="flex flex-col items-center w-full animate-fadeIn pb-6">
+    <div className="w-full pb-8 px-6 grid grid-cols-3 gap-2">
       
-      {/* 頂部裝飾線 (HUD感) */}
-      <div className="w-full flex items-center justify-between px-4 mb-2 opacity-50">
-         <div className="h-px w-1/3 bg-gradient-to-r from-transparent to-cyan-500"></div>
-         <div className="text-[9px] text-cyan-500 font-mono tracking-widest">SYSTEM CONFIG</div>
-         <div className="h-px w-1/3 bg-gradient-to-l from-transparent to-cyan-500"></div>
+      {/* 1. 模型選擇 */}
+      <div className="flex flex-col gap-2">
+        <div className="text-[10px] text-blue-500 font-bold border-l-2 border-blue-500 pl-2">MODEL</div>
+        {OPTIONS.model.map(opt => (
+          <button
+            key={opt.id}
+            onClick={() => updateConfig("model", opt.id)}
+            className={`
+              relative p-2 rounded-lg border text-xs transition-all duration-300
+              ${config.model === opt.id 
+                ? "bg-blue-900/40 border-cyan-400 text-white shadow-[0_0_10px_rgba(34,211,238,0.3)]" 
+                : "bg-gray-900/50 border-gray-700 text-gray-500 hover:border-gray-500"}
+            `}
+          >
+             {opt.label}
+          </button>
+        ))}
       </div>
 
-      {/* 橫向滑動容器 */}
-      <div 
-        className="w-full flex overflow-x-auto snap-x snap-mandatory px-4 gap-2 no-scrollbar"
-        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-      >
-        {WHEEL_CONFIG.map((config) => (
-          <div 
-            key={config.id} 
-            className="min-w-[33%] max-w-[33%] flex-shrink-0 snap-center flex flex-col items-center"
+      {/* 2. 顏色選擇 */}
+      <div className="flex flex-col gap-2">
+        <div className="text-[10px] text-blue-500 font-bold border-l-2 border-blue-500 pl-2">COLOR</div>
+        {OPTIONS.color.map(opt => (
+          <button
+            key={opt.id}
+            onClick={() => updateConfig("color", opt.id)}
+            className={`
+              relative p-2 rounded-lg border text-xs transition-all duration-300
+              ${config.color === opt.id 
+                ? "bg-blue-900/40 border-cyan-400 text-white shadow-[0_0_10px_rgba(34,211,238,0.3)]" 
+                : "bg-gray-900/50 border-gray-700 text-gray-500 hover:border-gray-500"}
+            `}
           >
-            <WheelPicker
-              label={config.title}
-              options={config.options}
-              value={selections[config.id]}
-              onChange={(val) => handleWheelChange(config.id, val)}
-            />
-          </div>
+             {opt.label}
+          </button>
         ))}
-        {/* 墊腳石，讓最後一個能滑到中間 */}
-        <div className="min-w-[33%] flex-shrink-0" />
       </div>
-      
-      {/* 底部指示器 */}
-      <div className="mt-2 flex gap-1">
-        <div className="w-1 h-1 bg-cyan-500 rounded-full animate-pulse"></div>
-        <div className="w-1 h-1 bg-cyan-500/50 rounded-full"></div>
-        <div className="w-1 h-1 bg-cyan-500/30 rounded-full"></div>
+
+      {/* 3. 個性選擇 */}
+      <div className="flex flex-col gap-2">
+        <div className="text-[10px] text-blue-500 font-bold border-l-2 border-blue-500 pl-2">TYPE</div>
+        {OPTIONS.type.map(opt => (
+          <button
+            key={opt.id}
+            onClick={() => updateConfig("personality", opt.id)}
+            className={`
+              relative p-2 rounded-lg border text-xs transition-all duration-300
+              ${config.personality === opt.id 
+                ? "bg-blue-900/40 border-cyan-400 text-white shadow-[0_0_10px_rgba(34,211,238,0.3)]" 
+                : "bg-gray-900/50 border-gray-700 text-gray-500 hover:border-gray-500"}
+            `}
+          >
+             {opt.label}
+          </button>
+        ))}
       </div>
+
     </div>
   );
 }
