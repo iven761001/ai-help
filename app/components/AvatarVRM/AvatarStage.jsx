@@ -1,7 +1,7 @@
 // components/AvatarVRM/AvatarStage.jsx
 "use client";
 
-import React, { Suspense, useRef, useState, useMemo } from "react";
+import React, { Suspense, useRef, useMemo } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import Avatar3D from "./Avatar3D";
@@ -17,12 +17,12 @@ class StageErrorBoundary extends React.Component {
   }
 }
 
-// 帥氣的投影機特效 (純視覺，不影響模型)
+// 投影光束 (純視覺裝飾)
 const BeamShaderMaterial = {
   uniforms: {
     color: { value: new THREE.Color("#00ffff") },
     time: { value: 0 },
-    opacity: { value: 0.5 }
+    opacity: { value: 0.4 }
   },
   vertexShader: `
     varying vec2 vUv;
@@ -31,77 +31,52 @@ const BeamShaderMaterial = {
   fragmentShader: `
     uniform vec3 color; uniform float time; uniform float opacity; varying vec2 vUv;
     void main() {
-      // 底部亮，上部淡出
+      // 底部亮，頂部透明
       float verticalFade = smoothstep(0.8, 0.0, vUv.y); 
-      // 掃描紋路 (裝飾用)
-      float scanline = sin(vUv.y * 50.0 - time * 3.0) * 0.1 + 0.9;
-      gl_FragColor = vec4(color * scanline, opacity * verticalFade);
+      // 底部聚光感
+      float bottomGlow = smoothstep(0.2, 0.0, vUv.y) * 0.5;
+      // 動態掃描紋路
+      float scanline = sin(vUv.y * 30.0 - time * 3.0) * 0.05 + 0.95;
+      
+      gl_FragColor = vec4(color * scanline + vec3(bottomGlow), opacity * verticalFade);
     }
   `
 };
 
 function HologramProjector() {
   const beamRef = useRef();
-  const ringRef = useRef();
-  const particlesRef = useRef();
+  const baseRef = useRef();
   
   const beamMat = useMemo(() => new THREE.ShaderMaterial({
     ...BeamShaderMaterial, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
   }), []);
 
-  const particles = useMemo(() => new Array(20).fill().map(() => ({
-    x: (Math.random() - 0.5) * 1.5, 
-    y: Math.random() * 2.5, 
-    z: (Math.random() - 0.5) * 1.5, 
-    speed: 0.01 + Math.random() * 0.02
-  })), []);
-
   useFrame((state) => {
     const t = state.clock.elapsedTime;
     if (beamMat) beamMat.uniforms.time.value = t;
     
-    // 光環旋轉
-    if (ringRef.current) ringRef.current.rotation.z = t * 0.1;
-
-    // 粒子上升
-    if (particlesRef.current) {
-      particlesRef.current.children.forEach((p, i) => {
-        const data = particles[i];
-        p.position.y += data.speed;
-        p.material.opacity = 1.0 - (p.position.y / 2.0);
-        if (p.position.y > 2.0) p.position.y = 0;
-      });
-    }
+    // 底座旋轉
+    if (baseRef.current) baseRef.current.rotation.z = t * 0.1;
   });
 
   return (
     <group position={[0, 0, 0]}>
       {/* 投影光束 */}
-      <mesh ref={beamRef} material={beamMat} position={[0, 1.2, 0]}>
-        <cylinderGeometry args={[1.0, 0.2, 2.4, 32, 1, true]} />
+      <mesh ref={beamRef} material={beamMat} position={[0, 1, 0]}>
+        <cylinderGeometry args={[0.9, 0.15, 2, 32, 1, true]} />
       </mesh>
       
       {/* 科技底座 */}
-      <group ref={ringRef} rotation={[-Math.PI/2, 0, 0]}>
-         <mesh><circleGeometry args={[0.2, 32]} /><meshBasicMaterial color="#ffffff" transparent opacity={0.9} /></mesh>
-         <mesh position={[0,0,-0.01]}><ringGeometry args={[0.25, 0.5, 32]} /><meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.4} /></mesh>
-         <mesh position={[0,0,-0.02]}><ringGeometry args={[0.6, 0.62, 64]} /><meshBasicMaterial color="#0088ff" side={THREE.DoubleSide} transparent opacity={0.6} /></mesh>
-      </group>
-
-      {/* 粒子 */}
-      <group ref={particlesRef}>
-        {particles.map((p, i) => (
-           <mesh key={i} position={[p.x, p.y, p.z]}>
-             <sphereGeometry args={[0.015, 8, 8]} />
-             <meshBasicMaterial color="#00ffff" transparent />
-           </mesh>
-        ))}
+      <group ref={baseRef} rotation={[-Math.PI/2, 0, 0]}>
+         <mesh><circleGeometry args={[0.18, 32]} /><meshBasicMaterial color="#ffffff" transparent opacity={0.9} /></mesh>
+         <mesh position={[0,0,-0.01]}><ringGeometry args={[0.22, 0.4, 32]} /><meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.6} /></mesh>
+         <mesh position={[0,0,-0.02]}><ringGeometry args={[0.45, 0.48, 64]} /><meshBasicMaterial color="#0088ff" side={THREE.DoubleSide} transparent opacity={0.3} /></mesh>
       </group>
     </group>
   );
 }
 
-// 運鏡
+// 運鏡邏輯
 function MarketFrame({ targetRef, triggerKey }) {
   const { camera } = useThree();
   const doneRef = useRef(false);
@@ -113,9 +88,9 @@ function MarketFrame({ targetRef, triggerKey }) {
     const root = targetRef.current;
     if (root.children.length === 0) return;
 
-    // 平滑移動到位
-    camera.position.lerp(new THREE.Vector3(0, 1.3, 3.5), 0.1);
-    camera.lookAt(0, 1.1, 0);
+    // 平滑運鏡到全身視角
+    camera.position.lerp(new THREE.Vector3(0, 1.2, 3.5), 0.1);
+    camera.lookAt(0, 1.0, 0);
     
     if (Math.abs(camera.position.z - 3.5) < 0.1) doneRef.current = true;
   });
@@ -133,14 +108,15 @@ export default function AvatarStage({ vrmId = "C1", emotion = "idle", unlocked =
           shadows
           dpr={[1, 1.5]}
           camera={{ position: [0, 1.4, 4], fov: 35 }}
-          gl={{ alpha: true, antialias: true, preserveDrawingBuffer: true }} // ❌ 移除 localClippingEnabled，回復效能
+          // ⚠️ 取消 localClippingEnabled，讓渲染更單純穩定
+          gl={{ alpha: true, antialias: true, preserveDrawingBuffer: true }}
         >
           <color attach="background" args={['#050510']} />
           <fog attach="fog" args={['#050510', 5, 15]} />
-          
-          <ambientLight intensity={0.8} color="#aaaaff" />
-          <directionalLight position={[2, 5, 2]} intensity={2} color="#ffffff" castShadow />
-          <spotLight position={[0, 5, 0]} intensity={3} color="#00ffff" distance={8} angle={0.6} penumbra={1} />
+
+          <ambientLight intensity={0.8} color="#6666ff" />
+          <directionalLight position={[2, 5, 2]} intensity={2.5} color="#ccffff" castShadow />
+          <spotLight position={[0, 5, 0]} intensity={4} color="#00ffff" distance={8} angle={0.6} penumbra={1} />
 
           <HologramProjector />
 
@@ -155,10 +131,9 @@ export default function AvatarStage({ vrmId = "C1", emotion = "idle", unlocked =
             </group>
             <MarketFrame targetRef={modelRoot} triggerKey={vrmId + readyKey} />
             
-            {/* 地板陰影 */}
             <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]} receiveShadow>
               <planeGeometry args={[4, 4]} />
-              <shadowMaterial opacity={0.5} color="#000000" />
+              <shadowMaterial opacity={0.6} color="#000000" />
             </mesh>
           </Suspense>
         </Canvas>
