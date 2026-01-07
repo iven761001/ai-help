@@ -6,47 +6,7 @@ import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import Avatar3D from "./Avatar3D";
 
-// 🌟 1. 投影光束著色器 (調整：更早消失，聚光感更強)
-const BeamShaderMaterial = {
-  uniforms: {
-    color: { value: new THREE.Color("#00ffff") },
-    time: { value: 0 },
-    opacity: { value: 0.5 } // 稍微降低整體透明度
-  },
-  vertexShader: `
-    varying vec2 vUv;
-    varying vec3 vPosition;
-    void main() {
-      vUv = uv;
-      vPosition = position;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }
-  `,
-  fragmentShader: `
-    uniform vec3 color;
-    uniform float time;
-    uniform float opacity;
-    varying vec2 vUv;
-
-    void main() {
-      // 🌟 修改：讓光線消失得更低、更柔和
-      // smoothstep(0.6, 0.0, vUv.y) 代表在 UV 高度 0.6 (胸口) 就開始完全透明
-      float verticalFade = smoothstep(0.6, 0.0, vUv.y); 
-      
-      // 增加一點底部(靠近光源)的過曝感
-      float bottomGlow = smoothstep(0.2, 0.0, vUv.y) * 0.5;
-
-      // 掃描紋路速度調快一點
-      float scanline = sin(vUv.y * 40.0 - time * 5.0) * 0.05 + 0.95;
-      
-      vec3 finalColor = color * scanline + vec3(bottomGlow);
-      float finalAlpha = opacity * verticalFade;
-
-      gl_FragColor = vec4(finalColor, finalAlpha);
-    }
-  `
-};
-
+// 錯誤攔截
 class StageErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false }; }
   static getDerivedStateFromError(error) { return { hasError: true, error }; }
@@ -56,6 +16,34 @@ class StageErrorBoundary extends React.Component {
     return this.props.children;
   }
 }
+
+// 投影光束著色器 (維持妳滿意的版本)
+const BeamShaderMaterial = {
+  uniforms: {
+    color: { value: new THREE.Color("#00ffff") },
+    time: { value: 0 },
+    opacity: { value: 0.5 }
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform vec3 color;
+    uniform float time;
+    uniform float opacity;
+    varying vec2 vUv;
+    void main() {
+      float verticalFade = smoothstep(0.6, 0.0, vUv.y); 
+      float bottomGlow = smoothstep(0.2, 0.0, vUv.y) * 0.5;
+      float scanline = sin(vUv.y * 40.0 - time * 5.0) * 0.05 + 0.95;
+      gl_FragColor = vec4(color * scanline + vec3(bottomGlow), opacity * verticalFade);
+    }
+  `
+};
 
 function HologramProjector({ targetRef }) {
   const beamRef = useRef();
@@ -71,14 +59,12 @@ function HologramProjector({ targetRef }) {
   }), []);
 
   const particlesCount = 20;
-  const particles = useMemo(() => {
-    return new Array(particlesCount).fill().map(() => ({
-      x: (Math.random() - 0.5) * 1.0,
-      y: Math.random() * 2.0,
-      z: (Math.random() - 0.5) * 1.0,
-      speed: 0.01 + Math.random() * 0.02,
-    }));
-  }, []);
+  const particles = useMemo(() => new Array(particlesCount).fill().map(() => ({
+    x: (Math.random() - 0.5) * 1.0,
+    y: Math.random() * 2.0,
+    z: (Math.random() - 0.5) * 1.0,
+    speed: 0.01 + Math.random() * 0.02,
+  })), []);
 
   useFrame((state) => {
     const t = state.clock.elapsedTime;
@@ -90,10 +76,9 @@ function HologramProjector({ targetRef }) {
         const box = new THREE.Box3().setFromObject(root);
         const size = new THREE.Vector3();
         box.getSize(size);
-        
         const radius = Math.max(size.x, size.z) * 0.75; 
         const height = size.y * 1.0; 
-
+        
         const currentScale = beamRef.current.scale;
         beamRef.current.position.y = height / 2;
         beamRef.current.scale.x = THREE.MathUtils.lerp(currentScale.x, radius, 0.1);
@@ -137,6 +122,7 @@ function HologramProjector({ targetRef }) {
   );
 }
 
+// 運鏡
 function MarketFrame({ targetRef, triggerKey }) {
   const { camera } = useThree();
   const doneRef = useRef(false);
@@ -145,16 +131,13 @@ function MarketFrame({ targetRef, triggerKey }) {
     if (doneRef.current || !targetRef.current) return;
     const root = targetRef.current;
     if (root.children.length === 0) return;
-
     const box = new THREE.Box3().setFromObject(root);
     const size = new THREE.Vector3();
     box.getSize(size);
     if (size.y < 0.1) return;
-
     const height = size.y;
     const dist = height * 1.5 + 2.0; 
     const lookAtY = height * 0.65; 
-
     camera.position.lerp(new THREE.Vector3(0, lookAtY, dist), 0.1);
     camera.lookAt(0, lookAtY, 0);
     if (camera.position.z - dist < 0.1) doneRef.current = true;
@@ -173,7 +156,8 @@ export default function AvatarStage({ vrmId = "C1", emotion = "idle", unlocked =
           shadows
           dpr={[1, 1.5]}
           camera={{ position: [0, 1.4, 3], fov: 35 }}
-          gl={{ alpha: true, antialias: true, preserveDrawingBuffer: true }}
+          // 🌟 關鍵修改：開啟 localClippingEnabled，這讓掃描效果能生效！
+          gl={{ alpha: true, antialias: true, preserveDrawingBuffer: true, localClippingEnabled: true }}
         >
           <color attach="background" args={['#050510']} />
           <fog attach="fog" args={['#050510', 5, 15]} />
