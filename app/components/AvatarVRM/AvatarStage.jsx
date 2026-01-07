@@ -6,12 +6,12 @@ import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import Avatar3D from "./Avatar3D";
 
-// 🌟 1. 投影光束著色器 (調整後：光線提早消失)
+// 🌟 1. 投影光束著色器 (調整：更早消失，聚光感更強)
 const BeamShaderMaterial = {
   uniforms: {
     color: { value: new THREE.Color("#00ffff") },
     time: { value: 0 },
-    opacity: { value: 0.6 }
+    opacity: { value: 0.5 } // 稍微降低整體透明度
   },
   vertexShader: `
     varying vec2 vUv;
@@ -29,17 +29,17 @@ const BeamShaderMaterial = {
     varying vec2 vUv;
 
     void main() {
-      // 🌟 修改重點：讓光線消失得更早
-      // vUv.y = 0 (底部), vUv.y = 1 (頂部)
-      // smoothstep(0.7, 0.0, vUv.y) 代表：
-      // 在 0.0 (底部) 時不透明度最高
-      // 超過 0.7 (約胸口高度) 就完全變透明
-      float verticalFade = smoothstep(0.7, 0.0, vUv.y); 
-
-      // 掃描動態紋路
-      float scanline = sin(vUv.y * 30.0 - time * 3.0) * 0.1 + 0.9;
+      // 🌟 修改：讓光線消失得更低、更柔和
+      // smoothstep(0.6, 0.0, vUv.y) 代表在 UV 高度 0.6 (胸口) 就開始完全透明
+      float verticalFade = smoothstep(0.6, 0.0, vUv.y); 
       
-      vec3 finalColor = color * scanline;
+      // 增加一點底部(靠近光源)的過曝感
+      float bottomGlow = smoothstep(0.2, 0.0, vUv.y) * 0.5;
+
+      // 掃描紋路速度調快一點
+      float scanline = sin(vUv.y * 40.0 - time * 5.0) * 0.05 + 0.95;
+      
+      vec3 finalColor = color * scanline + vec3(bottomGlow);
       float finalAlpha = opacity * verticalFade;
 
       gl_FragColor = vec4(finalColor, finalAlpha);
@@ -47,7 +47,6 @@ const BeamShaderMaterial = {
   `
 };
 
-// 錯誤攔截
 class StageErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false }; }
   static getDerivedStateFromError(error) { return { hasError: true, error }; }
@@ -58,7 +57,6 @@ class StageErrorBoundary extends React.Component {
   }
 }
 
-// 🌟 2. 投影機組件
 function HologramProjector({ targetRef }) {
   const beamRef = useRef();
   const baseRef = useRef();
@@ -86,7 +84,6 @@ function HologramProjector({ targetRef }) {
     const t = state.clock.elapsedTime;
     if (beamMat) beamMat.uniforms.time.value = t;
 
-    // 自動調整光束寬度
     if (targetRef.current && beamRef.current) {
       const root = targetRef.current;
       if (root.children.length > 0) {
@@ -95,7 +92,7 @@ function HologramProjector({ targetRef }) {
         box.getSize(size);
         
         const radius = Math.max(size.x, size.z) * 0.75; 
-        const height = size.y * 1.0; // 光束高度稍微調低一點
+        const height = size.y * 1.0; 
 
         const currentScale = beamRef.current.scale;
         beamRef.current.position.y = height / 2;
@@ -119,20 +116,15 @@ function HologramProjector({ targetRef }) {
 
   return (
     <group position={[0, 0, 0]}>
-      {/* 投影光束 */}
       <mesh ref={beamRef} material={beamMat} position={[0, 1, 0]}>
         <cylinderGeometry args={[1, 0.12, 1, 32, 1, true]} />
       </mesh>
-
-      {/* 投影底座 */}
       <group ref={baseRef} rotation={[-Math.PI/2, 0, 0]}>
          <mesh><circleGeometry args={[0.15, 32]} /><meshBasicMaterial color="#ffffff" transparent opacity={0.8} /></mesh>
          <mesh position={[0,0,-0.01]}><ringGeometry args={[0.2, 0.25, 32]} /><meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.6} /></mesh>
          <mesh position={[0,0,-0.02]} rotation={[0,0,1]}><ringGeometry args={[0.3, 0.35, 6, 2]} /><meshBasicMaterial color="#0088ff" side={THREE.DoubleSide} transparent opacity={0.4} /></mesh>
          <mesh position={[0,0,-0.05]}><ringGeometry args={[0.45, 0.46, 64]} /><meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.2} /></mesh>
       </group>
-
-      {/* 粒子 */}
       <group ref={particlesRef}>
         {particles.map((p, i) => (
            <mesh key={i} position={[p.x, p.y, p.z]}>
@@ -145,7 +137,6 @@ function HologramProjector({ targetRef }) {
   );
 }
 
-// 運鏡邏輯
 function MarketFrame({ targetRef, triggerKey }) {
   const { camera } = useThree();
   const doneRef = useRef(false);
