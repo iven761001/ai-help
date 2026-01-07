@@ -1,12 +1,12 @@
+// components/AvatarVRM/Avatar3D.jsx
 "use client";
 
-import React, { useEffect, useMemo, useState, useRef, forwardRef } from "react";
-import { useLoader, useFrame } from "@react-three/fiber";
+import React, { useEffect, useMemo, useState, useRef } from "react";
+import { useLoader, useFrame, useThree } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 import * as THREE from "three";
 
-// 姿勢調整
 function applyNaturalPose(vrm) {
   if (!vrm || !vrm.humanoid) return;
   const rotateBone = (name, x, y, z) => {
@@ -21,165 +21,129 @@ function applyNaturalPose(vrm) {
   rotateBone('rightHand', 0, 0, -0.1);
 }
 
-// 獨立的掃描光環組件
-const ScannerRing = forwardRef((props, ref) => {
+// 掃描光環
+function ScannerRing({ y, visible }) {
+  if (!visible) return null;
   return (
-    <group ref={ref} position={[0, 0, 0]}>
-      {/* 亮環 */}
+    <group position={[0, y, 0]}>
+      {/* 亮光圈 */}
       <mesh rotation={[-Math.PI/2, 0, 0]}>
-        <ringGeometry args={[0.45, 0.48, 32]} />
-        <meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={1} />
+        <ringGeometry args={[0.5, 0.55, 32]} />
+        <meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.8} />
       </mesh>
       {/* 暈光 */}
       <mesh rotation={[-Math.PI/2, 0, 0]}>
-        <ringGeometry args={[0.4, 0.6, 32]} />
-        <meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.2} blending={THREE.AdditiveBlending} />
+        <ringGeometry args={[0.4, 0.7, 32]} />
+        <meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.15} blending={THREE.AdditiveBlending} />
       </mesh>
     </group>
   );
-});
-ScannerRing.displayName = "ScannerRing";
+}
 
 export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) {
+  const { gl } = useThree();
+  // 🌟 強制開啟全域裁切，這是最後一道防線
+  gl.localClippingEnabled = true;
+
   const url = useMemo(() => `/vrm/${vrmId}.vrm`, [vrmId]);
-  
   const gltf = useLoader(GLTFLoader, url, (loader) => {
     loader.crossOrigin = "anonymous";
     loader.register((parser) => new VRMLoaderPlugin(parser));
   });
 
   const [vrm, setVrm] = useState(null);
-  // 用來分類 mesh，方便後續處理
-  const [meshes, setMeshes] = useState({ eyes: [], body: [] });
   
-  // 🌟 1. 建立裁切平面 (保留平面下方的物件)
-  // 初始設為 0 (腳底)，這樣剛開始模型是從腳底開始生長
+  // 🌟 建立裁切平面：Normal (0, -1, 0) 代表顯示平面下方的物體
+  // 初始 constant = 0 代表只顯示 y < 0 (腳底)
   const clippingPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, -1, 0), 0), []);
   
-  // 🌟 2. 建立全像材質 (Wireframe + 裁切)
-  const hologramMat = useMemo(() => new THREE.MeshBasicMaterial({
-    color: 0x00ffff,
-    wireframe: true,
-    transparent: true,
-    opacity: 0.15,
-    side: THREE.DoubleSide,
-    clippingPlanes: [clippingPlane], // 綁定裁切面
-  }), [clippingPlane]);
+  // 掃描動態數值
+  const scanY = useRef(0);
+  const targetY = 2.0;
 
-  const scannerRef = useRef();
-  const scanYRef = useRef(0);
-  const targetScanY = 2.2; 
-
-  // 初始化模型
   useEffect(() => {
     if (!gltf?.userData?.vrm) return;
     const loadedVrm = gltf.userData.vrm;
-    const eyeMeshes = [];
-    const bodyMeshes = [];
+    VRMUtils.rotateVRM0(loadedVrm);
+    applyNaturalPose(loadedVrm);
 
-    try {
-        VRMUtils.rotateVRM0(loadedVrm);
-        applyNaturalPose(loadedVrm);
+    // 🌟 關鍵：遍歷所有材質，加上裁切平面，並把它改成 Wireframe (全像感)
+    loadedVrm.scene.traverse((obj) => {
+      if (obj.isMesh) {
+        obj.frustumCulled = false; // 防止消失
+        
+        // 備份原材質
+        if (!obj.userData.originalMat) obj.userData.originalMat = obj.material;
 
-        // 遍歷模型，備份材質並分類
-        loadedVrm.scene.traverse((obj) => {
-            if (obj.isMesh) {
-                obj.frustumCulled = false;
-                // 備份原始材質
-                if (!obj.userData.originalMat) obj.userData.originalMat = obj.material;
+        // 如果要全像效果，我們直接把原材質改成 Wireframe 模式 (這比換材質安全)
+        // 並加上裁切平面
+        obj.material.clippingPlanes = [clippingPlane];
+        obj.material.clipShadows = true;
+      }
+    });
 
-                const matName = obj.material.name || "";
-                const objName = obj.name || "";
-                const isEye = matName.toLowerCase().includes("eye") || 
-                              matName.toLowerCase().includes("face") || 
-                              objName.toLowerCase().includes("iris");
-                
-                if (isEye) eyeMeshes.push(obj);
-                else bodyMeshes.push(obj);
-            }
-        });
-
-        // 重置掃描狀態
-        scanYRef.current = 0;
-        clippingPlane.constant = 0;
-
-    } catch (e) { console.error(e); }
-
-    setMeshes({ eyes: eyeMeshes, body: bodyMeshes });
     setVrm(loadedVrm);
     if (onReady) onReady(loadedVrm);
+    
+    // 重置
+    scanY.current = 0;
+    clippingPlane.constant = 0;
+
   }, [gltf, onReady, clippingPlane]);
 
-  // 🌟 關鍵修正：材質切換邏輯移到 useEffect (避免 crash)
-  useEffect(() => {
-    if (!vrm) return;
+  useFrame((state, delta) => {
+    // 1. 動畫邏輯
+    if (!unlocked) {
+        // 掃描線上升
+        scanY.current = THREE.MathUtils.lerp(scanY.current, targetY + 0.1, delta * 0.8);
+        
+        // 更新裁切平面
+        clippingPlane.constant = scanY.current;
+    } else {
+        // 解鎖：取消裁切
+        clippingPlane.constant = 100.0;
+    }
 
-    if (unlocked) {
-        // --- 解鎖狀態：恢復原廠設定 ---
-        clippingPlane.constant = 100.0; // 取消裁切
-        if (scannerRef.current) scannerRef.current.visible = false;
+    // 2. 材質切換邏輯 (全像 vs 實體)
+    if (vrm) {
+        vrm.scene.traverse((obj) => {
+            if (obj.isMesh) {
+                const isEye = obj.name.toLowerCase().includes("eye") || obj.material.name.toLowerCase().includes("eye");
+                
+                if (!unlocked) {
+                    // --- 鎖定狀態 (掃描中) ---
+                    
+                    // 身體：變成線框模式 + 青色
+                    if (!isEye) {
+                        // 為了不破壞骨架，我們修改現有材質的屬性，而不是換掉它
+                        obj.material.wireframe = true;
+                        obj.material.color.setHex(0x00ffff); // 變青色
+                        obj.material.emissive.setHex(0x001133); // 微微發光
+                    }
+                    
+                    // 眼睛：掃到脖子才顯示
+                    if (isEye) {
+                        obj.visible = scanY.current > 1.35;
+                        // 眼睛保持原樣
+                        obj.material.wireframe = false;
+                        obj.material.color.setHex(0xffffff); 
+                    }
 
-        meshes.eyes.concat(meshes.body).forEach(mesh => {
-            mesh.visible = true;
-            if (mesh.userData.originalMat) {
-                mesh.material = mesh.userData.originalMat;
-                mesh.castShadow = true;
-                mesh.receiveShadow = true;
+                } else {
+                    // --- 解鎖狀態 (實體) ---
+                    // 恢復所有屬性
+                    obj.visible = true;
+                    obj.material.wireframe = false;
+                    obj.material.color.setHex(0xffffff); // 恢復白色 (讓貼圖顯色)
+                    obj.material.emissive.setHex(0x000000); // 關閉自發光
+                }
             }
         });
-    } else {
-        // --- 鎖定狀態：切換到全像材質 ---
-        // 這裡只做一次材質替換，不要在 useFrame 做
-        meshes.body.forEach(mesh => {
-            mesh.material = hologramMat;
-            mesh.castShadow = false;
-            mesh.receiveShadow = false;
-        });
-        // 眼睛先隱藏 (等掃描到了再開)
-        meshes.eyes.forEach(eye => { eye.visible = false; });
-        
-        if (scannerRef.current) scannerRef.current.visible = true;
-    }
-  }, [vrm, unlocked, meshes, hologramMat, clippingPlane]);
 
-
-  // 動畫迴圈 (只負責數值更新)
-  useFrame((state, delta) => {
-    // A. 掃描動畫 (獨立運行，保證光環會動)
-    if (!unlocked) {
-        scanYRef.current = THREE.MathUtils.lerp(scanYRef.current, targetScanY + 0.1, delta * 0.8);
-        
-        // 1. 更新裁切面 -> 身體長出來
-        clippingPlane.constant = scanYRef.current;
-        
-        // 2. 更新光環位置
-        if (scannerRef.current) {
-            scannerRef.current.position.y = scanYRef.current;
-            // 掃描完隱藏
-            if (scanYRef.current > 2.0) scannerRef.current.visible = false;
-        }
-
-        // 3. 眼睛邏輯 (掃到脖子才顯示)
-        const headHeight = 1.35;
-        if (scanYRef.current > headHeight) {
-            meshes.eyes.forEach(eye => {
-                if (!eye.visible) {
-                    eye.visible = true;
-                    // 確保眼睛是原始材質
-                    if (eye.material !== eye.userData.originalMat) eye.material = eye.userData.originalMat;
-                    if (eye.material.emissive) eye.material.emissive.setHex(0x333333);
-                }
-            });
-        }
-    }
-
-    // B. 表情與呼吸 (如果有模型)
-    if (vrm) {
+        // 呼吸與眨眼
         const blinkVal = Math.max(0, Math.sin(state.clock.elapsedTime * 2.5) * 5 - 4);
         if (vrm.expressionManager) {
             vrm.expressionManager.setValue('blink', Math.min(1, blinkVal));
-            vrm.expressionManager.setValue('happy', emotion === 'happy' ? 1.0 : 0);
-            vrm.expressionManager.setValue('neutral', emotion === 'neutral' ? 0.5 : 0);
             vrm.expressionManager.update();
         }
         vrm.update(delta);
@@ -189,8 +153,7 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
   return (
     <>
       {vrm && <primitive object={vrm.scene} />}
-      {/* 掃描光環 (即使模型還沒好，光環也會動) */}
-      <ScannerRing ref={scannerRef} />
+      {!unlocked && <ScannerRing y={scanY.current} visible={scanY.current < 2.0} />}
     </>
   );
 }
