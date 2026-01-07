@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, Suspense, useRef } from "react";
 // 引入元件
 import AvatarStage from "./components/AvatarVRM/AvatarStage"; 
 import CompassCreator from "./components/Creator/CompassCreator";
@@ -17,7 +17,7 @@ function safeLoad() {
   try { return JSON.parse(localStorage.getItem(SAFE_STORAGE_KEY)); } catch (e) { return null; }
 }
 
-// --- 1. 開機動畫 (Boot Screen) ---
+// --- 1. 開機動畫 ---
 function BootScreen({ onComplete }) {
   const [progress, setProgress] = useState(0);
   useEffect(() => {
@@ -66,31 +66,37 @@ function SystemExtracting() {
       <h2 className="text-xl font-bold text-white tracking-widest animate-pulse">
         AI 系統啟動提取中...
       </h2>
-      <p className="text-blue-400 text-xs mt-2 font-mono">SYNCING NEURAL DATA...</p>
+      <p className="text-blue-400 text-xs mt-2 font-mono">DOWNLOADING NEURAL MODEL...</p>
     </div>
   );
 }
 
 export default function Home() {
-  // 狀態流程： 'boot' -> 'email' -> 'extracting' -> 'create' -> 'chat'
   const [step, setStep] = useState("boot"); 
   const [email, setEmail] = useState("");
   const [tempConfig, setTempConfig] = useState(null); 
   const [finalCharacter, setFinalCharacter] = useState(null); 
   const [isClient, setIsClient] = useState(false);
-  
-  // UI 動畫控制
   const [isEmailExiting, setIsEmailExiting] = useState(false);
-
-  // 🌟 關鍵：解鎖狀態 (預設 false = 掃描/全像狀態)
   const [isUnlocked, setIsUnlocked] = useState(false);
+  const [isModelReady, setIsModelReady] = useState(false);
 
   useEffect(() => {
     setIsClient(true);
-    // 檢查存檔
     try {
-      const saved = safeLoad();
+      let saved = safeLoad();
       if (saved && saved.email) {
+        // 🌟 關鍵修復：如果發現舊的 C1 資料，強制改成 avatar_01
+        if (saved.model === "C1") {
+            console.log("Fixing old data: C1 -> avatar_01");
+            saved.model = "avatar_01";
+            safeSave(saved); // 更新存檔
+        }
+        if (saved.model === "C2") {
+            saved.model = "avatar_02";
+            safeSave(saved);
+        }
+
         setFinalCharacter(saved);
         setStep("chat");
       }
@@ -99,37 +105,29 @@ export default function Home() {
 
   if (!isClient) return <div className="bg-black h-screen"></div>;
 
-  // --- 事件處理 ---
-
-  const handleBootComplete = () => {
-    setStep("email");
-  };
+  const handleBootComplete = () => { setStep("email"); };
 
   const handleEmailSubmit = (e) => {
     e.preventDefault();
     if (!email.trim()) return alert("請輸入信箱以連結神經網路！");
-    
-    // 1. 觸發 Email 視窗縮小動畫
     setIsEmailExiting(true);
-
-    // 2. 0.8秒後進入提取畫面
     setTimeout(() => {
       setStep("extracting");
-      
-      // 3. 2.5秒後進入選角畫面
-      setTimeout(() => {
-        setStep("create");
-      }, 2500); 
     }, 800);
   };
 
-  const handleConfigChange = (newConfig) => {
-    setTempConfig(newConfig);
+  const handleModelReady = () => {
+    if (step === "extracting") {
+       setTimeout(() => { setStep("create"); }, 1500);
+    }
+    setIsModelReady(true);
   };
+
+  const handleConfigChange = (newConfig) => { setTempConfig(newConfig); };
 
   const handleFinishCreate = () => {
     try {
-      // 🌟 確保這裡存檔也是存 avatar_01
+      // 確保這裡也是存 avatar_01
       const configToSave = tempConfig || { model: "avatar_01", personality: "warm" };
       const newCharacter = {
         email: email,
@@ -139,13 +137,8 @@ export default function Home() {
       };
       safeSave(newCharacter);
       setFinalCharacter(newCharacter);
-      
-      // 進入聊天室
       setStep("chat");
-      
-    } catch (error) {
-      alert("Error: " + error.message);
-    }
+    } catch (error) { alert("Error: " + error.message); }
   };
 
   const handleReset = () => {
@@ -156,31 +149,31 @@ export default function Home() {
         setStep("boot"); 
         setIsEmailExiting(false);
         setIsUnlocked(false); 
+        setIsModelReady(false);
     }
   };
 
-  // 🌟 模擬達成任務 (解鎖按鈕邏輯)
   const handleMissionComplete = () => {
     alert("✨ 任務目標達成！身體組件下載完畢！ ✨");
-    setIsUnlocked(true); // 觸發變身！
+    setIsUnlocked(true); 
   };
 
-  // 計算當前要顯示的模型參數
-  // 🌟 如果沒有設定，預設為 avatar_01
-  const currentModelId = step === 'create' 
+  // 🌟 計算當前模型 ID (加上雙重保險)
+  let currentModelId = step === 'create' 
     ? (tempConfig?.model || "avatar_01") 
     : (finalCharacter?.model || "avatar_01");
+  
+  // 防止意外的 C1 跑進來
+  if (currentModelId === "C1") currentModelId = "avatar_01";
+  if (currentModelId === "C2") currentModelId = "avatar_02";
 
-  const currentEmotion = (step === 'create' ? tempConfig?.personality : finalCharacter?.personality) === 'cool' 
-    ? 'neutral' : 'happy';
+  const currentEmotion = (step === 'create' ? tempConfig?.personality : finalCharacter?.personality) === 'cool' ? 'neutral' : 'happy';
 
   return (
     <main className="relative w-full h-screen overflow-hidden bg-black text-white font-sans">
       
-      {/* --- 1. 開機層 --- */}
       {step === "boot" && <BootScreen onComplete={handleBootComplete} />}
 
-      {/* --- 2. Email 層 --- */}
       {step === "email" && (
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-center px-6">
           <div 
@@ -196,7 +189,6 @@ export default function Home() {
             <p className="text-gray-400 text-xs text-center mb-8 font-mono">
               請綁定您的 ID (Email) 以連結神經網路
             </p>
-
             <form onSubmit={handleEmailSubmit} className="space-y-6">
               <div className="relative group">
                 <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl opacity-30 group-hover:opacity-100 transition duration-500 blur"></div>
@@ -221,79 +213,59 @@ export default function Home() {
         </div>
       )}
 
-      {/* --- 3. 提取過場層 --- */}
       {step === "extracting" && <SystemExtracting />}
 
-      {/* --- 4. 3D 舞台層 (核心) --- */}
       {(step === 'extracting' || step === 'create' || step === 'chat') && (
         <div className={`
             absolute inset-0 z-0 bg-gradient-to-b from-gray-900 to-black 
             transition-opacity duration-1000 
-            ${step === 'extracting' ? 'opacity-0' : 'opacity-100'}
+            ${(step === 'extracting' && !isModelReady) ? 'opacity-0' : 'opacity-100'}
         `}>
           <Suspense fallback={null}>
             <AvatarStage 
               vrmId={currentModelId}
               emotion={currentEmotion}
               unlocked={isUnlocked} 
+              onModelReady={handleModelReady} 
             />
           </Suspense>
-          
-          {/* 底部漸層遮罩 */}
           <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
         </div>
       )}
 
-      {/* --- 5. 選角 UI --- */}
       {step === "create" && (
         <div className="absolute inset-0 z-10 flex flex-col justify-end pb-safe-bottom pointer-events-none animate-fadeIn">
-          
-          {/* 頂部提示 */}
           <div className="absolute top-24 w-full text-center pointer-events-none">
              <span className="bg-blue-500/10 text-blue-300 text-[10px] px-3 py-1 rounded-full border border-blue-500/20 backdrop-blur animate-pulse">
                 ⚠️ 實體化數據不足，僅顯示全像投影
              </span>
           </div>
-
           <div className="w-full px-6 mb-4 flex justify-between items-end pointer-events-auto">
              <div>
                 <h2 className="text-xl font-bold text-white">角色設定</h2>
                 <p className="text-[10px] text-blue-400 tracking-widest font-bold">CUSTOMIZE</p>
              </div>
-             
              <button onClick={handleFinishCreate} className="group bg-blue-600 hover:bg-blue-500 text-white px-5 py-3 rounded-full font-bold shadow-lg active:scale-95 flex items-center gap-2 z-50 cursor-pointer">
                <span className="text-sm">完成</span>
                <span className="group-hover:translate-x-1 transition-transform">➜</span>
              </button>
           </div>
-
           <div className="w-full pointer-events-auto bg-gradient-to-t from-black to-transparent pt-4">
-             {/* 這裡確保 CompassCreator 存在 */}
              <CompassCreator onChange={handleConfigChange} />
           </div>
         </div>
       )}
 
-      {/* --- 6. 聊天 UI --- */}
       {step === "chat" && finalCharacter && (
         <div className="relative z-10 w-full h-full animate-fadeIn pointer-events-none">
            <div className="pointer-events-auto w-full h-full">
              <ChatHUD />
-             
-             {/* 測試按鈕區 */}
              <div className="absolute top-4 left-4 z-50 flex flex-col gap-2">
-                <button 
-                    onClick={handleReset} 
-                    className="bg-red-900/50 text-white/50 text-[10px] px-2 py-1 rounded hover:text-white backdrop-blur-sm"
-                >
+                <button onClick={handleReset} className="bg-red-900/50 text-white/50 text-[10px] px-2 py-1 rounded hover:text-white backdrop-blur-sm">
                     RESET SYSTEM
                 </button>
-
                 {!isUnlocked && (
-                    <button 
-                        onClick={handleMissionComplete} 
-                        className="bg-yellow-600/90 text-white text-xs px-4 py-2 rounded-full shadow-[0_0_15px_rgba(234,179,8,0.5)] border border-yellow-400/50 hover:bg-yellow-500 active:scale-95 transition-all animate-bounce"
-                    >
+                    <button onClick={handleMissionComplete} className="bg-yellow-600/90 text-white text-xs px-4 py-2 rounded-full shadow-[0_0_15px_rgba(234,179,8,0.5)] border border-yellow-400/50 hover:bg-yellow-500 active:scale-95 transition-all animate-bounce">
                         🏆 模擬達成任務 (解鎖身體)
                     </button>
                 )}
