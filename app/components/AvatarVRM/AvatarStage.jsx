@@ -6,7 +6,7 @@ import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import Avatar3D from "./Avatar3D";
 
-// 錯誤攔截
+// 錯誤處理
 class StageErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false }; }
   static getDerivedStateFromError(error) { return { hasError: true, error }; }
@@ -17,7 +17,7 @@ class StageErrorBoundary extends React.Component {
   }
 }
 
-// 投影光束著色器 (維持妳滿意的版本)
+// 投影光束 (維持不變)
 const BeamShaderMaterial = {
   uniforms: {
     color: { value: new THREE.Color("#00ffff") },
@@ -26,16 +26,10 @@ const BeamShaderMaterial = {
   },
   vertexShader: `
     varying vec2 vUv;
-    void main() {
-      vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }
+    void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
   `,
   fragmentShader: `
-    uniform vec3 color;
-    uniform float time;
-    uniform float opacity;
-    varying vec2 vUv;
+    uniform vec3 color; uniform float time; uniform float opacity; varying vec2 vUv;
     void main() {
       float verticalFade = smoothstep(0.6, 0.0, vUv.y); 
       float bottomGlow = smoothstep(0.2, 0.0, vUv.y) * 0.5;
@@ -49,27 +43,17 @@ function HologramProjector({ targetRef }) {
   const beamRef = useRef();
   const baseRef = useRef();
   const particlesRef = useRef();
-  
   const beamMat = useMemo(() => new THREE.ShaderMaterial({
-    ...BeamShaderMaterial,
-    transparent: true,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-    blending: THREE.AdditiveBlending,
+    ...BeamShaderMaterial, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
   }), []);
 
-  const particlesCount = 20;
-  const particles = useMemo(() => new Array(particlesCount).fill().map(() => ({
-    x: (Math.random() - 0.5) * 1.0,
-    y: Math.random() * 2.0,
-    z: (Math.random() - 0.5) * 1.0,
-    speed: 0.01 + Math.random() * 0.02,
+  const particles = useMemo(() => new Array(20).fill().map(() => ({
+    x: (Math.random() - 0.5) * 1.0, y: Math.random() * 2.0, z: (Math.random() - 0.5) * 1.0, speed: 0.01 + Math.random() * 0.02
   })), []);
 
   useFrame((state) => {
     const t = state.clock.elapsedTime;
     if (beamMat) beamMat.uniforms.time.value = t;
-
     if (targetRef.current && beamRef.current) {
       const root = targetRef.current;
       if (root.children.length > 0) {
@@ -78,17 +62,12 @@ function HologramProjector({ targetRef }) {
         box.getSize(size);
         const radius = Math.max(size.x, size.z) * 0.75; 
         const height = size.y * 1.0; 
-        
         const currentScale = beamRef.current.scale;
         beamRef.current.position.y = height / 2;
-        beamRef.current.scale.x = THREE.MathUtils.lerp(currentScale.x, radius, 0.1);
-        beamRef.current.scale.z = THREE.MathUtils.lerp(currentScale.z, radius, 0.1);
-        beamRef.current.scale.y = THREE.MathUtils.lerp(currentScale.y, height, 0.1);
+        beamRef.current.scale.lerp(new THREE.Vector3(radius, height, radius), 0.1);
       }
     }
-
     if (baseRef.current) baseRef.current.rotation.z = t * 0.2;
-
     if (particlesRef.current) {
       particlesRef.current.children.forEach((p, i) => {
         const data = particles[i];
@@ -100,7 +79,7 @@ function HologramProjector({ targetRef }) {
   });
 
   return (
-    <group position={[0, 0, 0]}>
+    <group>
       <mesh ref={beamRef} material={beamMat} position={[0, 1, 0]}>
         <cylinderGeometry args={[1, 0.12, 1, 32, 1, true]} />
       </mesh>
@@ -156,7 +135,7 @@ export default function AvatarStage({ vrmId = "C1", emotion = "idle", unlocked =
           shadows
           dpr={[1, 1.5]}
           camera={{ position: [0, 1.4, 3], fov: 35 }}
-          // 🌟 關鍵修改：開啟 localClippingEnabled，這讓掃描效果能生效！
+          // ⚠️⚠️⚠️ 關鍵：一定要開啟 localClippingEnabled，不然模型會隱形或全黑！⚠️⚠️⚠️
           gl={{ alpha: true, antialias: true, preserveDrawingBuffer: true, localClippingEnabled: true }}
         >
           <color attach="background" args={['#050510']} />
