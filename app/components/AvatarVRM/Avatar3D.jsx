@@ -1,7 +1,6 @@
-// components/AvatarVRM/Avatar3D.jsx
 "use client";
 
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useLoader, useFrame } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
@@ -66,13 +65,13 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
 
   }, [gltf, onReady]);
 
-  // 2. 監聽 unlocked 狀態切換材質 (只在狀態改變時執行一次，效能最好)
+  // 2. 監聽 unlocked 狀態切換材質
   useEffect(() => {
     if (!vrm) return;
 
     vrm.scene.traverse((obj) => {
         if (obj.isMesh) {
-            // 如果是眼睛，永遠保持實體材質，但可以加一點發光讓它更有神
+            // 如果是眼睛
             if (obj.userData.isEye) {
                 if (obj.material !== obj.userData.originalMat) {
                     obj.material = obj.userData.originalMat;
@@ -84,28 +83,27 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
             else {
                 if (!unlocked) {
                     // --- 鎖定狀態：變更為線框模式 ---
-                    // 為了不破壞骨架，我們直接修改原材質的屬性，而不替換 Material 物件
-                    obj.material = obj.userData.originalMat; // 確保是用原材質
-                    obj.material.wireframe = true;           // 開啟線框
-                    obj.material.color.setHex(0x00ffff);     // 設為青色
-                    obj.material.emissive.setHex(0x001133);  // 藍色自發光
+                    obj.material = obj.userData.originalMat; 
+                    obj.material.wireframe = true;           
+                    obj.material.color.setHex(0x00ffff);     
+                    obj.material.emissive.setHex(0x001133);  
                     obj.material.transparent = true;
-                    obj.material.opacity = 0.3;              // 半透明
+                    obj.material.opacity = 0.3;              
                     
                     obj.castShadow = false;
                     obj.receiveShadow = false;
                 } else {
                     // --- 解鎖狀態：恢復原狀 ---
-                    obj.material.wireframe = false;          // 關閉線框
-                    obj.material.color.setHex(0xffffff);     // 恢復白色 (讓貼圖顯色)
-                    obj.material.emissive.setHex(0x000000);  // 關閉自發光
-                    obj.material.transparent = false;        // 關閉透明 (除非原本就是透明材質)
+                    obj.material.wireframe = false;          
+                    obj.material.color.setHex(0xffffff);     
+                    obj.material.emissive.setHex(0x000000);  
+                    obj.material.transparent = false; 
                     obj.material.opacity = 1.0;
 
                     obj.castShadow = true;
                     obj.receiveShadow = true;
                 }
-                obj.material.needsUpdate = true; // 通知 Three.js 更新
+                obj.material.needsUpdate = true; 
             }
         }
     });
