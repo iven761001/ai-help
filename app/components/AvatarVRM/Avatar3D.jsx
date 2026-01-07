@@ -6,7 +6,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 import * as THREE from "three";
 
-// 讓角色自然站立
+// 讓角色自然站立的動作設定
 function applyNaturalPose(vrm) {
   if (!vrm || !vrm.humanoid) return;
   const rotateBone = (name, x, y, z) => {
@@ -22,12 +22,27 @@ function applyNaturalPose(vrm) {
 }
 
 export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) {
+  // 這裡設定路徑，請確保資料夾內的檔名大小寫完全一致 (例如 C1.vrm)
   const url = useMemo(() => `/vrm/${vrmId}.vrm`, [vrmId]);
   
-  const gltf = useLoader(GLTFLoader, url, (loader) => {
-    loader.crossOrigin = "anonymous";
-    loader.register((parser) => new VRMLoaderPlugin(parser));
-  });
+  const gltf = useLoader(
+    GLTFLoader, 
+    url, 
+    (loader) => {
+      loader.crossOrigin = "anonymous";
+      loader.register((parser) => new VRMLoaderPlugin(parser));
+    },
+    // Progress
+    null,
+    // Error Handler (如果不見了，會跳出警告)
+    (error) => {
+      console.error("3D Loading Error:", error);
+      // 避免無限跳窗，只在開發環境提示
+      if (process.env.NODE_ENV === 'development') {
+         alert(`找不到模型檔案：${url}\n請檢查 public/vrm 資料夾：\n1. 檔案是否存在？\n2. 大小寫是否正確？(C1 vs c1)`);
+      }
+    }
+  );
 
   const [vrm, setVrm] = useState(null);
 
@@ -76,13 +91,12 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
                 if (obj.material !== obj.userData.originalMat) {
                     obj.material = obj.userData.originalMat;
                 }
-                // 微微發光
                 if (obj.material.emissive) obj.material.emissive.setHex(0x222222);
             } 
             // 如果是身體
             else {
                 if (!unlocked) {
-                    // --- 鎖定狀態：變更為線框模式 ---
+                    // --- 鎖定狀態：線框模式 ---
                     obj.material = obj.userData.originalMat; 
                     obj.material.wireframe = true;           
                     obj.material.color.setHex(0x00ffff);     
@@ -110,7 +124,7 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
 
   }, [unlocked, vrm]);
 
-  // 3. 基礎動畫迴圈 (眨眼呼吸)
+  // 3. 基礎動畫迴圈
   useFrame((state, delta) => {
     if (vrm) {
         const blinkVal = Math.max(0, Math.sin(state.clock.elapsedTime * 2.5) * 5 - 4);
@@ -121,7 +135,6 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
             vrm.expressionManager.update();
         }
         
-        // 呼吸
         if (vrm.humanoid) {
            const spine = vrm.humanoid.getNormalizedBoneNode('spine');
            if(spine) spine.rotation.x = Math.sin(state.clock.elapsedTime) * 0.02;
