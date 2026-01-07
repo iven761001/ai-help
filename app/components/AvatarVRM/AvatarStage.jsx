@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import Avatar3D from "./Avatar3D";
 
+// 錯誤處理 (若有錯會顯示紅字，不會黑屏)
 class StageErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false }; }
   static getDerivedStateFromError(error) { return { hasError: true, error }; }
@@ -16,7 +17,7 @@ class StageErrorBoundary extends React.Component {
   }
 }
 
-// 投影光束 (視覺優化)
+// 投影光束 (視覺裝飾)
 function HologramProjector() {
   const beamRef = useRef();
   const ringRef = useRef();
@@ -24,24 +25,24 @@ function HologramProjector() {
   useFrame((state) => {
     const t = state.clock.elapsedTime;
     if (beamRef.current) {
-        // 呼吸效果
-        beamRef.current.material.opacity = 0.4 + Math.sin(t * 3) * 0.1;
-        beamRef.current.rotation.y = t * 0.05;
+        // 光束呼吸
+        beamRef.current.material.opacity = 0.3 + Math.sin(t * 3) * 0.1;
     }
     if (ringRef.current) {
-        ringRef.current.rotation.z = -t * 0.2;
+        // 底座旋轉
+        ringRef.current.rotation.z = t * 0.2;
     }
   });
 
   return (
     <group position={[0, 0, 0]}>
-      {/* 圓錐光束 (加強底部亮度) */}
-      <mesh ref={beamRef} position={[0, 1.0, 0]}>
-        <cylinderGeometry args={[0.8, 0.2, 2.0, 32, 1, true]} />
+      {/* 圓錐光束 */}
+      <mesh ref={beamRef} position={[0, 1, 0]}>
+        <cylinderGeometry args={[0.8, 0.15, 2, 32, 1, true]} />
         <meshBasicMaterial 
             color="#00ffff" 
             transparent 
-            opacity={0.4} 
+            opacity={0.3} 
             side={THREE.DoubleSide} 
             depthWrite={false} 
             blending={THREE.AdditiveBlending} 
@@ -53,7 +54,7 @@ function HologramProjector() {
             <ringGeometry args={[0.2, 0.5, 32]} />
             <meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.5} />
         </mesh>
-        <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.02, 0]}>
+        <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.01, 0]}>
             <ringGeometry args={[0.45, 0.48, 32]} />
             <meshBasicMaterial color="#0088ff" side={THREE.DoubleSide} transparent opacity={0.8} />
         </mesh>
@@ -66,6 +67,7 @@ function HologramProjector() {
 function MarketFrame({ targetRef, triggerKey }) {
   const { camera } = useThree();
   const doneRef = useRef(false);
+  
   React.useEffect(() => { doneRef.current = false; }, [triggerKey]);
 
   useFrame(() => {
@@ -73,11 +75,11 @@ function MarketFrame({ targetRef, triggerKey }) {
     const root = targetRef.current;
     if (root.children.length === 0) return;
 
-    // 平滑移動相機
-    camera.position.lerp(new THREE.Vector3(0, 1.2, 3.8), 0.1);
-    camera.lookAt(0, 1.0, 0);
+    // 平滑移動相機到最佳視角
+    camera.position.lerp(new THREE.Vector3(0, 1.3, 3.5), 0.1);
+    camera.lookAt(0, 1.1, 0);
     
-    if (Math.abs(camera.position.z - 3.8) < 0.1) doneRef.current = true;
+    if (Math.abs(camera.position.z - 3.5) < 0.1) doneRef.current = true;
   });
   return null;
 }
@@ -92,7 +94,8 @@ export default function AvatarStage({ vrmId = "C1", emotion = "idle", unlocked =
         <Canvas
           shadows
           dpr={[1, 1.5]} 
-          camera={{ position: [0, 1.4, 4.5], fov: 35 }}
+          camera={{ position: [0, 1.4, 4], fov: 35 }}
+          // ⚠️ 關鍵：一定要開啟裁切功能
           gl={{ alpha: true, antialias: true, preserveDrawingBuffer: true, localClippingEnabled: true }}
         >
           <color attach="background" args={['#050510']} />
