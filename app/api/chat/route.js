@@ -1,36 +1,60 @@
 // app/api/chat/route.js
+import { NextResponse } from 'next/server';
+
 export async function POST(req) {
   try {
+    // 1. 嘗試解析資料
     const body = await req.json();
     const message = (body?.message || "").trim();
-    const nickname = body?.nickname || "小管家";
-    const voice = body?.voice || "warm";
+    
+    // 接收前端傳來的角色設定，如果沒有就用預設值
+    const nickname = body?.character?.name || "AI 夥伴";
+    const voice = body?.character?.voice || "cute";
+    const personality = body?.character?.personality || "warm";
 
+    // 2. 檢查空訊息
     if (!message) {
-      return Response.json({ reply: "你剛剛好像沒打內容～再輸入一次我再幫你～", emotion: "idle" });
+      return NextResponse.json({ 
+        reply: "（聽不太清楚...）妳剛剛好像沒說話耶？再試一次看看？", 
+        emotion: "confused" 
+      });
     }
 
-    // 很簡單的示範：用關鍵字回覆（你之後會換成真正 LLM）
-    const isQuestion = message.includes("？") || message.includes("?") || message.length > 8;
+    // 3. 簡單的關鍵字邏輯 (這裡未來會換成 OpenAI)
+    let replyText = "";
+    let emotion = "idle";
 
-    const voiceHint =
-      voice === "calm"
-        ? "我用條理方式跟你說："
-        : voice === "energetic"
-        ? "我來快速跟你說重點："
-        : "我用比較溫暖的方式跟你說：";
+    if (message.includes("你好") || message.includes("嗨")) {
+      replyText = `嗨嗨！我是${nickname}！終於見到妳了～(開心)`;
+      emotion = "happy";
+    } else if (message.includes("水垢") || message.includes("髒")) {
+      replyText = "說到水垢真的很討厭對吧！如果是浴室玻璃，我建議用檸檬酸濕敷看看喔！";
+      emotion = "angry"; // 假裝對髒污生氣
+    } else {
+      // 根據個性 (personality) 給出不同的回應風格
+      if (personality === "cool") {
+        replyText = `收到，關於「${message}」這件事，我記錄下來了。`;
+        emotion = "neutral";
+      } else if (personality === "energetic") {
+        replyText = `沒問題！「${message}」是吧？交給我處理！(握拳)`;
+        emotion = "happy";
+      } else {
+        // 預設 warm
+        replyText = `嗯嗯，我聽到了～妳剛剛說「${message}」，我們可以一起研究看看喔！`;
+        emotion = "happy";
+      }
+    }
 
-    const reply = isQuestion
-      ? `${voiceHint}\n\n我收到「${message}」。\n\n目前這個 API 先用示範回覆，下一步我可以幫你接上真正的 AI（OpenAI 或你指定的後端），讓${nickname}能完整回答鍍膜/清潔問題。`
-      : `${nickname} 收到～你剛剛說「${message}」對吧？\n\n你可以再補充一下你遇到的材質（玻璃/不鏽鋼/石材）跟狀況（油垢/水垢/霉斑），我會比較精準。`;
-
-    return Response.json({
-      reply,
-      emotion: "idle"
+    // 4. 回傳結果
+    return NextResponse.json({
+      reply: replyText,
+      emotion: emotion
     });
+
   } catch (e) {
-    return Response.json(
-      { reply: "現在系統有點忙碌，稍後再試一次看看～", emotion: "idle" },
+    console.error("API Error:", e);
+    return NextResponse.json(
+      { reply: "系統大腦運轉過熱...請稍後再試一次 (500)", emotion: "sad" },
       { status: 500 }
     );
   }
