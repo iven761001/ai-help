@@ -7,7 +7,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 import * as THREE from "three";
 
-// 🌟 讓角色自然站立 (手放下)
+// 🌟 讓角色自然站立
 function applyNaturalPose(vrm) {
   if (!vrm || !vrm.humanoid) return;
   const rotateBone = (name, x, y, z) => {
@@ -22,78 +22,66 @@ function applyNaturalPose(vrm) {
   rotateBone('rightHand', 0, 0, -0.1);
 }
 
-// 🌟 核心魔法：全像掃描材質產生器
-// 使用 onBeforeCompile 來保留 Three.js 原生的骨架運算 (Skinning)
+// 🌟 建立支援骨架的全像材質
 function createHologramMaterial() {
-  const mat = new THREE.MeshBasicMaterial({
-    color: 0x00ffff,     // 賽博龐克藍
-    wireframe: true,     // 線框模式
+  return new THREE.ShaderMaterial({
+    // 關鍵 1: 必須開啟 skinning 支援
+    skinning: true,
     transparent: true,
-    opacity: 0.15,       // 基礎透明度
+    wireframe: true, // 線框模式
     side: THREE.DoubleSide,
-  });
-
-  // 在編譯 Shader 之前注入我們的掃描邏輯
-  mat.onBeforeCompile = (shader) => {
-    // 1. 加入 Uniforms (變數)
-    shader.uniforms.uScanY = { value: -10.0 }; // 掃描線高度
-    shader.uniforms.uGlowColor = { value: new THREE.Color(0x00ffff) };
-
-    // 保存 reference 以便之後更新
-    mat.userData.shader = shader;
-
-    // 2. 注入 Vertex Shader (計算世界座標高度)
-    shader.vertexShader = `
-      varying float vWorldY;
-      uniform float uScanY;
-    ` + shader.vertexShader;
-
-    shader.vertexShader = shader.vertexShader.replace(
-      '#include <project_vertex>',
-      `
-        vec4 worldPosition = modelMatrix * vec4( transformed, 1.0 );
-        // 如果有骨架 (Skinning)，Three.js 已經計算好 mvPosition，但我們需要世界座標
-        // 為了簡單，我們直接用 mvPosition 的 y 近似，或者手動算
-        // 最穩的方法是直接使用 varying 傳遞
-        vWorldY = worldPosition.y;
+    uniforms: {
+      uTime: { value: 0 },
+      uScanY: { value: -10.0 }, // 掃描高度
+      uColor: { value: new THREE.Color("#00ffff") }
+    },
+    // 關鍵 2: 頂點著色器必須包含 skinning 運算
+    vertexShader: `
+      #include <common>
+      #include <skinning_pars_vertex> // 引入骨架參數
+      
+      varying vec3 vWorldPosition;
+      
+      void main() {
+        #include <skinning_vertex> // 計算骨架變形 (這行最重要！)
         
-        #include <project_vertex>
-      `
-    );
-
-    // 3. 注入 Fragment Shader (執行掃描裁剪 + 發光)
-    shader.fragmentShader = `
+        // standard vertex transform
+        vec3 transformed = vec3( position );
+        #include <skinning_vertex> // 套用骨架到 transformed
+        
+        vec4 mvPosition = modelViewMatrix * vec4( transformed, 1.0 );
+        gl_Position = projectionMatrix * mvPosition;
+        
+        // 計算世界座標 (用來做掃描效果)
+        vec4 worldPos = modelMatrix * vec4( transformed, 1.0 );
+        vWorldPosition = worldPos.xyz;
+      }
+    `,
+    // 片段著色器 (負責掃描線效果)
+    fragmentShader: `
       uniform float uScanY;
-      uniform vec3 uGlowColor;
-      varying float vWorldY;
-    ` + shader.fragmentShader;
+      uniform vec3 uColor;
+      varying vec3 vWorldPosition;
 
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <dithering_fragment>',
-      `
-        // 核心邏輯：高於掃描線的像素直接丟棄 (Discard)
-        // 注意：這裡的座標可能需要根據場景縮放微調
-        if (vWorldY > uScanY) discard;
+      void main() {
+        // 1. 高於掃描線的像素隱藏
+        if (vWorldPosition.y > uScanY) discard;
 
-        // 計算掃描邊緣發光 (Glow)
-        float dist = uScanY - vWorldY;
+        // 2. 掃描線發光邊緣
+        float dist = uScanY - vWorldPosition.y;
         float glow = 0.0;
-        // 在掃描線下方 0.15 單位內發光
-        if (dist > 0.0 && dist < 0.15) {
-           glow = (1.0 - dist / 0.15); // 越近越亮
-           glow = pow(glow, 3.0);      // 讓光線更銳利
+        if (dist >= 0.0 && dist < 0.15) {
+           glow = pow((1.0 - dist/0.15), 3.0) * 1.5;
         }
 
-        // 疊加發光顏色
-        gl_FragColor.rgb += uGlowColor * glow * 2.0;
-        gl_FragColor.a += glow; // 發光處不透明
-
-        #include <dithering_fragment>
-      `
-    );
-  };
-
-  return mat;
+        // 3. 輸出顏色
+        vec3 finalColor = uColor + vec3(glow);
+        float alpha = 0.15 + glow; // 基礎透明度 0.15 + 發光
+        
+        gl_FragColor = vec4(finalColor, alpha);
+      }
+    `
+  });
 }
 
 export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) {
@@ -110,7 +98,6 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
   
   // 掃描動畫控制
   const scanYRef = useRef(-1.0); 
-  // 根據場景大小，掃描目標高度大概在 1.6 ~ 1.8 (頭頂)
   const targetScanY = 1.8; 
 
   useEffect(() => {
@@ -132,12 +119,12 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
                     obj.userData.originalMat = obj.material;
                 }
 
-                // 2. 建立全像材質 (使用上面定義的 createHologramMaterial)
+                // 2. 建立全像材質
                 if (!obj.userData.hologramMat) {
                     obj.userData.hologramMat = createHologramMaterial();
                 }
 
-                // 3. 分類：眼睛 vs 身體
+                // 3. 分類
                 const matName = obj.material.name || "";
                 const objName = obj.name || "";
                 const isEye = 
@@ -152,7 +139,7 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
         });
 
         applyNaturalPose(loadedVrm);
-        scanYRef.current = -1.0; // 重置掃描高度
+        scanYRef.current = -1.0; 
 
     } catch (e) { console.error(e); }
 
@@ -166,43 +153,39 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
     
     // --- 掃描與材質邏輯 ---
     if (!unlocked) {
-        // 1. 掃描線上升動畫 (速度可以調這裡)
+        // 1. 上升動畫
         scanYRef.current = THREE.MathUtils.lerp(scanYRef.current, targetScanY + 0.5, delta * 1.0); 
 
-        // 2. 更新 Shader Uniforms
+        // 2. 更新 Uniforms
         meshes.body.forEach(mesh => {
-            // 切換成全像材質
             if (mesh.material !== mesh.userData.hologramMat) {
                 mesh.material = mesh.userData.hologramMat;
                 mesh.castShadow = false;
                 mesh.receiveShadow = false;
             }
-            // 更新掃描高度
-            if (mesh.userData.hologramMat.userData.shader) {
-                mesh.userData.hologramMat.userData.shader.uniforms.uScanY.value = scanYRef.current;
+            if (mesh.userData.hologramMat) {
+                mesh.userData.hologramMat.uniforms.uScanY.value = scanYRef.current;
             }
         });
 
-        // 3. 眼睛特殊邏輯：掃描過頭部後，眼睛瞬間實體化
-        const headHeight = 1.35; // 脖子/下巴高度
+        // 3. 眼睛邏輯 (掃描過頭部後顯示)
+        const headHeight = 1.35;
         const eyesShouldBeReal = scanYRef.current > headHeight;
 
         meshes.eyes.forEach(eye => {
             if (eyesShouldBeReal) {
-                 // 變回實體
                  if (eye.material !== eye.userData.originalMat) eye.material = eye.userData.originalMat;
                  if (eye.material.emissive) eye.material.emissive.setHex(0x222222);
             } else {
-                 // 隱藏 (使用全像材質並設得很低，讓它被 discard 掉)
                  if (eye.material !== eye.userData.hologramMat) eye.material = eye.userData.hologramMat;
-                 if (eye.userData.hologramMat.userData.shader) {
-                    eye.userData.hologramMat.userData.shader.uniforms.uScanY.value = scanYRef.current;
+                 if (eye.userData.hologramMat) {
+                    eye.userData.hologramMat.uniforms.uScanY.value = scanYRef.current;
                  }
             }
         });
 
     } else {
-        // --- 解鎖狀態：全部變回實體 ---
+        // --- 解鎖狀態 ---
         meshes.eyes.concat(meshes.body).forEach(mesh => {
             if (mesh.material !== mesh.userData.originalMat) {
                 mesh.material = mesh.userData.originalMat;
