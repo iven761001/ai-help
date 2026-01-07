@@ -7,7 +7,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 import * as THREE from "three";
 
-// 🌟 讓角色自然站立
+// 自然站姿
 function applyNaturalPose(vrm) {
   if (!vrm || !vrm.humanoid) return;
   const rotateBone = (name, x, y, z) => {
@@ -22,66 +22,23 @@ function applyNaturalPose(vrm) {
   rotateBone('rightHand', 0, 0, -0.1);
 }
 
-// 🌟 建立支援骨架的全像材質
-function createHologramMaterial() {
-  return new THREE.ShaderMaterial({
-    // 關鍵 1: 必須開啟 skinning 支援
-    skinning: true,
-    transparent: true,
-    wireframe: true, // 線框模式
-    side: THREE.DoubleSide,
-    uniforms: {
-      uTime: { value: 0 },
-      uScanY: { value: -10.0 }, // 掃描高度
-      uColor: { value: new THREE.Color("#00ffff") }
-    },
-    // 關鍵 2: 頂點著色器必須包含 skinning 運算
-    vertexShader: `
-      #include <common>
-      #include <skinning_pars_vertex> // 引入骨架參數
-      
-      varying vec3 vWorldPosition;
-      
-      void main() {
-        #include <skinning_vertex> // 計算骨架變形 (這行最重要！)
-        
-        // standard vertex transform
-        vec3 transformed = vec3( position );
-        #include <skinning_vertex> // 套用骨架到 transformed
-        
-        vec4 mvPosition = modelViewMatrix * vec4( transformed, 1.0 );
-        gl_Position = projectionMatrix * mvPosition;
-        
-        // 計算世界座標 (用來做掃描效果)
-        vec4 worldPos = modelMatrix * vec4( transformed, 1.0 );
-        vWorldPosition = worldPos.xyz;
-      }
-    `,
-    // 片段著色器 (負責掃描線效果)
-    fragmentShader: `
-      uniform float uScanY;
-      uniform vec3 uColor;
-      varying vec3 vWorldPosition;
-
-      void main() {
-        // 1. 高於掃描線的像素隱藏
-        if (vWorldPosition.y > uScanY) discard;
-
-        // 2. 掃描線發光邊緣
-        float dist = uScanY - vWorldPosition.y;
-        float glow = 0.0;
-        if (dist >= 0.0 && dist < 0.15) {
-           glow = pow((1.0 - dist/0.15), 3.0) * 1.5;
-        }
-
-        // 3. 輸出顏色
-        vec3 finalColor = uColor + vec3(glow);
-        float alpha = 0.15 + glow; // 基礎透明度 0.15 + 發光
-        
-        gl_FragColor = vec4(finalColor, alpha);
-      }
-    `
-  });
+// 🌟 掃描線光環組件 (跟隨掃描高度)
+function ScannerRing({ scanY, visible }) {
+  if (!visible) return null;
+  return (
+    <group position={[0, scanY, 0]}>
+      {/* 發光主環 */}
+      <mesh rotation={[-Math.PI/2, 0, 0]}>
+        <ringGeometry args={[0.4, 0.42, 32]} />
+        <meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.8} />
+      </mesh>
+      {/* 暈光 */}
+      <mesh rotation={[-Math.PI/2, 0, 0]}>
+        <ringGeometry args={[0.35, 0.45, 32]} />
+        <meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.2} blending={THREE.AdditiveBlending} />
+      </mesh>
+    </group>
+  );
 }
 
 export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) {
@@ -96,14 +53,19 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
   const [meshes, setMeshes] = useState({ eyes: [], body: [] });
   const tRef = useRef(0);
   
-  // 掃描動畫控制
-  const scanYRef = useRef(-1.0); 
-  const targetScanY = 1.8; 
+  // 🌟 裁切平面 (用來控制身體生長)
+  // normal: (0, -1, 0) 代表平面朝下，保留平面下方的物體 (反之亦然，視需求調整)
+  // 這裡我們用 (0, 1, 0) 配合 constant 來切
+  // 實際上：想要保留 y < scanY 的部分 -> normal (0, -1, 0), constant = scanY
+  const clippingPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, -1, 0), -10), []);
+
+  const scanYRef = useRef(-0.5); // 初始高度
+  const targetScanY = 2.0; 
+  const [showScanner, setShowScanner] = useState(true);
 
   useEffect(() => {
     if (!gltf?.userData?.vrm) return;
     const loadedVrm = gltf.userData.vrm;
-    
     const eyeMeshes = [];
     const bodyMeshes = [];
 
@@ -114,24 +76,26 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
             if (obj.isMesh) {
                 obj.frustumCulled = false;
                 
-                // 1. 備份原始材質
-                if (!obj.userData.originalMat) {
-                    obj.userData.originalMat = obj.material;
-                }
+                // 1. 備份材質
+                if (!obj.userData.originalMat) obj.userData.originalMat = obj.material;
 
-                // 2. 建立全像材質
+                // 2. 建立全像材質 (MeshBasicMaterial + Wireframe)
                 if (!obj.userData.hologramMat) {
-                    obj.userData.hologramMat = createHologramMaterial();
+                    obj.userData.hologramMat = new THREE.MeshBasicMaterial({
+                        color: 0x00ffff,
+                        wireframe: true,
+                        transparent: true,
+                        opacity: 0.15,
+                        side: THREE.DoubleSide,
+                        clippingPlanes: [clippingPlane], // 🌟 綁定裁切平面
+                    });
                 }
 
-                // 3. 分類
                 const matName = obj.material.name || "";
                 const objName = obj.name || "";
-                const isEye = 
-                    matName.toLowerCase().includes("eye") || 
-                    matName.toLowerCase().includes("face") || 
-                    objName.toLowerCase().includes("iris") ||
-                    objName.toLowerCase().includes("pupil");
+                const isEye = matName.toLowerCase().includes("eye") || 
+                              matName.toLowerCase().includes("face") || 
+                              objName.toLowerCase().includes("iris");
                 
                 if (isEye) eyeMeshes.push(obj);
                 else bodyMeshes.push(obj);
@@ -139,63 +103,71 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
         });
 
         applyNaturalPose(loadedVrm);
-        scanYRef.current = -1.0; 
+        scanYRef.current = -0.5; // 重置高度
+        setShowScanner(true);
 
     } catch (e) { console.error(e); }
 
     setMeshes({ eyes: eyeMeshes, body: bodyMeshes });
     setVrm(loadedVrm);
     if (onReady) onReady(loadedVrm);
-  }, [gltf, onReady]);
+  }, [gltf, onReady, clippingPlane]);
 
   useFrame((state, delta) => {
     if (!vrm) return;
     
-    // --- 掃描與材質邏輯 ---
     if (!unlocked) {
-        // 1. 上升動畫
-        scanYRef.current = THREE.MathUtils.lerp(scanYRef.current, targetScanY + 0.5, delta * 1.0); 
+        // --- 鎖定狀態：執行掃描動畫 ---
+        
+        // 1. 掃描線慢慢往上
+        scanYRef.current = THREE.MathUtils.lerp(scanYRef.current, targetScanY + 0.1, delta * 0.8);
+        
+        // 2. 更新裁切平面高度
+        // Plane constant = distance from origin. For (0,-1,0), constant needs to be scanY
+        clippingPlane.constant = scanYRef.current;
 
-        // 2. 更新 Uniforms
+        // 3. 身體套用全像材質
         meshes.body.forEach(mesh => {
             if (mesh.material !== mesh.userData.hologramMat) {
                 mesh.material = mesh.userData.hologramMat;
                 mesh.castShadow = false;
-                mesh.receiveShadow = false;
-            }
-            if (mesh.userData.hologramMat) {
-                mesh.userData.hologramMat.uniforms.uScanY.value = scanYRef.current;
             }
         });
 
-        // 3. 眼睛邏輯 (掃描過頭部後顯示)
+        // 4. 眼睛邏輯：高度過了脖子(1.35)才顯示
         const headHeight = 1.35;
-        const eyesShouldBeReal = scanYRef.current > headHeight;
+        const eyesVisible = scanYRef.current > headHeight;
 
         meshes.eyes.forEach(eye => {
-            if (eyesShouldBeReal) {
+             // 眼睛用原始材質，因為要有靈魂
+             // 但如果還沒掃到，就讓它被裁切掉 (設定 visible = false 或同樣套用 clipping)
+             // 為了簡單，我們直接用 visibility 控制
+             eye.visible = eyesVisible;
+             
+             if (eyesVisible) {
                  if (eye.material !== eye.userData.originalMat) eye.material = eye.userData.originalMat;
-                 if (eye.material.emissive) eye.material.emissive.setHex(0x222222);
-            } else {
-                 if (eye.material !== eye.userData.hologramMat) eye.material = eye.userData.hologramMat;
-                 if (eye.userData.hologramMat) {
-                    eye.userData.hologramMat.uniforms.uScanY.value = scanYRef.current;
-                 }
-            }
+                 if (eye.material.emissive) eye.material.emissive.setHex(0x333333);
+             }
         });
 
+        // 5. 掃描完畢隱藏掃描環
+        if (scanYRef.current > 1.9) setShowScanner(false);
+
     } else {
-        // --- 解鎖狀態 ---
+        // --- 解鎖狀態：恢復實體 ---
+        setShowScanner(false);
+        clippingPlane.constant = 100; // 取消裁切
+
         meshes.eyes.concat(meshes.body).forEach(mesh => {
+            mesh.visible = true;
             if (mesh.material !== mesh.userData.originalMat) {
                 mesh.material = mesh.userData.originalMat;
                 mesh.castShadow = true;
-                mesh.receiveShadow = true;
             }
         });
     }
 
-    // --- 基礎動畫 ---
+    // 基礎動畫
     const blinkVal = Math.max(0, Math.sin(state.clock.elapsedTime * 2.5) * 5 - 4);
     if (vrm.expressionManager) {
       vrm.expressionManager.setValue('blink', Math.min(1, blinkVal));
@@ -212,5 +184,11 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
     vrm.update(delta);
   });
 
-  return vrm ? <primitive object={vrm.scene} /> : null;
+  return (
+      <>
+        {vrm && <primitive object={vrm.scene} />}
+        {/* 實體掃描光環 (跟著裁切面移動) */}
+        {!unlocked && <ScannerRing scanY={scanYRef.current} visible={showScanner} />}
+      </>
+  );
 }
