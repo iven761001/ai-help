@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState, useRef, forwardRef } from "react";
 import { useLoader, useFrame } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
@@ -20,27 +20,29 @@ function applyNaturalPose(vrm) {
   rotateBone('rightHand', 0, 0, -0.1);
 }
 
-// 掃描光環：獨立於模型，保證會出現
-function ScannerRing({ scanY }) {
-  // 如果掃描高度太高，就隱藏
-  const visible = scanY < 2.0; 
-  if (!visible) return null;
-
+// 🌟 掃描光環：改成 forwardRef，讓我們可以直接控制它
+const ScannerRing = forwardRef((props, ref) => {
   return (
-    <group position={[0, scanY, 0]}>
+    <group ref={ref} position={[0, 0, 0]}> 
       {/* 亮環 */}
       <mesh rotation={[-Math.PI/2, 0, 0]}>
-        <ringGeometry args={[0.4, 0.42, 32]} />
-        <meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.9} />
+        <ringGeometry args={[0.45, 0.48, 64]} />
+        <meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={1.0} />
       </mesh>
-      {/* 殘影 */}
+      {/* 暈光 */}
       <mesh rotation={[-Math.PI/2, 0, 0]}>
-        <ringGeometry args={[0.35, 0.45, 32]} />
+        <ringGeometry args={[0.40, 0.55, 64]} />
         <meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.3} blending={THREE.AdditiveBlending} />
+      </mesh>
+      {/* 掃描面發光 (增加視覺厚度) */}
+      <mesh rotation={[-Math.PI/2, 0, 0]}>
+         <circleGeometry args={[0.44, 32]} />
+         <meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.05} blending={THREE.AdditiveBlending} />
       </mesh>
     </group>
   );
-}
+});
+ScannerRing.displayName = "ScannerRing";
 
 export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) {
   const url = useMemo(() => `/vrm/${vrmId}.vrm`, [vrmId]);
@@ -54,13 +56,14 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
   const [meshes, setMeshes] = useState({ eyes: [], body: [] });
   const tRef = useRef(0);
   
-  // 🌟 建立裁切平面
-  // Normal (0, -1, 0) 代表保留平面「下方」的物體
-  // Constant 代表平面在 Y 軸的位置
-  // 例如：Constant = 0.5，代表保留 Y < 0.5 的部分 (腳部)
+  // 🌟 裁切平面：保留平面「下方」的物體 (Normal: 0, -1, 0)
   const clippingPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, -1, 0), 0), []);
+  
+  // 🌟 直接控制光環的 Ref
+  const scannerGroupRef = useRef();
 
-  const scanYRef = useRef(0); // 掃描高度
+  // 掃描動態數值
+  const scanYRef = useRef(0);
   const targetScanY = 2.2; 
 
   // 1. 初始化模型
@@ -77,7 +80,6 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
             if (obj.isMesh) {
                 obj.frustumCulled = false;
                 
-                // 備份原始材質
                 if (!obj.userData.originalMat) obj.userData.originalMat = obj.material;
 
                 // 建立全像材質 (Wireframe + Clipping)
@@ -86,9 +88,9 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
                         color: 0x00ffff,
                         wireframe: true,
                         transparent: true,
-                        opacity: 0.15,
+                        opacity: 0.2, // 稍微調高一點
                         side: THREE.DoubleSide,
-                        clippingPlanes: [clippingPlane], // 綁定裁切面
+                        clippingPlanes: [clippingPlane], // 綁定裁切
                     });
                 }
 
@@ -106,9 +108,9 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
 
         applyNaturalPose(loadedVrm);
         
-        // 每次換模型，重置掃描高度到 0 (腳底)
-        scanYRef.current = 0;
-        clippingPlane.constant = 0;
+        // 重置掃描狀態 (從 0 開始，不要從負數開始，確保一開始看得到腳)
+        scanYRef.current = 0.05;
+        clippingPlane.constant = 0.05;
 
     } catch (e) { console.error(e); }
 
@@ -120,23 +122,30 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
   // 2. 動畫迴圈
   useFrame((state, delta) => {
     
-    // --- 獨立的掃描動畫 (保證光環會動) ---
+    // --- 掃描動畫 (直接操作 Ref，不依賴 State) ---
     if (!unlocked) {
-        // 讓掃描線往上升
+        // 1. 數值增加
         scanYRef.current = THREE.MathUtils.lerp(scanYRef.current, targetScanY + 0.1, delta * 0.8);
         
-        // 同步更新裁切平面 (讓身體長出來)
-        // 注意：如果 scanYRef 增加，clippingPlane.constant 也要增加，才能顯示更多
+        // 2. 同步光環位置 (直接修改 Transform)
+        if (scannerGroupRef.current) {
+            scannerGroupRef.current.position.y = scanYRef.current;
+            scannerGroupRef.current.visible = scanYRef.current < 2.0; // 超過頭頂就隱藏
+        }
+
+        // 3. 同步裁切平面
         clippingPlane.constant = scanYRef.current;
+
     } else {
-        // 解鎖：取消裁切 (讓平面飛到很高的地方)
+        // 解鎖：隱藏光環，取消裁切
+        if (scannerGroupRef.current) scannerGroupRef.current.visible = false;
         clippingPlane.constant = 100.0;
     }
 
-    // --- 模型邏輯 ---
+    // --- 模型材質更新 ---
     if (vrm) {
         if (!unlocked) {
-            // 身體：全像模式
+            // 鎖定：全像模式
             meshes.body.forEach(mesh => {
                 if (mesh.material !== mesh.userData.hologramMat) {
                     mesh.material = mesh.userData.hologramMat;
@@ -146,7 +155,6 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
             // 眼睛：過了脖子才顯示
             const headHeight = 1.35;
             const eyesVisible = scanYRef.current > headHeight;
-            
             meshes.eyes.forEach(eye => {
                 eye.visible = eyesVisible;
                 if (eyesVisible) {
@@ -160,6 +168,8 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
                 mesh.visible = true;
                 if (mesh.material !== mesh.userData.originalMat) {
                     mesh.material = mesh.userData.originalMat;
+                    mesh.castShadow = true;
+                    mesh.receiveShadow = true;
                 }
             });
         }
@@ -185,8 +195,8 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false }) 
   return (
       <>
         {vrm && <primitive object={vrm.scene} />}
-        {/* 掃描光環：只要沒解鎖，就一定會顯示 (跟隨 scanYRef) */}
-        {!unlocked && <ScannerRing scanY={scanYRef.current} />}
+        {/* 🌟 掃描光環 (傳入 Ref) */}
+        <ScannerRing ref={scannerGroupRef} />
       </>
   );
 }
