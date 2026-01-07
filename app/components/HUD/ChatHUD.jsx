@@ -1,196 +1,153 @@
-//ChatHUD.jsx v1.000
-// app/components/HUD/ChatHUD.jsx
+// components/HUD/ChatHUD.jsx
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
-function cx(...arr) {
-  return arr.filter(Boolean).join(" ");
-}
+// 如果妳沒有安裝 lucide-react，這裡用文字代替 ICON
+// import { Send, User, Bot } from "lucide-react"; 
 
-export default function ChatHUD({
-  user,
-  messages,
-  sending,
-  input,
-  setInput,
-  onSend,
-  onBackToCreator,
-  onHeightChange
-}) {
-  const scrollerRef = useRef(null);
-  const stickToBottomRef = useRef(true);
-  const shellRef = useRef(null);
+export default function ChatHUD() {
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState([]);
+  const [isTyping, setIsTyping] = useState(false);
+  const [character, setCharacter] = useState(null);
+  
+  const messagesEndRef = useRef(null);
 
-  // 回報高度給外層（page.js 用來讓舞台自動讓位）
+  // 1. 初始化：從 LocalStorage 讀取角色資料
   useEffect(() => {
-    const el = shellRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
+    try {
+      const saved = localStorage.getItem("my_ai_character");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setCharacter(parsed);
+        // 發送第一條歡迎訊息
+        setMessages([
+          { role: "ai", content: `哈囉！我是${parsed.name || "AI"}，我們終於見面了！` }
+        ]);
+      }
+    } catch (e) {
+      console.error("讀取角色失敗", e);
+    }
+  }, []);
 
-    const emit = () => {
-      const h = el.getBoundingClientRect().height || 0;
-      onHeightChange?.(h);
-    };
+  // 自動捲動到底部
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isTyping]);
 
-    emit();
-    const ro = new ResizeObserver(() => requestAnimationFrame(emit));
-    ro.observe(el);
+  // 2. 發送訊息給 API
+  const handleSendMessage = async () => {
+    if (!input.trim()) return;
 
-    window.addEventListener("resize", emit);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", emit);
-    };
-  }, [onHeightChange]);
+    const userText = input;
+    setInput(""); // 清空輸入框
+    
+    // 顯示使用者訊息
+    setMessages((prev) => [...prev, { role: "user", content: userText }]);
+    setIsTyping(true);
 
-  const updateStickState = () => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    const threshold = 90;
-    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-    stickToBottomRef.current = dist < threshold;
+    try {
+      // 呼叫我們剛剛寫的 route.js
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: userText,
+          character: character || {} // 把角色設定傳給後端
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setMessages((prev) => [...prev, { role: "ai", content: data.reply }]);
+        
+        // 這裡未來可以擴充：根據 data.emotion 改變 3D 角色的動作
+        // 例如： if (data.emotion === 'happy') setAnimation('dance');
+      } else {
+        setMessages((prev) => [...prev, { role: "ai", content: "發生錯誤，請稍後再試..." }]);
+      }
+
+    } catch (error) {
+      console.error("Chat Error:", error);
+      setMessages((prev) => [...prev, { role: "ai", content: "網路連線怪怪的..." }]);
+    } finally {
+      setIsTyping(false);
+    }
   };
 
-  // 新訊息：只有在使用者停在底部附近才自動滑到底
-  useEffect(() => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    if (!stickToBottomRef.current) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [messages.length]);
-
-  const canSend = useMemo(() => !!input.trim() && !sending, [input, sending]);
-
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!canSend) return;
-    const text = input;
-    setInput("");
-    await onSend(text);
-    stickToBottomRef.current = true;
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault(); // 防止手機換行
+      handleSendMessage();
+    }
   };
 
   return (
-    <div
-      ref={shellRef}
-      className="
-        h-full
-        rounded-[28px]
-        bg-white/10
-        backdrop-blur-xl
-        border border-white/15
-        shadow-[0_-12px_50px_rgba(56,189,248,0.15)]
-        overflow-hidden
-        flex flex-col
-      "
-    >
-      {/* Header */}
-      <div className="px-4 pt-4 pb-3 flex items-center justify-between gap-3 shrink-0">
-        <div className="min-w-0">
-          <div className="text-sm font-semibold text-white truncate">
-            {user?.nickname || "你的 AI 小管家"}
-          </div>
-          <div className="text-[11px] text-white/70 truncate">
-            綁定信箱：{user?.email || ""}
-          </div>
+    <div className="flex flex-col h-full justify-between p-4 max-w-md mx-auto font-sans relative z-10">
+      
+      {/* 上方標題 (顯示角色名字) */}
+      <div className="flex justify-center items-center py-2">
+        <div className="bg-black/40 backdrop-blur-md px-4 py-1 rounded-full border border-white/10 text-white/80 text-xs shadow-lg">
+           {character?.name || "AI 夥伴"} 連線中...
         </div>
-
-        <button
-          type="button"
-          onClick={onBackToCreator}
-          className="
-            shrink-0 h-10 w-10 rounded-full
-            bg-white/10 border border-white/15
-            text-white flex items-center justify-center
-            active:scale-95 transition
-          "
-          aria-label="回到選角"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M15 18l-6-6 6-6"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
       </div>
 
-      {/* Messages */}
-      <div
-        ref={scrollerRef}
-        onScroll={updateStickState}
-        className="px-4 pb-3 overflow-y-auto no-scrollbar flex-1"
-        style={{ overscrollBehavior: "contain" }}
-      >
-        {messages.length === 0 && (
-          <div className="text-xs text-white/60 text-center mt-8 whitespace-pre-wrap">
-            跟 {user?.nickname} 打聲招呼吧！{"\n"}
-            可以問：「浴室玻璃有水垢要怎麼清？」、
-            「鍍膜後幾天不能用什麼清潔劑？」
+      {/* 中間對話區 (高度自適應，背景透明) */}
+      <div className="flex-1 overflow-y-auto scrollbar-hide space-y-4 py-4 px-2 mask-image-gradient">
+        {messages.map((msg, index) => (
+          <div
+            key={index}
+            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+          >
+            <div
+              className={`
+                max-w-[80%] px-4 py-3 text-sm leading-relaxed shadow-md backdrop-blur-md border animate-fadeIn
+                ${msg.role === "user" 
+                  ? "bg-blue-600/80 text-white rounded-2xl rounded-tr-none border-blue-500/50" 
+                  : "bg-gray-800/70 text-gray-100 rounded-2xl rounded-tl-none border-gray-700/50"}
+              `}
+            >
+              {msg.content}
+            </div>
+          </div>
+        ))}
+        
+        {/* 打字動畫 */}
+        {isTyping && (
+          <div className="flex justify-start">
+            <div className="bg-gray-800/60 text-gray-400 rounded-2xl rounded-tl-none px-4 py-2 text-xs border border-gray-700/50">
+              思考中...
+            </div>
           </div>
         )}
-
-        <div className="space-y-2">
-          {messages.map((m, idx) => (
-            <div
-              key={idx}
-              className={cx("flex", m.role === "user" ? "justify-end" : "justify-start")}
-            >
-              <div
-                className={cx(
-                  "max-w-[86%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap",
-                  m.role === "user"
-                    ? "bg-sky-500 text-white rounded-br-none"
-                    : "bg-white/12 text-white rounded-bl-none border border-white/10"
-                )}
-              >
-                {m.content}
-              </div>
-            </div>
-          ))}
-
-          {sending && (
-            <div className="flex justify-start">
-              <div className="bg-white/10 text-white/70 text-xs px-3 py-2 rounded-2xl rounded-bl-none border border-white/10">
-                {user?.nickname} 思考中⋯⋯
-              </div>
-            </div>
-          )}
-        </div>
+        <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
-      <form onSubmit={submit} className="px-4 pb-4 pt-2 border-t border-white/10 shrink-0">
-        <div className="flex items-center gap-2">
+      {/* 下方輸入區 */}
+      <div className="pt-2 pb-safe-bottom">
+        <div className="relative flex items-center gap-2">
           <input
+            type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="輸入想問的問題，例如：地板有黃漬，要怎麼清比較安全？"
-            disabled={sending}
-            className="
-              flex-1 rounded-full
-              border border-white/15
-              bg-black/20 text-white
-              px-4 py-2 text-sm outline-none
-              placeholder:text-white/40
-              focus:ring-2 focus:ring-sky-400
-            "
+            onKeyDown={handleKeyDown}
+            placeholder="輸入訊息..."
+            className="flex-1 bg-black/60 border border-white/20 text-white placeholder-gray-400 rounded-full px-4 py-3 focus:outline-none focus:border-blue-500 backdrop-blur-md transition-all"
           />
-          <button
-            type="submit"
-            disabled={!canSend}
-            className={cx(
-              "rounded-full px-4 py-2 text-sm font-medium transition",
-              canSend ? "bg-sky-500 text-white hover:bg-sky-400" : "bg-white/15 text-white/50"
-            )}
+          <button 
+            onClick={handleSendMessage}
+            disabled={!input.trim() || isTyping}
+            className={`
+              p-3 rounded-full font-bold text-white transition-all shadow-lg
+              ${input.trim() ? "bg-blue-600 hover:bg-blue-500 active:scale-95" : "bg-gray-700 text-gray-500"}
+            `}
           >
-            發送
+            傳送
           </button>
         </div>
-      </form>
+      </div>
     </div>
   );
 }
