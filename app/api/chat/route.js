@@ -1,60 +1,48 @@
 // app/api/chat/route.js
-import { NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
 
 export async function POST(req) {
   try {
-    // 1. 嘗試解析資料
     const body = await req.json();
     const message = (body?.message || "").trim();
-    
-    // 接收前端傳來的角色設定，如果沒有就用預設值
-    const nickname = body?.character?.name || "AI 夥伴";
-    const voice = body?.character?.voice || "cute";
-    const personality = body?.character?.personality || "warm";
+    const nickname = body?.nickname || "小管家";
 
-    // 2. 檢查空訊息
+    // 1. 如果沒內容
     if (!message) {
       return NextResponse.json({ 
-        reply: "（聽不太清楚...）妳剛剛好像沒說話耶？再試一次看看？", 
+        reply: "妳剛剛好像沒打內容～再輸入一次我再幫妳～", 
         emotion: "confused" 
       });
     }
 
-    // 3. 簡單的關鍵字邏輯 (這裡未來會換成 OpenAI)
-    let replyText = "";
-    let emotion = "idle";
+    // 2. 模擬 AI 思考時間 (0.8秒)
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    // 3. 簡單的回覆邏輯
+    let reply = "";
+    let emotion = "neutral";
 
     if (message.includes("你好") || message.includes("嗨")) {
-      replyText = `嗨嗨！我是${nickname}！終於見到妳了～(開心)`;
+      reply = `哈囉！我是${nickname}，很高興見到妳！有什麼我可以幫妳的嗎？✨`;
       emotion = "happy";
-    } else if (message.includes("水垢") || message.includes("髒")) {
-      replyText = "說到水垢真的很討厭對吧！如果是浴室玻璃，我建議用檸檬酸濕敷看看喔！";
-      emotion = "angry"; // 假裝對髒污生氣
+    } else if (message.includes("玻璃") || message.includes("水垢")) {
+      reply = "浴室玻璃的水垢真的很煩人對吧？😫 建議可以使用檸檬酸或是專用的玻璃清潔劑，效果會很好喔！需不需要我推薦幾款？";
+      emotion = "thoughtful";
+    } else if (message.includes("生氣") || message.includes("討厭")) {
+      reply = "別氣別氣～發生什麼事了？說出來心裡會舒服一點喔 ❤️";
+      emotion = "sad";
     } else {
-      // 根據個性 (personality) 給出不同的回應風格
-      if (personality === "cool") {
-        replyText = `收到，關於「${message}」這件事，我記錄下來了。`;
-        emotion = "neutral";
-      } else if (personality === "energetic") {
-        replyText = `沒問題！「${message}」是吧？交給我處理！(握拳)`;
-        emotion = "happy";
-      } else {
-        // 預設 warm
-        replyText = `嗯嗯，我聽到了～妳剛剛說「${message}」，我們可以一起研究看看喔！`;
-        emotion = "happy";
-      }
+      reply = `${nickname} 收到妳說的：「${message}」\n但我目前還在學習中，可能需要妳說得更具體一點，我才能幫妳解決清潔/鍍膜的問題喔！💪`;
+      emotion = "neutral";
     }
 
-    // 4. 回傳結果
-    return NextResponse.json({
-      reply: replyText,
-      emotion: emotion
-    });
+    // 4. 回傳
+    return NextResponse.json({ reply, emotion });
 
   } catch (e) {
     console.error("API Error:", e);
     return NextResponse.json(
-      { reply: "系統大腦運轉過熱...請稍後再試一次 (500)", emotion: "sad" },
+      { reply: "系統有點忙碌，大腦打結了...稍後再試一次看看～ 😵", emotion: "sad" },
       { status: 500 }
     );
   }
