@@ -1,325 +1,82 @@
-//
-// app/components/Creator/WheelPicker.jsx
+// components/Creator/WheelPicker.jsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+// 單個選項的設計
+function WheelItem({ label, isActive, onClick }) {
+  return (
+    <div
+      onClick={onClick}
+      className={`
+        relative flex items-center justify-center cursor-pointer transition-all duration-300
+        h-10 w-24 rounded-sm
+        ${isActive 
+          ? "scale-110 z-10" 
+          : "scale-90 opacity-40 hover:opacity-70"
+        }
+      `}
+    >
+      {/* 🌟 科技感邊框背景 */}
+      <div className={`
+        absolute inset-0 border-2 skew-x-[-10deg] transition-all duration-300
+        ${isActive 
+           ? "border-cyan-400 bg-cyan-900/30 shadow-[0_0_15px_rgba(34,211,238,0.5)]" 
+           : "border-gray-700 bg-gray-900/50"
+        }
+      `}></div>
 
-function cx(...arr) {
-  return arr.filter(Boolean).join(" ");
+      {/* 裝飾線條 (角落亮點) */}
+      {isActive && (
+        <>
+          <div className="absolute top-0 left-0 w-1.5 h-1.5 bg-cyan-200"></div>
+          <div className="absolute bottom-0 right-0 w-1.5 h-1.5 bg-cyan-200"></div>
+        </>
+      )}
+
+      {/* 文字內容 */}
+      <span className={`
+        relative z-20 text-xs font-bold tracking-wider uppercase skew-x-[-10deg]
+        ${isActive ? "text-cyan-100" : "text-gray-400"}
+      `}>
+        {label}
+      </span>
+    </div>
+  );
 }
 
-export default function WheelPicker({
-  title,
-  subtitle,
-  items,
-  value,
-  onChange,
-  height = 176,
-  itemHeight = 44,
-  disabled = false,
-  haptics = true
-}) {
-  const ref = useRef(null);
-  const itemElsRef = useRef([]);
-  const selectWinRef = useRef(null);
-
-  const [isInteracting, setIsInteracting] = useState(false);
-  const [bounce, setBounce] = useState(false);
-
-  const lastEmitRef = useRef(value);
-  const rafRef = useRef(0);
-  const settleTimerRef = useRef(null);
-
-  const pad = useMemo(
-    () => Math.max(0, Math.floor((height - itemHeight) / 2)),
-    [height, itemHeight]
-  );
-
-  const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
-
-  const vibrate = (ms = 8) => {
-    if (!haptics) return;
-    try {
-      if (typeof navigator !== "undefined" && navigator.vibrate) {
-        navigator.vibrate(ms);
-      }
-    } catch {}
-  };
-
-  const applyIOSStyles = (scrollTop) => {
-    const el = ref.current;
-    if (!el) return;
-
-    const DEG_PER_STEP = 22;
-    const gearAngle = (scrollTop / itemHeight) * DEG_PER_STEP;
-
-    if (selectWinRef.current) {
-      selectWinRef.current.style.setProperty("--gearAngle", `${gearAngle}deg`);
-      selectWinRef.current.style.setProperty("--gearPulse", isInteracting ? "1" : "0");
-    }
-
-    const centerY = scrollTop + height / 2;
-
-    const maxDist = itemHeight * 2.2;
-    const ROT = 42;
-    const Z = 56;
-
-    for (let i = 0; i < itemElsRef.current.length; i++) {
-      const node = itemElsRef.current[i];
-      if (!node) continue;
-
-      const itemCenter = pad + i * itemHeight + itemHeight / 2;
-      const dist = itemCenter - centerY;
-      const nd = clamp(dist / maxDist, -1, 1);
-      const ad = Math.abs(nd);
-
-      const fade = clamp(1 - ad, 0, 1);
-
-      const scale = 0.86 + 0.18 * fade;
-      const opacity = 0.16 + 0.84 * Math.pow(fade, 1.9);
-      const blurPx = (1 - fade) * 1.5;
-
-      const rotateX = nd * ROT;
-      const translateZ = Z * fade;
-
-      node.style.opacity = String(opacity);
-      node.style.filter = `blur(${blurPx.toFixed(2)}px)`;
-      node.style.transform = `perspective(520px) rotateX(${rotateX.toFixed(
-        2
-      )}deg) translateZ(${translateZ.toFixed(1)}px) scale(${scale.toFixed(3)})`;
-
-      node.style.color = fade > 0.82 ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.65)";
-      node.style.fontWeight = fade > 0.86 ? "700" : "500";
-    }
-  };
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-
-    const idx = Math.max(0, items.findIndex((x) => x.id === value));
-    const targetTop = idx * itemHeight;
-
-    if (Math.abs(el.scrollTop - targetTop) > 2) {
-      el.scrollTop = targetTop;
-    }
-
-    applyIOSStyles(el.scrollTop);
-    lastEmitRef.current = value;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, items, itemHeight]);
-
-  const calcNearest = (scrollTop) => {
-    const idx = Math.round(scrollTop / itemHeight);
-    return clamp(idx, 0, items.length - 1);
-  };
-
-  const settle = () => {
-    const el = ref.current;
-    if (!el) return;
-
-    const nearest = calcNearest(el.scrollTop);
-    const next = items[nearest]?.id;
-
-    el.scrollTo({ top: nearest * itemHeight, behavior: "smooth" });
-
-    setBounce(true);
-    window.setTimeout(() => setBounce(false), 220);
-
-    if (next && next !== lastEmitRef.current) {
-      lastEmitRef.current = next;
-      onChange?.(next);
-      vibrate(9);
-    } else {
-      vibrate(5);
-    }
-
-    setIsInteracting(false);
-  };
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-
-    const onScroll = () => {
-      if (disabled) return;
-
-      setIsInteracting(true);
-
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(() => {
-        applyIOSStyles(el.scrollTop);
-
-        const nearest = calcNearest(el.scrollTop);
-        const next = items[nearest]?.id;
-        if (next && next !== value) {
-          onChange?.(next);
-        }
-
-        if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
-        settleTimerRef.current = window.setTimeout(() => settle(), 120);
-      });
-    };
-
-    const onPointerDown = () => {
-      if (disabled) return;
-      setIsInteracting(true);
-    };
-
-    el.addEventListener("scroll", onScroll, { passive: true });
-    el.addEventListener("pointerdown", onPointerDown, { passive: true });
-
-    requestAnimationFrame(() => applyIOSStyles(el.scrollTop));
-
-    return () => {
-      cancelAnimationFrame(rafRef.current);
-      el.removeEventListener("scroll", onScroll);
-      el.removeEventListener("pointerdown", onPointerDown);
-      if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [disabled, items, itemHeight, onChange, value, height, pad, isInteracting]);
-
-  const snapTo = (idx) => {
-    const el = ref.current;
-    if (!el) return;
-
-    setIsInteracting(true);
-    el.scrollTo({ top: idx * itemHeight, behavior: "smooth" });
-
-    if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
-    settleTimerRef.current = window.setTimeout(() => settle(), 140);
-  };
-
+// 內部組件
+export default function WheelPicker({ label, options, value, onChange }) {
   return (
-    <div className="rounded-2xl border border-white/12 bg-white/6 px-3 py-3">
-      <div className="px-1">
-        <div className="text-xs font-semibold text-white">{title}</div>
-        <div className="text-[11px] text-white/70">{subtitle}</div>
+    <div className="flex flex-col items-center mx-1 w-full">
+      {/* 標題 */}
+      <div className="flex items-center gap-2 mb-3">
+         <div className="w-1 h-3 bg-cyan-500/50"></div>
+         <span className="text-[10px] uppercase tracking-[0.2em] text-cyan-300 font-bold opacity-80 shadow-black drop-shadow-md">
+           {label}
+         </span>
+         <div className="w-full h-px bg-gradient-to-r from-cyan-500/30 to-transparent"></div>
       </div>
-
-      <div className="mt-2 relative">
-        <div
-          ref={selectWinRef}
-          className={cx(
-            "pointer-events-none absolute left-2 right-2 rounded-xl border transition",
-            isInteracting
-              ? "border-sky-300/60 bg-white/10 shadow-[0_0_0_1px_rgba(14,165,233,0.18),0_10px_25px_rgba(2,132,199,0.18)]"
-              : "border-white/12 bg-white/6 shadow-sm",
-            bounce ? "wheel-bounce" : ""
-          )}
-          style={{
-            top: pad,
-            height: itemHeight,
-            overflow: "hidden"
-          }}
+      
+      {/* 轉輪視窗 */}
+      <div className="relative w-full h-32 flex flex-col items-center justify-center">
+        {/* 這裡簡單處理：只顯示選中的、上一個、下一個，或是用捲動容器 */}
+        <div 
+          className="w-full h-full overflow-y-auto snap-y snap-mandatory py-[40px] no-scrollbar"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
-          <div className="gear-layer" />
-          <div className="gear-teeth" />
-          <div className="gear-sheen" />
-        </div>
-
-        <div className="pointer-events-none absolute left-0 right-0 top-0 h-12 bg-gradient-to-b from-black/35 to-transparent rounded-2xl" />
-        <div className="pointer-events-none absolute left-0 right-0 bottom-0 h-12 bg-gradient-to-t from-black/35 to-transparent rounded-2xl" />
-
-        <div
-          ref={ref}
-          className={cx("no-scrollbar overflow-y-auto rounded-2xl", disabled ? "opacity-60" : "opacity-100")}
-          style={{
-            height,
-            touchAction: "pan-y",
-            overscrollBehavior: "contain",
-            WebkitOverflowScrolling: "touch",
-            scrollSnapType: "y mandatory"
-          }}
-        >
-          <div style={{ height: pad }} />
-
-          {items.map((it, idx) => (
-            <button
-              key={it.id}
-              type="button"
-              disabled={disabled}
-              onClick={() => snapTo(idx)}
-              className="w-full text-left px-3 rounded-xl flex items-center"
-              style={{
-                height: itemHeight,
-                scrollSnapAlign: "center",
-                transformStyle: "preserve-3d",
-                willChange: "transform, filter, opacity"
-              }}
-              ref={(el) => {
-                itemElsRef.current[idx] = el;
-              }}
-            >
-              <div className="text-sm leading-none">{it.label}</div>
-            </button>
+          {options.map((opt) => (
+            <div key={opt.id || opt.value} className="snap-center flex justify-center py-1">
+              <WheelItem 
+                label={opt.label} 
+                isActive={(opt.id || opt.value) === value} 
+                onClick={() => onChange(opt.id || opt.value)}
+              />
+            </div>
           ))}
-
-          <div style={{ height: pad }} />
         </div>
 
-        <style jsx>{`
-          .wheel-bounce {
-            animation: wheelBounce 220ms cubic-bezier(0.2, 0.9, 0.2, 1);
-          }
-          @keyframes wheelBounce {
-            0% { transform: scale(1); }
-            55% { transform: scale(1.04); }
-            100% { transform: scale(1); }
-          }
-
-          .gear-layer {
-            position: absolute;
-            inset: -28px;
-            background:
-              radial-gradient(circle at 50% 50%, rgba(14,165,233,0.16), rgba(255,255,255,0) 55%),
-              linear-gradient(180deg, rgba(2,132,199,0.10), rgba(255,255,255,0.03)),
-              linear-gradient(90deg, rgba(2,132,199,0.08), rgba(255,255,255,0.02));
-            transform: rotate(var(--gearAngle, 0deg));
-            transform-origin: 50% 50%;
-            filter: saturate(1.1);
-          }
-
-          .gear-teeth {
-            position: absolute;
-            inset: -36px;
-            background:
-              repeating-conic-gradient(
-                from 0deg,
-                rgba(2,132,199,0.0) 0deg,
-                rgba(2,132,199,0.0) 10deg,
-                rgba(2,132,199,0.22) 11deg,
-                rgba(2,132,199,0.0) 12deg
-              );
-            mask-image: radial-gradient(circle at 50% 50%, transparent 0 36%, #000 52% 100%);
-            transform: rotate(calc(var(--gearAngle, 0deg) * 1.1));
-            transform-origin: 50% 50%;
-            opacity: 0.75;
-          }
-
-          .gear-sheen {
-            position: absolute;
-            inset: -10px;
-            background:
-              linear-gradient(
-                120deg,
-                rgba(255,255,255,0) 0%,
-                rgba(255,255,255,0.55) 45%,
-                rgba(255,255,255,0) 70%
-              );
-            transform: translateX(-60%) rotate(0deg);
-            opacity: calc(0.14 + var(--gearPulse, 0) * 0.28);
-            animation: sheenMove 1.2s ease-in-out infinite;
-            mix-blend-mode: screen;
-          }
-
-          @keyframes sheenMove {
-            0% { transform: translateX(-70%) rotate(8deg); }
-            55% { transform: translateX(70%) rotate(8deg); }
-            100% { transform: translateX(-70%) rotate(8deg); }
-          }
-        `}</style>
+        {/* 上下漸層遮罩 (讓滾動看起來有深度) */}
+        <div className="absolute top-0 left-0 w-full h-8 bg-gradient-to-b from-black to-transparent pointer-events-none"></div>
+        <div className="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-black to-transparent pointer-events-none"></div>
       </div>
     </div>
   );
