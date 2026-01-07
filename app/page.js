@@ -3,8 +3,8 @@
 import { useState, useEffect, Suspense } from "react";
 // 引入元件
 import AvatarStage from "./components/AvatarVRM/AvatarStage"; 
-import CompassCreator from "./components/Creator/CompassCreator"; // (之後會給)
-import ChatHUD from "./components/HUD/ChatHUD"; // (之後會給)
+import CompassCreator from "./components/Creator/CompassCreator";
+import ChatHUD from "./components/HUD/ChatHUD";
 
 // --- 存檔工具 ---
 const SAFE_STORAGE_KEY = "my_ai_character";
@@ -93,9 +93,6 @@ export default function Home() {
       if (saved && saved.email) {
         setFinalCharacter(saved);
         setStep("chat");
-        // 舊用戶讀取後，如果想預設鎖定，保持 false
-        // 如果想直接解鎖，可以設為 true (依需求調整)
-        // setIsUnlocked(true); 
       }
     } catch (e) {}
   }, []);
@@ -132,7 +129,8 @@ export default function Home() {
 
   const handleFinishCreate = () => {
     try {
-      const configToSave = tempConfig || { model: "C1", personality: "warm" };
+      // 🌟 確保這裡存檔也是存 avatar_01
+      const configToSave = tempConfig || { model: "avatar_01", personality: "warm" };
       const newCharacter = {
         email: email,
         name: "My AI Buddy",
@@ -168,9 +166,10 @@ export default function Home() {
   };
 
   // 計算當前要顯示的模型參數
+  // 🌟 如果沒有設定，預設為 avatar_01
   const currentModelId = step === 'create' 
-    ? (tempConfig?.model || "C1") 
-    : (finalCharacter?.model || "C1");
+    ? (tempConfig?.model || "avatar_01") 
+    : (finalCharacter?.model || "avatar_01");
 
   const currentEmotion = (step === 'create' ? tempConfig?.personality : finalCharacter?.personality) === 'cool' 
     ? 'neutral' : 'happy';
@@ -269,8 +268,8 @@ export default function Home() {
           </div>
 
           <div className="w-full pointer-events-auto bg-gradient-to-t from-black to-transparent pt-4">
-             {/* 這裡需要補上 CompassCreator */}
-             {CompassCreator ? <CompassCreator onChange={handleConfigChange} /> : <div className="text-white text-center p-4">Creator Loading...</div>}
+             {/* 這裡確保 CompassCreator 存在 */}
+             <CompassCreator onChange={handleConfigChange} />
           </div>
         </div>
       )}
@@ -279,8 +278,7 @@ export default function Home() {
       {step === "chat" && finalCharacter && (
         <div className="relative z-10 w-full h-full animate-fadeIn pointer-events-none">
            <div className="pointer-events-auto w-full h-full">
-             {/* 這裡需要補上 ChatHUD */}
-             {ChatHUD ? <ChatHUD /> : null}
+             <ChatHUD />
              
              {/* 測試按鈕區 */}
              <div className="absolute top-4 left-4 z-50 flex flex-col gap-2">
