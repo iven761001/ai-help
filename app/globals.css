@@ -34,3 +34,9 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* 在 globals.css 末尾添加 */
+.clip-path-console-top {
+  clip-path: polygon(0 20px, 20px 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 0 100%);
+}
+
