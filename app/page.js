@@ -62,8 +62,6 @@ export default function Home() {
   const [isEmailExiting, setIsEmailExiting] = useState(false);
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [isModelReady, setIsModelReady] = useState(false);
-  
-  // 🌟 新增：是否正在靠近
   const [isApproaching, setIsApproaching] = useState(false);
 
   useEffect(() => {
@@ -75,7 +73,6 @@ export default function Home() {
         if (saved.model === "C2") { saved.model = "avatar_02"; safeSave(saved); }
         setFinalCharacter(saved);
         setStep("chat");
-        // 如果是舊用戶，直接設為解鎖
         setIsUnlocked(true);
       }
     } catch (e) {}
@@ -96,7 +93,6 @@ export default function Home() {
   };
   const handleConfigChange = (newConfig) => { setTempConfig(newConfig); };
 
-  // 🌟 關鍵修改：完成設定後的流程
   const handleFinishCreate = () => {
     try {
       const configToSave = tempConfig || { model: "avatar_01", personality: "warm" };
@@ -104,14 +100,12 @@ export default function Home() {
       safeSave(newCharacter);
       setFinalCharacter(newCharacter);
 
-      // 1. 先觸發「靠近」與「解鎖」動畫
       setIsApproaching(true);
-      setIsUnlocked(true); // 變實體
+      setIsUnlocked(true);
 
-      // 2. 等待 2 秒鐘 (讓她走過來)
       setTimeout(() => {
-        setStep("chat"); // 切換到聊天介面
-        setIsApproaching(false); // 停止移動 (已到達)
+        setStep("chat");
+        setIsApproaching(false);
       }, 2000);
 
     } catch (error) { alert("Error: " + error.message); }
@@ -128,11 +122,6 @@ export default function Home() {
         setIsModelReady(false);
         setIsApproaching(false);
     }
-  };
-
-  const handleMissionComplete = () => {
-    alert("✨ 任務目標達成！身體組件下載完畢！ ✨");
-    setIsUnlocked(true); 
   };
 
   let currentModelId = step === 'create' ? (tempConfig?.model || "avatar_01") : (finalCharacter?.model || "avatar_01");
@@ -163,32 +152,46 @@ export default function Home() {
       {step === "extracting" && <SystemExtracting />}
 
       {(step === 'extracting' || step === 'create' || step === 'chat') && (
-        <div className={`absolute inset-0 z-0 bg-gradient-to-b from-gray-900 to-black transition-opacity duration-1000 ${(step === 'extracting' && !isModelReady) ? 'opacity-0' : 'opacity-100'}`}>
+        // 🌟 調整背景：讓 3D 舞台延伸到整個畫面
+        <div className={`absolute inset-0 z-0 transition-opacity duration-1000 ${(step === 'extracting' && !isModelReady) ? 'opacity-0' : 'opacity-100'}`}>
           <Suspense fallback={null}>
             <AvatarStage 
               vrmId={currentModelId}
               emotion={currentEmotion}
               unlocked={isUnlocked} 
-              isApproaching={isApproaching} // 🌟 傳入狀態
+              isApproaching={isApproaching}
               onModelReady={handleModelReady} 
             />
           </Suspense>
-          <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
         </div>
       )}
 
       {step === "create" && (
-        <div className={`absolute inset-0 z-10 flex flex-col justify-end pb-safe-bottom pointer-events-none transition-all duration-700 ${isApproaching ? "opacity-0 translate-y-20" : "opacity-100"}`}>
+        <div className={`absolute inset-0 z-10 flex flex-col justify-end pointer-events-none transition-all duration-700 ${isApproaching ? "opacity-0 translate-y-20" : "opacity-100"}`}>
+          {/* 頂部提示 */}
           <div className="absolute top-24 w-full text-center pointer-events-none">
              <span className="bg-blue-500/10 text-blue-300 text-[10px] px-3 py-1 rounded-full border border-blue-500/20 backdrop-blur animate-pulse">⚠️ 實體化數據不足，僅顯示全像投影</span>
           </div>
-          <div className="w-full px-6 mb-4 flex justify-between items-end pointer-events-auto">
-             <div><h2 className="text-xl font-bold text-white">角色設定</h2><p className="text-[10px] text-blue-400 tracking-widest font-bold">CUSTOMIZE</p></div>
-             <button onClick={handleFinishCreate} className="group bg-blue-600 hover:bg-blue-500 text-white px-5 py-3 rounded-full font-bold shadow-lg active:scale-95 flex items-center gap-2 z-50 cursor-pointer">
+          
+          {/* 控制台標題與按鈕 */}
+          <div className="w-full px-6 mb-2 flex justify-between items-end pointer-events-auto z-20 relative top-4">
+             <div><h2 className="text-xl font-bold text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">角色設定</h2><p className="text-[10px] text-cyan-400 tracking-widest font-bold drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">SYSTEM CONSOLE</p></div>
+             <button onClick={handleFinishCreate} className="group bg-blue-600 hover:bg-blue-500 text-white px-5 py-3 rounded-full font-bold shadow-[0_0_15px_rgba(37,99,235,0.5)] active:scale-95 flex items-center gap-2 cursor-pointer border border-blue-400/30">
                <span className="text-sm">完成</span><span className="group-hover:translate-x-1 transition-transform">➜</span>
              </button>
           </div>
-          <div className="w-full pointer-events-auto bg-gradient-to-t from-black to-transparent pt-4"><CompassCreator onChange={handleConfigChange} /></div>
+
+          {/* 🌟 全新：科幻控制面板背景容器 */}
+          <div className="w-full pointer-events-auto relative">
+             {/* 背景光暈與邊框 */}
+             <div className="absolute inset-0 bg-gradient-to-t from-[#02020a] via-[#0a0a1a]/90 to-transparent border-t border-cyan-500/30 shadow-[0_-10px_30px_rgba(0,255,255,0.1)] backdrop-blur-xl clip-path-console-top"></div>
+             <div className="absolute top-0 inset-x-0 h-[1px] bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent"></div>
+             
+             {/* 輪盤內容 */}
+             <div className="relative z-10 pt-6 pb-safe-bottom">
+                <CompassCreator onChange={handleConfigChange} />
+             </div>
+          </div>
         </div>
       )}
 
