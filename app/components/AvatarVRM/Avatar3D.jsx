@@ -20,7 +20,6 @@ function applyNaturalPose(vrm) {
   rotateBone('rightHand', 0, 0, -0.1);
 }
 
-// 🌟 新增 prop: isApproaching (是否正在靠近玩家)
 export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, isApproaching = false }) {
   const url = useMemo(() => `/vrm/${vrmId}.vrm`, [vrmId]);
   const gltf = useLoader(
@@ -36,7 +35,6 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
   const [vrm, setVrm] = useState(null);
   const floatGroupRef = useRef();
 
-  // 1. 初始化
   useEffect(() => {
     if (!gltf?.userData?.vrm) return;
     const loadedVrm = gltf.userData.vrm;
@@ -59,7 +57,6 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
     if (onReady) onReady(loadedVrm);
   }, [gltf, onReady]);
 
-  // 2. 特效切換
   useEffect(() => {
     if (!vrm) return;
     const hologramMaterial = new THREE.MeshBasicMaterial({
@@ -89,36 +86,29 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
     });
   }, [unlocked, vrm]);
 
-  // 3. 🌟 動畫核心：浮動 vs 前進
   useFrame((state, delta) => {
     if (floatGroupRef.current) {
         if (isApproaching) {
-            // --- B. 靠近模式：滑行落地 ---
-            // 1. 往前飛 (Z軸) - 目標是靠近鏡頭 (約 Z=2.5)
+            // B. 靠近模式：滑行落地 (保持不變)
             floatGroupRef.current.position.z = THREE.MathUtils.lerp(floatGroupRef.current.position.z, 2.5, delta * 2);
-            
-            // 2. 降落 (Y軸) - 目標是地面 (Y=0)
             floatGroupRef.current.position.y = THREE.MathUtils.lerp(floatGroupRef.current.position.y, 0, delta * 3);
-            
-            // 3. 身體微微前傾 (像在飛行)
             if (vrm && vrm.humanoid) {
                 const hips = vrm.humanoid.getNormalizedBoneNode('hips');
                 if(hips) hips.rotation.x = THREE.MathUtils.lerp(hips.rotation.x, 0.1, delta * 5);
             }
         } else {
-            // --- A. 待機模式：上下浮動 ---
-            const floatHeight = Math.sin(state.clock.elapsedTime * 1.5) * 0.08 + 0.15; // 稍微飄高一點
+            // --- A. 待機模式：調整浮動參數 ---
+            // 讓浮動更平緩，高度降低，看起來是懸浮在平台上
+            const floatHeight = Math.sin(state.clock.elapsedTime * 1.2) * 0.05 + 0.05; 
             floatGroupRef.current.position.y = floatHeight;
-            floatGroupRef.current.position.z = THREE.MathUtils.lerp(floatGroupRef.current.position.z, 0, delta * 2); // 保持在原點
+            floatGroupRef.current.position.z = THREE.MathUtils.lerp(floatGroupRef.current.position.z, 0, delta * 2);
         }
     }
 
-    // 表情與呼吸
     if (vrm) {
         const blinkVal = Math.max(0, Math.sin(state.clock.elapsedTime * 2.5) * 5 - 4);
         if (vrm.expressionManager) {
             vrm.expressionManager.setValue('blink', Math.min(1, blinkVal));
-            // 如果正在靠近，強制改為開心表情
             const happyVal = (emotion === 'happy' || isApproaching) ? 1.0 : 0;
             vrm.expressionManager.setValue('happy', happyVal);
             vrm.expressionManager.setValue('neutral', (emotion === 'neutral' && !isApproaching) ? 0.5 : 0);
