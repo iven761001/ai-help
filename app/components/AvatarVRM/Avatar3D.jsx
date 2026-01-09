@@ -89,7 +89,7 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
   useFrame((state, delta) => {
     if (floatGroupRef.current) {
         if (isApproaching) {
-            // B. 靠近模式：滑行落地 (保持不變)
+            // 靠近模式
             floatGroupRef.current.position.z = THREE.MathUtils.lerp(floatGroupRef.current.position.z, 2.5, delta * 2);
             floatGroupRef.current.position.y = THREE.MathUtils.lerp(floatGroupRef.current.position.y, 0, delta * 3);
             if (vrm && vrm.humanoid) {
@@ -97,8 +97,7 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
                 if(hips) hips.rotation.x = THREE.MathUtils.lerp(hips.rotation.x, 0.1, delta * 5);
             }
         } else {
-            // --- A. 待機模式：調整浮動參數 ---
-            // 讓浮動更平緩，高度降低，看起來是懸浮在平台上
+            // 待機浮動
             const floatHeight = Math.sin(state.clock.elapsedTime * 1.2) * 0.05 + 0.05; 
             floatGroupRef.current.position.y = floatHeight;
             floatGroupRef.current.position.z = THREE.MathUtils.lerp(floatGroupRef.current.position.z, 0, delta * 2);
