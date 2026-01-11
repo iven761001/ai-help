@@ -34,7 +34,13 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
 
   const [vrm, setVrm] = useState(null);
   const floatGroupRef = useRef();
+  
+  // 🌟 新增：互動狀態 ('head', 'body', null)
+  const [interaction, setInteraction] = useState(null);
+  // 用來計時恢復正常狀態
+  const interactionTimer = useRef(null);
 
+  // 1. 初始化
   useEffect(() => {
     if (!gltf?.userData?.vrm) return;
     const loadedVrm = gltf.userData.vrm;
@@ -57,6 +63,7 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
     if (onReady) onReady(loadedVrm);
   }, [gltf, onReady]);
 
+  // 2. 特效
   useEffect(() => {
     if (!vrm) return;
     const hologramMaterial = new THREE.MeshBasicMaterial({
@@ -86,10 +93,39 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
     });
   }, [unlocked, vrm]);
 
+  // 🌟 3. 處理點擊事件
+  const handlePointerDown = (e) => {
+    // 只有在實體化 (unlocked) 後才能互動，不然還在投影中摸不到
+    if (!unlocked) return;
+    
+    e.stopPropagation(); // 防止點擊穿透到背景
+    const hitY = e.point.y; // 取得點擊高度 (世界座標)
+
+    // 清除舊的計時器
+    if (interactionTimer.current) clearTimeout(interactionTimer.current);
+
+    // 判斷高度：大約 1.3m 以上算頭，以下算身體
+    if (hitY > 1.3) {
+        console.log("Touch: HEAD");
+        setInteraction('head');
+    } else {
+        console.log("Touch: BODY");
+        setInteraction('body');
+    }
+
+    // 1.5秒後恢復正常
+    interactionTimer.current = setTimeout(() => {
+        setInteraction(null);
+    }, 1500);
+  };
+
+  // 4. 動畫迴圈 (加入互動反應)
   useFrame((state, delta) => {
+    const t = state.clock.elapsedTime;
+
+    // A. 浮動/滑行邏輯 (保持不變)
     if (floatGroupRef.current) {
         if (isApproaching) {
-            // 靠近模式
             floatGroupRef.current.position.z = THREE.MathUtils.lerp(floatGroupRef.current.position.z, 2.5, delta * 2);
             floatGroupRef.current.position.y = THREE.MathUtils.lerp(floatGroupRef.current.position.y, 0, delta * 3);
             if (vrm && vrm.humanoid) {
@@ -98,32 +134,81 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
             }
         } else {
             // 待機浮動
-            const floatHeight = Math.sin(state.clock.elapsedTime * 1.2) * 0.05 + 0.05; 
+            const floatHeight = Math.sin(t * 1.2) * 0.05 + 0.05; 
             floatGroupRef.current.position.y = floatHeight;
             floatGroupRef.current.position.z = THREE.MathUtils.lerp(floatGroupRef.current.position.z, 0, delta * 2);
         }
     }
 
-    if (vrm) {
-        const blinkVal = Math.max(0, Math.sin(state.clock.elapsedTime * 2.5) * 5 - 4);
+    // B. 表情與骨架動畫
+    if (vrm && vrm.humanoid) {
+        // --- 表情控制 ---
+        const blinkVal = Math.max(0, Math.sin(t * 2.5) * 5 - 4);
+        
+        // 判斷當前應該顯示的快樂值
+        let happyWeight = (emotion === 'happy' || isApproaching) ? 1.0 : 0;
+        let neutralWeight = (emotion === 'neutral' && !isApproaching) ? 0.5 : 0;
+        let blinkWeight = Math.min(1, blinkVal);
+
+        // 🌟 互動表情覆蓋
+        if (interaction === 'head') {
+            happyWeight = 1.0; // 摸頭會很開心
+            blinkWeight = 0;   // 開心時眼睛可能會瞇起來 (Happy 自帶)
+            neutralWeight = 0;
+        } else if (interaction === 'body') {
+            neutralWeight = 0; // 戳身體會驚訝或撒嬌
+            happyWeight = 0.2; 
+            // 這裡可以設 surprise，但大部分 VRM 預設只有 joy, angry, sorrow, fun
+        }
+
         if (vrm.expressionManager) {
-            vrm.expressionManager.setValue('blink', Math.min(1, blinkVal));
-            const happyVal = (emotion === 'happy' || isApproaching) ? 1.0 : 0;
-            vrm.expressionManager.setValue('happy', happyVal);
-            vrm.expressionManager.setValue('neutral', (emotion === 'neutral' && !isApproaching) ? 0.5 : 0);
+            vrm.expressionManager.setValue('blink', blinkWeight);
+            vrm.expressionManager.setValue('happy', happyWeight);
+            vrm.expressionManager.setValue('neutral', neutralWeight);
             vrm.expressionManager.update();
         }
-        if (vrm.humanoid && !isApproaching) {
-           const spine = vrm.humanoid.getNormalizedBoneNode('spine');
-           if(spine) spine.rotation.x = Math.sin(state.clock.elapsedTime) * 0.02;
+
+        // --- 骨架動作反應 ---
+        const spine = vrm.humanoid.getNormalizedBoneNode('spine');
+        const head = vrm.humanoid.getNormalizedBoneNode('head');
+        const neck = vrm.humanoid.getNormalizedBoneNode('neck');
+        
+        // 基礎呼吸
+        let targetSpineRotX = (!isApproaching) ? Math.sin(t) * 0.02 : 0;
+        let targetHeadRotZ = 0;
+        let targetHeadRotY = 0;
+
+        // 🌟 互動動作覆蓋
+        if (interaction === 'head') {
+            // 摸頭：頭部左右搖擺 (撒嬌)
+            targetHeadRotZ = Math.sin(t * 15) * 0.1; 
+            targetHeadRotY = Math.sin(t * 5) * 0.1;
+        } else if (interaction === 'body') {
+            // 戳身體：身體微縮 (驚訝) + 快速呼吸
+            targetSpineRotX = Math.sin(t * 20) * 0.05 - 0.1; 
         }
+
+        // 平滑插值 (Lerp) 讓動作不僵硬
+        if(spine) spine.rotation.x = THREE.MathUtils.lerp(spine.rotation.x, targetSpineRotX, 0.1);
+        if(head) {
+            head.rotation.z = THREE.MathUtils.lerp(head.rotation.z, targetHeadRotZ, 0.1);
+            head.rotation.y = THREE.MathUtils.lerp(head.rotation.y, targetHeadRotY, 0.1);
+        }
+        
         vrm.update(delta);
     }
   });
 
   return vrm ? (
     <group ref={floatGroupRef}>
-      <primitive object={vrm.scene} />
+      <primitive 
+        object={vrm.scene} 
+        // 🌟 加入點擊事件
+        onPointerDown={handlePointerDown}
+        // 🌟 滑鼠移上去變手指
+        onPointerOver={() => document.body.style.cursor = 'pointer'}
+        onPointerOut={() => document.body.style.cursor = 'auto'}
+      />
     </group>
   ) : null;
 }
