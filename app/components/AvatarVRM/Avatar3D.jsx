@@ -35,10 +35,17 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
   const [vrm, setVrm] = useState(null);
   const floatGroupRef = useRef();
   
-  // 🌟 新增：互動狀態 ('head', 'body', null)
+  // 互動狀態
   const [interaction, setInteraction] = useState(null);
-  // 用來計時恢復正常狀態
   const interactionTimer = useRef(null);
+
+  // 🌟 效能優化：把骨架存起來，不要每秒抓 60 次
+  const bonesRef = useRef({
+      head: null,
+      neck: null,
+      spine: null,
+      hips: null
+  });
 
   // 1. 初始化
   useEffect(() => {
@@ -58,12 +65,21 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
             }
         });
         applyNaturalPose(loadedVrm);
+
+        // 🌟 快取骨架節點
+        if (loadedVrm.humanoid) {
+            bonesRef.current.head = loadedVrm.humanoid.getNormalizedBoneNode('head');
+            bonesRef.current.neck = loadedVrm.humanoid.getNormalizedBoneNode('neck');
+            bonesRef.current.spine = loadedVrm.humanoid.getNormalizedBoneNode('spine');
+            bonesRef.current.hips = loadedVrm.humanoid.getNormalizedBoneNode('hips');
+        }
+
     } catch (e) { console.error("VRM Init Error:", e); }
     setVrm(loadedVrm);
     if (onReady) onReady(loadedVrm);
   }, [gltf, onReady]);
 
-  // 2. 特效
+  // 2. 特效 (保持不變)
   useEffect(() => {
     if (!vrm) return;
     const hologramMaterial = new THREE.MeshBasicMaterial({
@@ -93,45 +109,41 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
     });
   }, [unlocked, vrm]);
 
-  // 🌟 3. 處理點擊事件
-  const handlePointerDown = (e) => {
-    // 只有在實體化 (unlocked) 後才能互動，不然還在投影中摸不到
+  // 🌟 3. 改良版點擊：點擊隱形箱子，而不是複雜模型
+  const handleHitBoxClick = (e) => {
     if (!unlocked) return;
+    e.stopPropagation();
     
-    e.stopPropagation(); // 防止點擊穿透到背景
-    const hitY = e.point.y; // 取得點擊高度 (世界座標)
+    // 取得點擊在 HitBox 上的相對高度
+    // HitBox 高度約 1.6，中心點在 0.8
+    const hitY = e.point.y; 
 
-    // 清除舊的計時器
     if (interactionTimer.current) clearTimeout(interactionTimer.current);
 
-    // 判斷高度：大約 1.3m 以上算頭，以下算身體
+    // 判斷邏輯優化
     if (hitY > 1.3) {
-        console.log("Touch: HEAD");
-        setInteraction('head');
+        setInteraction('head'); // 摸頭
     } else {
-        console.log("Touch: BODY");
-        setInteraction('body');
+        setInteraction('body'); // 戳身體
     }
 
-    // 1.5秒後恢復正常
     interactionTimer.current = setTimeout(() => {
         setInteraction(null);
     }, 1500);
   };
 
-  // 4. 動畫迴圈 (加入互動反應)
+  // 4. 動畫迴圈
   useFrame((state, delta) => {
     const t = state.clock.elapsedTime;
 
-    // A. 浮動/滑行邏輯 (保持不變)
+    // A. 浮動/滑行
     if (floatGroupRef.current) {
         if (isApproaching) {
             floatGroupRef.current.position.z = THREE.MathUtils.lerp(floatGroupRef.current.position.z, 2.5, delta * 2);
             floatGroupRef.current.position.y = THREE.MathUtils.lerp(floatGroupRef.current.position.y, 0, delta * 3);
-            if (vrm && vrm.humanoid) {
-                const hips = vrm.humanoid.getNormalizedBoneNode('hips');
-                if(hips) hips.rotation.x = THREE.MathUtils.lerp(hips.rotation.x, 0.1, delta * 5);
-            }
+            // 靠近時，身體前傾
+            const { hips } = bonesRef.current;
+            if(hips) hips.rotation.x = THREE.MathUtils.lerp(hips.rotation.x, 0.1, delta * 5);
         } else {
             // 待機浮動
             const floatHeight = Math.sin(t * 1.2) * 0.05 + 0.05; 
@@ -141,24 +153,20 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
     }
 
     // B. 表情與骨架動畫
-    if (vrm && vrm.humanoid) {
-        // --- 表情控制 ---
+    if (vrm) {
+        // 表情
         const blinkVal = Math.max(0, Math.sin(t * 2.5) * 5 - 4);
-        
-        // 判斷當前應該顯示的快樂值
         let happyWeight = (emotion === 'happy' || isApproaching) ? 1.0 : 0;
         let neutralWeight = (emotion === 'neutral' && !isApproaching) ? 0.5 : 0;
         let blinkWeight = Math.min(1, blinkVal);
 
-        // 🌟 互動表情覆蓋
         if (interaction === 'head') {
-            happyWeight = 1.0; // 摸頭會很開心
-            blinkWeight = 0;   // 開心時眼睛可能會瞇起來 (Happy 自帶)
+            happyWeight = 1.0; 
+            blinkWeight = 0;   
             neutralWeight = 0;
         } else if (interaction === 'body') {
-            neutralWeight = 0; // 戳身體會驚訝或撒嬌
+            neutralWeight = 0; 
             happyWeight = 0.2; 
-            // 這裡可以設 surprise，但大部分 VRM 預設只有 joy, angry, sorrow, fun
         }
 
         if (vrm.expressionManager) {
@@ -168,27 +176,22 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
             vrm.expressionManager.update();
         }
 
-        // --- 骨架動作反應 ---
-        const spine = vrm.humanoid.getNormalizedBoneNode('spine');
-        const head = vrm.humanoid.getNormalizedBoneNode('head');
-        const neck = vrm.humanoid.getNormalizedBoneNode('neck');
+        // 骨架反應 (使用快取的骨架，效能 UP)
+        const { spine, head } = bonesRef.current;
         
-        // 基礎呼吸
         let targetSpineRotX = (!isApproaching) ? Math.sin(t) * 0.02 : 0;
         let targetHeadRotZ = 0;
         let targetHeadRotY = 0;
 
-        // 🌟 互動動作覆蓋
         if (interaction === 'head') {
-            // 摸頭：頭部左右搖擺 (撒嬌)
+            // 摸頭搖擺
             targetHeadRotZ = Math.sin(t * 15) * 0.1; 
             targetHeadRotY = Math.sin(t * 5) * 0.1;
         } else if (interaction === 'body') {
-            // 戳身體：身體微縮 (驚訝) + 快速呼吸
+            // 戳身體後縮
             targetSpineRotX = Math.sin(t * 20) * 0.05 - 0.1; 
         }
 
-        // 平滑插值 (Lerp) 讓動作不僵硬
         if(spine) spine.rotation.x = THREE.MathUtils.lerp(spine.rotation.x, targetSpineRotX, 0.1);
         if(head) {
             head.rotation.z = THREE.MathUtils.lerp(head.rotation.z, targetHeadRotZ, 0.1);
@@ -201,14 +204,23 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
 
   return vrm ? (
     <group ref={floatGroupRef}>
-      <primitive 
-        object={vrm.scene} 
-        // 🌟 加入點擊事件
-        onPointerDown={handlePointerDown}
-        // 🌟 滑鼠移上去變手指
+      <primitive object={vrm.scene} />
+      
+      {/* 🌟 隱形碰撞箱 (HitBox) 
+        這是一個看不見的圓柱體，包在角色外面。
+        我們點擊這個簡單形狀，而不是點擊複雜的角色，這樣手機就不會卡了！
+      */}
+      <mesh 
+        position={[0, 0.8, 0]} // 中心點約在腰部
+        onClick={handleHitBoxClick}
         onPointerOver={() => document.body.style.cursor = 'pointer'}
         onPointerOut={() => document.body.style.cursor = 'auto'}
-      />
+        visible={false} // 設為 false 讓它隱形，但依然可以接受點擊
+      >
+        <cylinderGeometry args={[0.4, 0.4, 1.7, 8]} /> {/* 寬0.4, 高1.7 的圓柱 */}
+        <meshBasicMaterial color="red" wireframe opacity={0.5} transparent />
+      </mesh>
+
     </group>
   ) : null;
 }
