@@ -3,86 +3,52 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useLoader, useFrame } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 import * as THREE from "three";
 
-// --- 🌟 智慧骨架過濾表 ---
-// 這裡就是「業界秘訣」：對於待機動作，直接把下半身"屏蔽"掉
-const mixamoVRMMap = {
-  // ❌ 封鎖屁股 (Hips)：這是萬惡之源，關掉它，模型就不會折疊了！
-  // mixamorigHips: "hips", 
+// 引入我們剛寫好的工具與邏輯
+import { NATURAL_POSE_CONFIG } from "../../utils/avatar-config";
+import { useAvatarAnimation } from "../../hooks/useAvatarAnimation";
 
-  // ✅ 開啟脊椎 (Spine)：這是呼吸的核心，會帶動胸口起伏
-  mixamorigSpine: "spine",
-  mixamorigSpine1: "chest",
-  mixamorigSpine2: "upperChest",
-  
-  // ✅ 開啟頭頸 (Neck/Head)：讓頭部有自然的微動
-  mixamorigNeck: "neck",
-  mixamorigHead: "head",
-  
-  // ✅ 開啟手臂 (Arms)：但在程式碼中我們會降低它的影響力
-  mixamorigLeftShoulder: "leftShoulder",
-  mixamorigLeftArm: "leftUpperArm",
-  mixamorigLeftForeArm: "leftLowerArm",
-  mixamorigLeftHand: "leftHand",
-  
-  mixamorigRightShoulder: "rightShoulder",
-  mixamorigRightArm: "rightUpperArm",
-  mixamorigRightForeArm: "rightLowerArm",
-  mixamorigRightHand: "rightHand",
-
-  // ❌ 封鎖腿部 (Legs)：讓她穩穩站著，不要滑步或變形
-  // mixamorigLeftUpLeg: "leftUpperLeg",
-  // mixamorigLeftLeg: "leftLowerLeg",
-  // mixamorigLeftFoot: "leftFoot",
-  // mixamorigRightUpLeg: "rightUpperLeg",
-  // mixamorigRightLeg: "rightLowerLeg",
-  // mixamorigRightFoot: "rightFoot",
-};
-
+// 輔助函式：套用自然姿勢
 function applyNaturalPose(vrm) {
   if (!vrm || !vrm.humanoid) return;
-  const rotateBone = (name, x, y, z) => {
-    const bone = vrm.humanoid.getNormalizedBoneNode(name);
-    if (bone) bone.rotation.set(x, y, z);
-  };
-  // 確保初始姿勢是自然的 A-Pose (雙手下垂)
-  rotateBone('leftUpperArm',  0, 0, 1.3);
-  rotateBone('rightUpperArm', 0, 0, -1.3);
-  rotateBone('leftLowerArm',  0, 0, 0.1);
-  rotateBone('rightLowerArm', 0, 0, -0.1);
+  Object.entries(NATURAL_POSE_CONFIG).forEach(([boneName, rotation]) => {
+    const node = vrm.humanoid.getNormalizedBoneNode(boneName);
+    if (node) node.rotation.set(...rotation);
+  });
 }
 
 export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, isApproaching = false }) {
   const url = useMemo(() => `/vrm/${vrmId}.vrm`, [vrmId]);
   
+  // 1. 載入模型
   const gltf = useLoader(GLTFLoader, url, (loader) => {
     loader.crossOrigin = "anonymous";
     loader.register((parser) => new VRMLoaderPlugin(parser));
   });
 
-  // 載入妳上傳的 idle.fbx
-  const fbx = useLoader(FBXLoader, "/vrm/idle.fbx", (loader) => {
-     loader.crossOrigin = "anonymous";
-  });
-
   const [vrm, setVrm] = useState(null);
-  const [mixer, setMixer] = useState(null);
   const floatGroupRef = useRef();
+  
+  // 互動狀態
   const [interaction, setInteraction] = useState(null);
   const interactionTimer = useRef(null);
 
+  // 2. 初始化 VRM (外觀設定)
   useEffect(() => {
     if (!gltf?.userData?.vrm) return;
     const loadedVrm = gltf.userData.vrm;
     VRMUtils.rotateVRM0(loadedVrm);
     
+    // 材質處理
     loadedVrm.scene.traverse((obj) => {
         if (obj.isMesh && obj.material) {
             obj.frustumCulled = false;
+            // 備份原始材質
             if (!obj.userData.originalMat) obj.userData.originalMat = Array.isArray(obj.material) ? obj.material : obj.material.clone();
+            
+            // 標記眼睛
             const name = obj.name.toLowerCase();
             const matName = obj.material.name ? obj.material.name.toLowerCase() : "";
             obj.userData.isEye = name.includes("eye") || matName.includes("eye") || name.includes("face") || matName.includes("iris");
@@ -94,16 +60,11 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
     if (onReady) onReady(loadedVrm);
   }, [gltf, onReady]);
 
-  // 初始化 Mixamo 動畫
-  useEffect(() => {
-    if (!fbx) return;
-    const newMixer = new THREE.AnimationMixer(fbx);
-    const action = newMixer.clipAction(fbx.animations[0]);
-    action.play();
-    setMixer(newMixer);
-  }, [fbx]);
+  // 3. 🌟 使用我們寫好的 Hook 來驅動動畫
+  // 只要這一行，動畫邏輯就掛載上去了！這就是模組化的威力。
+  useAvatarAnimation(vrm, "/vrm/idle.fbx", isApproaching);
 
-  // 特效切換
+  // 4. 特效切換 (全像投影 vs 實體)
   useEffect(() => {
     if (!vrm) return;
     const hologramMaterial = new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true, transparent: true, opacity: 0.3, skinning: true, side: THREE.DoubleSide });
@@ -120,6 +81,7 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
     });
   }, [unlocked, vrm]);
 
+  // 5. 互動事件處理
   const handleHitBoxClick = (e) => {
     if (!unlocked) return;
     e.stopPropagation();
@@ -130,44 +92,22 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
     interactionTimer.current = setTimeout(() => setInteraction(null), 1500);
   };
 
+  // 6. 其他動畫 (浮動、表情、互動反應)
   useFrame((state, delta) => {
-    if (mixer) mixer.update(delta);
-
-    // 🌟 核心轉譯邏輯 (Retargeting)
-    if (vrm && fbx && !isApproaching) {
-        fbx.traverse((mixamoBone) => {
-            if (mixamoBone.isBone && mixamoVRMMap[mixamoBone.name]) {
-                const vrmBoneName = mixamoVRMMap[mixamoBone.name];
-                const vrmBone = vrm.humanoid.getNormalizedBoneNode(vrmBoneName);
-                
-                if (vrmBone) {
-                    // 🌟 智慧權重控制：
-                    // 如果是脊椎 (Spine)，我們給 1.0 (完全跟隨動畫)，保證呼吸明顯
-                    // 如果是手臂 (Arm)，我們只給 0.3 (輕微跟隨)，避免被 T-Pose 拉壞
-                    const isArm = vrmBoneName.includes('Arm') || vrmBoneName.includes('Hand') || vrmBoneName.includes('Shoulder');
-                    const weight = isArm ? 0.3 : 1.0; 
-
-                    // 使用 slerp (球面線性插值) 平滑過渡
-                    // 這就是為什麼手臂不會折斷的原因，我們只取了 30% 的旋轉量
-                    vrmBone.quaternion.slerp(mixamoBone.quaternion, weight);
-                }
-            }
-        });
-    }
-
-    // 浮動與互動
     const t = state.clock.elapsedTime;
+
+    // 浮動邏輯
     if (floatGroupRef.current) {
         if (isApproaching) {
             floatGroupRef.current.position.z = THREE.MathUtils.lerp(floatGroupRef.current.position.z, 2.5, delta * 2);
             floatGroupRef.current.position.y = THREE.MathUtils.lerp(floatGroupRef.current.position.y, 0, delta * 3);
         } else {
-            // 讓浮動配合呼吸節奏
             floatGroupRef.current.position.y = Math.sin(t * 1.2) * 0.05 + 0.05; 
             floatGroupRef.current.position.z = THREE.MathUtils.lerp(floatGroupRef.current.position.z, 0, delta * 2);
         }
     }
 
+    // 表情與互動反應
     if (vrm) {
         const blinkVal = Math.max(0, Math.sin(t * 2.5) * 5 - 4);
         let happyWeight = (emotion === 'happy' || isApproaching) ? 1.0 : 0;
