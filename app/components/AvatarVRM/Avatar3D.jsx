@@ -7,16 +7,22 @@ import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 import * as THREE from "three";
 
-// --- 🌟 業界標準：骨架映射表 (Bone Mapping) ---
-// 這是通用的，只要是 Mixamo 下載的動作都能對應
+// --- 🌟 智慧骨架過濾表 ---
+// 這裡就是「業界秘訣」：對於待機動作，直接把下半身"屏蔽"掉
 const mixamoVRMMap = {
-  mixamorigHips: "hips",             // 屁股 (動作的核心)
-  mixamorigSpine: "spine",           // 脊椎
-  mixamorigSpine1: "chest",          // 胸
-  mixamorigSpine2: "upperChest",     // 上胸
-  mixamorigNeck: "neck",             // 脖子
-  mixamorigHead: "head",             // 頭
+  // ❌ 封鎖屁股 (Hips)：這是萬惡之源，關掉它，模型就不會折疊了！
+  // mixamorigHips: "hips", 
+
+  // ✅ 開啟脊椎 (Spine)：這是呼吸的核心，會帶動胸口起伏
+  mixamorigSpine: "spine",
+  mixamorigSpine1: "chest",
+  mixamorigSpine2: "upperChest",
   
+  // ✅ 開啟頭頸 (Neck/Head)：讓頭部有自然的微動
+  mixamorigNeck: "neck",
+  mixamorigHead: "head",
+  
+  // ✅ 開啟手臂 (Arms)：但在程式碼中我們會降低它的影響力
   mixamorigLeftShoulder: "leftShoulder",
   mixamorigLeftArm: "leftUpperArm",
   mixamorigLeftForeArm: "leftLowerArm",
@@ -27,25 +33,37 @@ const mixamoVRMMap = {
   mixamorigRightForeArm: "rightLowerArm",
   mixamorigRightHand: "rightHand",
 
-  mixamorigLeftUpLeg: "leftUpperLeg",
-  mixamorigLeftLeg: "leftLowerLeg",
-  mixamorigLeftFoot: "leftFoot",
-  
-  mixamorigRightUpLeg: "rightUpperLeg",
-  mixamorigRightLeg: "rightLowerLeg",
-  mixamorigRightFoot: "rightFoot",
+  // ❌ 封鎖腿部 (Legs)：讓她穩穩站著，不要滑步或變形
+  // mixamorigLeftUpLeg: "leftUpperLeg",
+  // mixamorigLeftLeg: "leftLowerLeg",
+  // mixamorigLeftFoot: "leftFoot",
+  // mixamorigRightUpLeg: "rightUpperLeg",
+  // mixamorigRightLeg: "rightLowerLeg",
+  // mixamorigRightFoot: "rightFoot",
 };
+
+function applyNaturalPose(vrm) {
+  if (!vrm || !vrm.humanoid) return;
+  const rotateBone = (name, x, y, z) => {
+    const bone = vrm.humanoid.getNormalizedBoneNode(name);
+    if (bone) bone.rotation.set(x, y, z);
+  };
+  // 確保初始姿勢是自然的 A-Pose (雙手下垂)
+  rotateBone('leftUpperArm',  0, 0, 1.3);
+  rotateBone('rightUpperArm', 0, 0, -1.3);
+  rotateBone('leftLowerArm',  0, 0, 0.1);
+  rotateBone('rightLowerArm', 0, 0, -0.1);
+}
 
 export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, isApproaching = false }) {
   const url = useMemo(() => `/vrm/${vrmId}.vrm`, [vrmId]);
   
-  // 1. 載入 VRM
   const gltf = useLoader(GLTFLoader, url, (loader) => {
     loader.crossOrigin = "anonymous";
     loader.register((parser) => new VRMLoaderPlugin(parser));
   });
 
-  // 2. 載入 Mixamo 動畫
+  // 載入妳上傳的 idle.fbx
   const fbx = useLoader(FBXLoader, "/vrm/idle.fbx", (loader) => {
      loader.crossOrigin = "anonymous";
   });
@@ -61,7 +79,6 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
     const loadedVrm = gltf.userData.vrm;
     VRMUtils.rotateVRM0(loadedVrm);
     
-    // 材質處理
     loadedVrm.scene.traverse((obj) => {
         if (obj.isMesh && obj.material) {
             obj.frustumCulled = false;
@@ -72,15 +89,15 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
         }
     });
 
+    applyNaturalPose(loadedVrm);
     setVrm(loadedVrm);
     if (onReady) onReady(loadedVrm);
   }, [gltf, onReady]);
 
-  // Mixamo 動畫初始化
+  // 初始化 Mixamo 動畫
   useEffect(() => {
     if (!fbx) return;
     const newMixer = new THREE.AnimationMixer(fbx);
-    // 播放動畫
     const action = newMixer.clipAction(fbx.animations[0]);
     action.play();
     setMixer(newMixer);
@@ -116,7 +133,7 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
   useFrame((state, delta) => {
     if (mixer) mixer.update(delta);
 
-    // 🌟 業界標準重定向邏輯 (Retargeting Logic)
+    // 🌟 核心轉譯邏輯 (Retargeting)
     if (vrm && fbx && !isApproaching) {
         fbx.traverse((mixamoBone) => {
             if (mixamoBone.isBone && mixamoVRMMap[mixamoBone.name]) {
@@ -124,26 +141,15 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
                 const vrmBone = vrm.humanoid.getNormalizedBoneNode(vrmBoneName);
                 
                 if (vrmBone) {
-                    // 1. 取得 Mixamo 目前的旋轉
-                    const targetQ = mixamoBone.quaternion.clone();
+                    // 🌟 智慧權重控制：
+                    // 如果是脊椎 (Spine)，我們給 1.0 (完全跟隨動畫)，保證呼吸明顯
+                    // 如果是手臂 (Arm)，我們只給 0.3 (輕微跟隨)，避免被 T-Pose 拉壞
+                    const isArm = vrmBoneName.includes('Arm') || vrmBoneName.includes('Hand') || vrmBoneName.includes('Shoulder');
+                    const weight = isArm ? 0.3 : 1.0; 
 
-                    // 2. 🌟 自動修正 T-Pose 與 A-Pose 的差異
-                    // Mixamo 手臂是水平的 (T-Pose)，VRM 是下垂的 (A-Pose)
-                    // 如果不修正，手臂會插入身體裡
-                    if (vrmBoneName === 'leftUpperArm' || vrmBoneName === 'rightUpperArm') {
-                        // 建立一個修正旋轉量：向下轉約 60~70 度
-                        // 這是一個經驗值，適用於大多數 Mixamo -> VRM 的轉換
-                        // 這裡我們不做複雜計算，直接過濾掉過大的抬手動作，讓它回歸自然
-                        // 或者更簡單：我們直接使用 Slerp 插值，但強度調弱，讓它不要完全跟隨 T-Pose
-                    }
-
-                    // 3. 🌟 關鍵修正：Hips (屁股) 絕對不能動位置！
-                    // Mixamo 的屁股動畫通常包含 "位移"，這會導致 VRM 身體對折或飛走
-                    // 我們只複製 "旋轉"，忽略 "位移"
-                    
-                    // 4. 套用旋轉 (使用 Slerp 平滑過渡)
-                    // 0.8 的權重代表：80% 跟隨動畫，20% 保持原樣，這能過濾掉一些極端的骨架抖動
-                    vrmBone.quaternion.slerp(targetQ, 0.8);
+                    // 使用 slerp (球面線性插值) 平滑過渡
+                    // 這就是為什麼手臂不會折斷的原因，我們只取了 30% 的旋轉量
+                    vrmBone.quaternion.slerp(mixamoBone.quaternion, weight);
                 }
             }
         });
@@ -156,6 +162,7 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
             floatGroupRef.current.position.z = THREE.MathUtils.lerp(floatGroupRef.current.position.z, 2.5, delta * 2);
             floatGroupRef.current.position.y = THREE.MathUtils.lerp(floatGroupRef.current.position.y, 0, delta * 3);
         } else {
+            // 讓浮動配合呼吸節奏
             floatGroupRef.current.position.y = Math.sin(t * 1.2) * 0.05 + 0.05; 
             floatGroupRef.current.position.z = THREE.MathUtils.lerp(floatGroupRef.current.position.z, 0, delta * 2);
         }
