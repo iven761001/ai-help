@@ -182,14 +182,24 @@ export default function Home() {
         </div>
       )}
 
+      {/* 🌟 這裡就是修正的關鍵！
+        之前的寫法：pointer-events-auto (這行會把整個螢幕擋住，讓點擊無法穿透到 3D)
+        現在的寫法：pointer-events-none (容器透明，點擊穿透)
+      */}
       {step === "chat" && finalCharacter && (
         <div className="relative z-10 w-full h-full animate-fadeIn pointer-events-none">
-           <div className="pointer-events-auto w-full h-full">
+           {/* ❌ 刪除原本會擋住點擊的這層 div */}
+           {/* <div className="pointer-events-auto w-full h-full"> */}
+             
+             {/* ChatHUD 內部已經有處理好自己的點擊區域，所以外面容器要讓它穿透 */}
              <ChatHUD />
-             <div className="absolute top-4 left-4 z-50 flex flex-col gap-2">
-                <button onClick={handleReset} className="bg-red-900/50 text-white/50 text-[10px] px-2 py-1 rounded hover:text-white backdrop-blur-sm">RESET SYSTEM</button>
+             
+             {/* 獨立的按鈕區塊：這裡需要可以點，所以加 pointer-events-auto */}
+             <div className="absolute top-4 left-4 z-50 flex flex-col gap-2 pointer-events-auto">
+                <button onClick={handleReset} className="bg-red-900/50 text-white/50 text-[10px] px-2 py-1 rounded hover:text-white backdrop-blur-sm cursor-pointer">RESET SYSTEM</button>
              </div>
-           </div>
+             
+           {/* </div> */}
         </div>
       )}
     </main>
