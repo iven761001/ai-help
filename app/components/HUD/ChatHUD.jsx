@@ -1,157 +1,109 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-
-// --- 子元件：打字機文字 ---
-function Typewriter({ text, onComplete }) {
-  const [display, setDisplay] = useState("");
-  
-  useEffect(() => {
-    let i = 0;
-    // 每次字串改變時重置
-    setDisplay(""); 
-    
-    const timer = setInterval(() => {
-      if (i < text.length) {
-        setDisplay((prev) => prev + text.charAt(i));
-        i++;
-      } else {
-        clearInterval(timer);
-        if (onComplete) onComplete();
-      }
-    }, 30); // 打字速度 (越小越快)
-
-    return () => clearInterval(timer);
-  }, [text]);
-
-  return <span>{display}</span>;
-}
-
-// --- 子元件：AI 語音波紋 (視覺裝飾) ---
-function AudioWave({ isActive }) {
-  return (
-    <div className={`flex items-end gap-[2px] h-3 transition-opacity duration-300 ${isActive ? "opacity-100" : "opacity-0"}`}>
-      {[...Array(5)].map((_, i) => (
-        <div 
-          key={i} 
-          className="w-[3px] bg-cyan-400 rounded-full"
-          style={{ 
-            height: isActive ? "100%" : "20%",
-            animation: isActive ? `wave 0.5s ease-in-out infinite alternate` : "none",
-            animationDelay: `${i * 0.1}s` 
-          }} 
-        />
-      ))}
-      <style jsx>{`
-        @keyframes wave {
-          0% { height: 20%; opacity: 0.5; }
-          100% { height: 100%; opacity: 1; box-shadow: 0 0 5px #22d3ee; }
-        }
-      `}</style>
-    </div>
-  );
-}
+import React, { useState, useEffect, useRef } from "react";
 
 export default function ChatHUD() {
   const [messages, setMessages] = useState([
-    { role: "ai", text: "系統連線成功。我是妳的專屬 AI 夥伴，請多指教！", typing: true }
+    { id: 1, role: "ai", text: "系統連線成功。我是妳的專屬 AI 夥伴，請多指教！" }
   ]);
   const [input, setInput] = useState("");
-  const [isAiTyping, setIsAiTyping] = useState(true); // 控制波紋
-
-  const messagesEndRef = useRef(null);
+  const [isThinking, setIsThinking] = useState(false); // 思考狀態
+  const scrollRef = useRef(null);
 
   // 自動捲動到底部
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isAiTyping]);
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages, isThinking]);
 
-  const handleSend = (e) => {
+  const handleSend = async (e) => {
     e.preventDefault();
-    if (!input.trim()) return;
+    if (!input.trim() || isThinking) return;
 
     const userText = input;
-    setInput("");
+    setInput(""); // 清空輸入框
 
-    // 1. 顯示使用者訊息
-    setMessages(prev => [...prev, { role: "user", text: userText }]);
+    // 1. 顯示玩家的訊息
+    setMessages(prev => [...prev, { id: Date.now(), role: "user", text: userText }]);
+    
+    // 2. 進入思考模式
+    setIsThinking(true);
 
-    // 2. 模擬 AI 思考與回應
-    setIsAiTyping(true);
-    setTimeout(() => {
-      setMessages(prev => [
-        ...prev, 
-        { role: "ai", text: `收到！關於 "${userText}"，我正在分析資料庫...`, typing: true }
-      ]);
-    }, 800);
-  };
+    try {
+        // 3. 🌟 呼叫我們剛剛寫好的後端 API
+        const res = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: userText })
+        });
 
-  const handleTypingComplete = () => {
-    setIsAiTyping(false);
+        const data = await res.json();
+
+        // 4. 顯示 AI 的回答
+        setMessages(prev => [...prev, { id: Date.now() + 1, role: "ai", text: data.reply }]);
+
+    } catch (error) {
+        setMessages(prev => [...prev, { id: Date.now() + 1, role: "ai", text: "⚠️ 連線錯誤，請檢查網路狀態。" }]);
+    } finally {
+        setIsThinking(false); // 思考結束
+    }
   };
 
   return (
-    <div className="absolute inset-0 flex flex-col justify-end pointer-events-none pb-safe-bottom z-20">
+    <div className="absolute inset-x-0 bottom-8 z-50 flex flex-col items-center pointer-events-none"> {/* 外層不擋點擊 */}
       
-      {/* 訊息顯示區 */}
-      <div className="w-full px-4 mb-20 max-h-[50vh] overflow-y-auto space-y-4 pointer-events-auto no-scrollbar mask-gradient-top">
-        {messages.map((msg, idx) => (
-          <div key={idx} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-            
-            {/* AI 頭像與波紋 (僅 AI 訊息顯示) */}
-            {msg.role === "ai" && (
-              <div className="mr-2 flex flex-col items-center justify-end pb-1">
-                 <div className="w-6 h-6 rounded-full bg-cyan-900/80 border border-cyan-500/50 flex items-center justify-center text-[10px] text-cyan-200 mb-1">
-                    AI
-                 </div>
-                 {/* 只有最新的一則 AI 訊息且正在打字時，才顯示波紋 */}
-                 {idx === messages.length - 1 && msg.typing && <AudioWave isActive={true} />}
-              </div>
-            )}
-
-            <div 
-              className={`
-                max-w-[75%] px-5 py-3 text-sm backdrop-blur-md border shadow-lg
-                ${msg.role === "user" 
-                  ? "bg-blue-600/20 border-blue-500/50 text-white rounded-2xl rounded-br-none" 
-                  : "bg-gray-900/60 border-cyan-500/30 text-cyan-100 rounded-2xl rounded-bl-none"}
-              `}
-            >
-              {msg.role === "ai" && msg.typing ? (
-                <Typewriter text={msg.text} onComplete={idx === messages.length - 1 ? handleTypingComplete : null} />
-              ) : (
-                msg.text
-              )}
+      {/* 聊天記錄區塊 */}
+      <div className="w-full max-w-lg px-4 mb-4 flex flex-col gap-2 max-h-[40vh] overflow-y-auto pointer-events-auto no-scrollbar" ref={scrollRef}>
+        {messages.map((msg) => (
+          <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`
+              max-w-[80%] px-4 py-2 rounded-2xl text-sm backdrop-blur-md shadow-lg border border-white/10
+              ${msg.role === 'user' 
+                ? 'bg-blue-600/80 text-white rounded-br-none' 
+                : 'bg-gray-900/80 text-cyan-100 rounded-bl-none animate-fadeIn'}
+            `}>
+              {/* 如果是 AI，顯示一個小頭像標示 */}
+              {msg.role === 'ai' && <span className="text-[10px] text-cyan-400 block mb-1 font-bold tracking-wider">AI</span>}
+              {msg.text}
             </div>
           </div>
         ))}
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* 輸入區 (玻璃擬態) */}
-      <div className="absolute bottom-6 left-4 right-4 pointer-events-auto">
-        <form onSubmit={handleSend} className="relative flex items-center gap-2">
-           <div className="relative w-full group">
-             <div className="absolute -inset-0.5 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full opacity-20 group-hover:opacity-50 transition blur"></div>
-             <input 
-               type="text"
-               value={input}
-               onChange={(e) => setInput(e.target.value)}
-               placeholder="輸入訊息..."
-               className="relative w-full bg-black/60 border border-gray-700/50 rounded-full px-6 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500/80 focus:ring-1 focus:ring-cyan-500/50 transition-all backdrop-blur-xl"
-             />
+        
+        {/* 思考中的動畫 */}
+        {isThinking && (
+           <div className="flex justify-start animate-pulse">
+             <div className="bg-gray-900/60 text-cyan-400 px-4 py-2 rounded-2xl rounded-bl-none text-xs border border-cyan-500/30 backdrop-blur-md">
+               AI 正在思考中... 💭
+             </div>
            </div>
-           <button 
-             type="submit"
-             className="bg-cyan-600/80 hover:bg-cyan-500 p-3 rounded-full text-white shadow-[0_0_15px_rgba(34,211,238,0.4)] active:scale-95 border border-cyan-400/30 transition-all backdrop-blur-md"
-           >
-             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-               <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-             </svg>
-           </button>
-        </form>
+        )}
       </div>
 
+      {/* 輸入框區塊 */}
+      <form onSubmit={handleSend} className="w-full max-w-md px-4 pointer-events-auto">
+        <div className="relative group">
+          <div className="absolute -inset-0.5 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full opacity-30 group-hover:opacity-70 transition duration-300 blur"></div>
+          <div className="relative flex items-center bg-black/80 backdrop-blur-xl rounded-full border border-white/10 p-1 shadow-2xl">
+            <input 
+              type="text" 
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="輸入訊息..." 
+              className="flex-1 bg-transparent text-white px-4 py-3 focus:outline-none placeholder-gray-500 text-sm"
+            />
+            <button 
+              type="submit" 
+              disabled={isThinking}
+              className={`p-3 rounded-full transition-all duration-300 ${isThinking ? 'bg-gray-600 cursor-not-allowed' : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:scale-105 active:scale-95'}`}
+            >
+              {/* 發送圖示 */}
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-white">
+                <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <p className="text-center text-[10px] text-gray-500 mt-2 font-mono">POWERED BY GEMINI NEURAL NET</p>
+      </form>
     </div>
   );
 }
