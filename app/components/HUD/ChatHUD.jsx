@@ -4,13 +4,12 @@ import React, { useState, useEffect, useRef } from "react";
 
 export default function ChatHUD() {
   const [messages, setMessages] = useState([
-    { id: 1, role: "ai", text: "系統連線成功。我是妳的專屬 AI 夥伴，請多指教！" }
+    { id: 1, role: "ai", text: "系統連線成功。我是妳的專屬 AI 夥伴 Aria，請多指教！✨" }
   ]);
   const [input, setInput] = useState("");
-  const [isThinking, setIsThinking] = useState(false); // 思考狀態
+  const [isThinking, setIsThinking] = useState(false);
   const scrollRef = useRef(null);
 
-  // 自動捲動到底部
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, isThinking]);
@@ -20,16 +19,16 @@ export default function ChatHUD() {
     if (!input.trim() || isThinking) return;
 
     const userText = input;
-    setInput(""); // 清空輸入框
+    setInput(""); 
 
-    // 1. 顯示玩家的訊息
+    // 1. 顯示玩家訊息
     setMessages(prev => [...prev, { id: Date.now(), role: "user", text: userText }]);
     
     // 2. 進入思考模式
     setIsThinking(true);
 
     try {
-        // 3. 🌟 呼叫我們剛剛寫好的後端 API
+        // 3. 呼叫後端大腦
         const res = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -38,20 +37,20 @@ export default function ChatHUD() {
 
         const data = await res.json();
 
-        // 4. 顯示 AI 的回答
+        // 4. 顯示 AI 回答
         setMessages(prev => [...prev, { id: Date.now() + 1, role: "ai", text: data.reply }]);
 
     } catch (error) {
         setMessages(prev => [...prev, { id: Date.now() + 1, role: "ai", text: "⚠️ 連線錯誤，請檢查網路狀態。" }]);
     } finally {
-        setIsThinking(false); // 思考結束
+        setIsThinking(false);
     }
   };
 
   return (
-    <div className="absolute inset-x-0 bottom-8 z-50 flex flex-col items-center pointer-events-none"> {/* 外層不擋點擊 */}
+    <div className="absolute inset-x-0 bottom-8 z-50 flex flex-col items-center pointer-events-none">
       
-      {/* 聊天記錄區塊 */}
+      {/* 聊天記錄區 */}
       <div className="w-full max-w-lg px-4 mb-4 flex flex-col gap-2 max-h-[40vh] overflow-y-auto pointer-events-auto no-scrollbar" ref={scrollRef}>
         {messages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -61,24 +60,23 @@ export default function ChatHUD() {
                 ? 'bg-blue-600/80 text-white rounded-br-none' 
                 : 'bg-gray-900/80 text-cyan-100 rounded-bl-none animate-fadeIn'}
             `}>
-              {/* 如果是 AI，顯示一個小頭像標示 */}
               {msg.role === 'ai' && <span className="text-[10px] text-cyan-400 block mb-1 font-bold tracking-wider">AI</span>}
               {msg.text}
             </div>
           </div>
         ))}
         
-        {/* 思考中的動畫 */}
+        {/* 思考中動畫 */}
         {isThinking && (
            <div className="flex justify-start animate-pulse">
              <div className="bg-gray-900/60 text-cyan-400 px-4 py-2 rounded-2xl rounded-bl-none text-xs border border-cyan-500/30 backdrop-blur-md">
-               AI 正在思考中... 💭
+               Aria 正在思考中... 💭
              </div>
            </div>
         )}
       </div>
 
-      {/* 輸入框區塊 */}
+      {/* 輸入框 */}
       <form onSubmit={handleSend} className="w-full max-w-md px-4 pointer-events-auto">
         <div className="relative group">
           <div className="absolute -inset-0.5 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full opacity-30 group-hover:opacity-70 transition duration-300 blur"></div>
@@ -95,14 +93,13 @@ export default function ChatHUD() {
               disabled={isThinking}
               className={`p-3 rounded-full transition-all duration-300 ${isThinking ? 'bg-gray-600 cursor-not-allowed' : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:scale-105 active:scale-95'}`}
             >
-              {/* 發送圖示 */}
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-white">
                 <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
               </svg>
             </button>
           </div>
         </div>
-        <p className="text-center text-[10px] text-gray-500 mt-2 font-mono">POWERED BY GEMINI NEURAL NET</p>
+        <p className="text-center text-[10px] text-gray-500 mt-2 font-mono">POWERED BY OPENAI NEURAL NET</p>
       </form>
     </div>
   );
