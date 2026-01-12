@@ -9,14 +9,14 @@ export function useAvatarAnimation(vrm, animationUrl, isPaused) {
   
   // 1. 儲存 VRM 原始姿勢 (A-Pose)
   const vrmRestQuats = useRef({}); 
-  // 2. 🌟 新增：儲存 Mixamo 動畫第一幀的姿勢 (用來當作歸零基準)
+  // 2. 儲存 Mixamo 動畫第一幀
   const mixamoInitQuats = useRef({});
 
   const fbx = useLoader(FBXLoader, animationUrl, (loader) => {
     loader.crossOrigin = "anonymous";
   });
 
-  // 初始化：捕捉 VRM 的原始 A-Pose
+  // 初始化 VRM 姿勢
   useEffect(() => {
     if (!vrm) return;
     Object.values(MIXAMO_VRM_MAP).forEach((vrmBoneName) => {
@@ -35,8 +35,7 @@ export function useAvatarAnimation(vrm, animationUrl, isPaused) {
     action.play();
     setMixer(newMixer);
     
-    // 🌟 重置 Mixamo 基準點
-    // 每次換動畫時，都要清空基準點，重新捕捉第一幀
+    // 重置基準點
     mixamoInitQuats.current = {};
 
     return () => newMixer.stopAllAction(); 
@@ -55,21 +54,22 @@ export function useAvatarAnimation(vrm, animationUrl, isPaused) {
           
           if (vrmBone && vrmRestQuat) {
             
-            // A. 捕捉 Mixamo 第一幀 (歸零基準)
+            // A. 捕捉 Mixamo 第一幀
             if (!mixamoInitQuats.current[mixamoBone.name]) {
                 mixamoInitQuats.current[mixamoBone.name] = mixamoBone.quaternion.clone();
             }
             const mixamoInitQuat = mixamoInitQuats.current[mixamoBone.name];
             const mixamoCurrentQuat = mixamoBone.quaternion;
 
-            // B. 計算「相對變化量 (Delta)」
-            // 公式：變化量 = (第一幀的反轉) * 當前幀
-            // 這就像是把第一幀強制當作 "0度"，只看之後轉了多少
+            // B. 計算變化量 (Delta)
             const rotationDelta = mixamoInitQuat.clone().invert().multiply(mixamoCurrentQuat);
 
+            // 🌟 關鍵修正：動作反轉！(Invert)
+            // 這會把 "往後" 變成 "往前"，"向下" 變成 "向上"
+            // 完美解決軸向相反的問題
+            rotationDelta.invert();
+
             // C. 套用到 VRM
-            // 公式：VRM最終 = VRM原始A-Pose * 變化量
-            // 讓 VRM 在自己原本站好的基礎上，跟著轉動
             vrmBone.quaternion.copy(vrmRestQuat).multiply(rotationDelta);
           }
         }
