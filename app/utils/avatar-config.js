@@ -1,33 +1,30 @@
 // utils/avatar-config.js
-
 export const MIXAMO_VRM_MAP = {
-  // ❌ 再次封鎖 Hips！它的座標系差異太大，不適合直接轉移
-  // mixamorigHips: "hips", 
-
-  // ✅ 上半身繼續使用 Mixamo 動畫
+  // ✅ Hips 全開！這次不會折疊了
+  mixamorigHips: "hips", 
+  
+  // 上半身
   mixamorigSpine: "spine",
   mixamorigSpine1: "chest",
   mixamorigSpine2: "upperChest",
   mixamorigNeck: "neck",
   mixamorigHead: "head",
-  
   mixamorigLeftShoulder: "leftShoulder",
   mixamorigLeftArm: "leftUpperArm",
   mixamorigLeftForeArm: "leftLowerArm",
   mixamorigLeftHand: "leftHand",
-  
   mixamorigRightShoulder: "rightShoulder",
   mixamorigRightArm: "rightUpperArm",
   mixamorigRightForeArm: "rightLowerArm",
   mixamorigRightHand: "rightHand",
 
-  // ❌ 腿部也建議封鎖，改用程式控制重心
-  // mixamorigLeftUpLeg: "leftUpperLeg",
-  // mixamorigLeftLeg: "leftLowerLeg",
-  // mixamorigLeftFoot: "leftFoot",
-  // mixamorigRightUpLeg: "rightUpperLeg",
-  // mixamorigRightLeg: "rightLowerLeg",
-  // mixamorigRightFoot: "rightFoot",
+  // ✅ 腿部全開！讓她跟著揮手動作踏步
+  mixamorigLeftUpLeg: "leftUpperLeg",
+  mixamorigLeftLeg: "leftLowerLeg",
+  mixamorigLeftFoot: "leftFoot",
+  mixamorigRightUpLeg: "rightUpperLeg",
+  mixamorigRightLeg: "rightLowerLeg",
+  mixamorigRightFoot: "rightFoot",
 };
 
 export const NATURAL_POSE_CONFIG = {
