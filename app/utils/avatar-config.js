@@ -1,9 +1,11 @@
 // utils/avatar-config.js
 
+import * as THREE from "three";
+
 // 🌟 骨架映射表 (Mixamo -> VRM)
-// 通用版：我們解鎖所有骨頭，讓動作完全釋放
 export const MIXAMO_VRM_MAP = {
-  // 核心
+  // --- 核心軀幹 ---
+  // ✅ 解鎖 Hips！讓她可以扭腰擺臀，重心轉移
   mixamorigHips: "hips", 
   mixamorigSpine: "spine",
   mixamorigSpine1: "chest",
@@ -11,7 +13,7 @@ export const MIXAMO_VRM_MAP = {
   mixamorigNeck: "neck",
   mixamorigHead: "head",
   
-  // 手臂
+  // --- 手臂 ---
   mixamorigLeftShoulder: "leftShoulder",
   mixamorigLeftArm: "leftUpperArm",
   mixamorigLeftForeArm: "leftLowerArm",
@@ -22,20 +24,21 @@ export const MIXAMO_VRM_MAP = {
   mixamorigRightForeArm: "rightLowerArm",
   mixamorigRightHand: "rightHand",
 
-  // 腿部 (如果妳的揮手動作包含走動，可以把下面解開)
-  // 如果只是站著揮手，建議還是註解掉，站得比較穩
-  // mixamorigLeftUpLeg: "leftUpperLeg",
-  // mixamorigLeftLeg: "leftLowerLeg",
-  // mixamorigLeftFoot: "leftFoot",
-  // mixamorigRightUpLeg: "rightUpperLeg",
-  // mixamorigRightLeg: "rightLowerLeg",
-  // mixamorigRightFoot: "rightFoot",
+  // --- 腿部 (全面解鎖！) ---
+  // ✅ 解鎖腿部！讓她隨著揮手動作，膝蓋和腳踝自然彎曲
+  mixamorigLeftUpLeg: "leftUpperLeg",
+  mixamorigLeftLeg: "leftLowerLeg",
+  mixamorigLeftFoot: "leftFoot",
+  
+  mixamorigRightUpLeg: "rightUpperLeg",
+  mixamorigRightLeg: "rightLowerLeg",
+  mixamorigRightFoot: "rightFoot",
 };
 
 // 🌟 自然姿勢 (初始狀態)
-// 當沒有動畫時，或是動畫運算前的基準點
+// 這是 Delta 運算的基準點，保持不動
 export const NATURAL_POSE_CONFIG = {
-  leftUpperArm: [0, 0, 1.3],  // A-Pose (手放下)
+  leftUpperArm: [0, 0, 1.3],
   rightUpperArm: [0, 0, -1.3],
   leftLowerArm: [0, 0, 0.1],
   rightLowerArm: [0, 0, -0.1],
