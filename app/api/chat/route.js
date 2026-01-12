@@ -1,48 +1,50 @@
-// app/api/chat/route.js
+import OpenAI from "openai";
 import { NextResponse } from "next/server";
+
+// 1. 初始化 OpenAI
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+// 🌟 設定 AI 人設 (System Prompt)
+// 這裡跟之前一樣，可以設定妳希望她扮演的角色
+const SYSTEM_PROMPT = `
+妳現在是一個叫做 "Aria" 的高科技 AI 助理。
+個性設定：
+1. 妳說話有點調皮，充滿活力，喜歡用 emoji ✨。
+2. 妳非常專業，對於使用者的請求會給予準確的回答。
+3. 妳住在一個虛擬的浮空介面中。
+4. 回答請簡短有力，不要長篇大論，因為對話框空間有限。
+5. 請全部用繁體中文回答。
+`;
 
 export async function POST(req) {
   try {
-    const body = await req.json();
-    const message = (body?.message || "").trim();
-    const nickname = body?.nickname || "小管家";
+    const { message } = await req.json();
 
-    // 1. 如果沒內容
-    if (!message) {
-      return NextResponse.json({ 
-        reply: "妳剛剛好像沒打內容～再輸入一次我再幫妳～", 
-        emotion: "confused" 
-      });
-    }
+    // 2. 呼叫 OpenAI (ChatGPT)
+    const completion = await openai.chat.completions.create({
+      // 這裡可以用 "gpt-4o" (最新最快) 或 "gpt-3.5-turbo" (便宜)
+      // 既然妳有付費，建議直接用最強的 gpt-4o
+      model: "gpt-4o", 
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT }, // 注入人設
+        { role: "user", content: message },         // 使用者的訊息
+      ],
+      temperature: 0.7, // 0.7 是標準創意度，越高越有創意，越低越嚴謹
+      max_tokens: 150,  // 限制回答長度，避免它講太多廢話
+    });
 
-    // 2. 模擬 AI 思考時間 (0.8秒)
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    // 3. 取得 AI 的回答
+    const reply = completion.choices[0].message.content;
 
-    // 3. 簡單的回覆邏輯
-    let reply = "";
-    let emotion = "neutral";
+    // 4. 回傳給前端
+    return NextResponse.json({ reply: reply });
 
-    if (message.includes("你好") || message.includes("嗨")) {
-      reply = `哈囉！我是${nickname}，很高興見到妳！有什麼我可以幫妳的嗎？✨`;
-      emotion = "happy";
-    } else if (message.includes("玻璃") || message.includes("水垢")) {
-      reply = "浴室玻璃的水垢真的很煩人對吧？😫 建議可以使用檸檬酸或是專用的玻璃清潔劑，效果會很好喔！需不需要我推薦幾款？";
-      emotion = "thoughtful";
-    } else if (message.includes("生氣") || message.includes("討厭")) {
-      reply = "別氣別氣～發生什麼事了？說出來心裡會舒服一點喔 ❤️";
-      emotion = "sad";
-    } else {
-      reply = `${nickname} 收到妳說的：「${message}」\n但我目前還在學習中，可能需要妳說得更具體一點，我才能幫妳解決清潔/鍍膜的問題喔！💪`;
-      emotion = "neutral";
-    }
-
-    // 4. 回傳
-    return NextResponse.json({ reply, emotion });
-
-  } catch (e) {
-    console.error("API Error:", e);
+  } catch (error) {
+    console.error("OpenAI Error:", error);
     return NextResponse.json(
-      { reply: "系統有點忙碌，大腦打結了...稍後再試一次看看～ 😵", emotion: "sad" },
+      { reply: "抱歉，我的 OpenAI 線路有點壅塞... 請稍後再試 😵‍💫" }, 
       { status: 500 }
     );
   }
