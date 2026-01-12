@@ -6,11 +6,9 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 import * as THREE from "three";
 
-// 引入我們剛寫好的工具與邏輯
 import { NATURAL_POSE_CONFIG } from "../../utils/avatar-config";
 import { useAvatarAnimation } from "../../hooks/useAvatarAnimation";
 
-// 輔助函式：套用自然姿勢
 function applyNaturalPose(vrm) {
   if (!vrm || !vrm.humanoid) return;
   Object.entries(NATURAL_POSE_CONFIG).forEach(([boneName, rotation]) => {
@@ -22,7 +20,6 @@ function applyNaturalPose(vrm) {
 export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, isApproaching = false }) {
   const url = useMemo(() => `/vrm/${vrmId}.vrm`, [vrmId]);
   
-  // 1. 載入模型
   const gltf = useLoader(GLTFLoader, url, (loader) => {
     loader.crossOrigin = "anonymous";
     loader.register((parser) => new VRMLoaderPlugin(parser));
@@ -31,24 +28,18 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
   const [vrm, setVrm] = useState(null);
   const floatGroupRef = useRef();
   
-  // 互動狀態
   const [interaction, setInteraction] = useState(null);
   const interactionTimer = useRef(null);
 
-  // 2. 初始化 VRM (外觀設定)
   useEffect(() => {
     if (!gltf?.userData?.vrm) return;
     const loadedVrm = gltf.userData.vrm;
     VRMUtils.rotateVRM0(loadedVrm);
     
-    // 材質處理
     loadedVrm.scene.traverse((obj) => {
         if (obj.isMesh && obj.material) {
             obj.frustumCulled = false;
-            // 備份原始材質
             if (!obj.userData.originalMat) obj.userData.originalMat = Array.isArray(obj.material) ? obj.material : obj.material.clone();
-            
-            // 標記眼睛
             const name = obj.name.toLowerCase();
             const matName = obj.material.name ? obj.material.name.toLowerCase() : "";
             obj.userData.isEye = name.includes("eye") || matName.includes("eye") || name.includes("face") || matName.includes("iris");
@@ -60,11 +51,9 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
     if (onReady) onReady(loadedVrm);
   }, [gltf, onReady]);
 
-  // 3. 🌟 使用我們寫好的 Hook 來驅動動畫
-  // 只要這一行，動畫邏輯就掛載上去了！這就是模組化的威力。
+  // 掛載動畫 Hook (上半身)
   useAvatarAnimation(vrm, "/vrm/idle.fbx", isApproaching);
 
-  // 4. 特效切換 (全像投影 vs 實體)
   useEffect(() => {
     if (!vrm) return;
     const hologramMaterial = new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true, transparent: true, opacity: 0.3, skinning: true, side: THREE.DoubleSide });
@@ -81,7 +70,6 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
     });
   }, [unlocked, vrm]);
 
-  // 5. 互動事件處理
   const handleHitBoxClick = (e) => {
     if (!unlocked) return;
     e.stopPropagation();
@@ -92,11 +80,10 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
     interactionTimer.current = setTimeout(() => setInteraction(null), 1500);
   };
 
-  // 6. 其他動畫 (浮動、表情、互動反應)
   useFrame((state, delta) => {
     const t = state.clock.elapsedTime;
 
-    // 浮動邏輯
+    // 1. 浮動邏輯
     if (floatGroupRef.current) {
         if (isApproaching) {
             floatGroupRef.current.position.z = THREE.MathUtils.lerp(floatGroupRef.current.position.z, 2.5, delta * 2);
@@ -107,8 +94,8 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
         }
     }
 
-    // 表情與互動反應
     if (vrm) {
+        // 2. 表情控制
         const blinkVal = Math.max(0, Math.sin(t * 2.5) * 5 - 4);
         let happyWeight = (emotion === 'happy' || isApproaching) ? 1.0 : 0;
         let neutralWeight = (emotion === 'neutral' && !isApproaching) ? 0.5 : 0;
@@ -122,6 +109,20 @@ export default function Avatar3D({ vrmId, emotion, onReady, unlocked = false, is
             vrm.expressionManager.update();
         }
 
+        // 3. 🌟 安全的「人工呼吸」 (Procedural Hips Sway)
+        // 既然 Mixamo 的 Hips 會壞掉，我們就自己手動轉！
+        // 這樣既安全，又不會像木頭人
+        if (!isApproaching) {
+            const hips = vrm.humanoid.getNormalizedBoneNode('hips');
+            if (hips) {
+                // 輕微的左右搖擺 (Z軸) 和 呼吸起伏 (X軸)
+                // 這些角度很小，絕對安全
+                hips.rotation.z = Math.sin(t * 0.8) * 0.02; 
+                hips.rotation.x = Math.sin(t * 1.2) * 0.01; 
+            }
+        }
+
+        // 4. 互動反應 (搖頭)
         if (interaction === 'head') {
              const head = vrm.humanoid.getNormalizedBoneNode('head');
              if(head) head.rotation.z += Math.sin(t * 15) * 0.1;
