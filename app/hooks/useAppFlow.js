@@ -15,13 +15,13 @@ export function useAppFlow() {
     isApproaching: false,
   });
 
+  // 初始化讀取存檔
   useEffect(() => {
     setFlags(prev => ({ ...prev, isClient: true }));
     const saved = storage.load();
     if (saved && saved.email) {
-      // 🌟 修正點 1: 確保讀取舊存檔時，對應回 avatar_01
-      if (saved.model === "model_c" || saved.model === "C1") saved.model = "avatar_01";
-      if (saved.model === "model_si" || saved.model === "C2") saved.model = "avatar_02";
+      if (["avatar_01", "model_c", "C1"].includes(saved.model)) saved.model = "core_main";
+      if (["avatar_02", "model_si", "C2"].includes(saved.model)) saved.model = "core_sec";
       
       setFinalCharacter(saved);
       setStep("chat");
@@ -29,14 +29,28 @@ export function useAppFlow() {
     }
   }, []);
 
+  // 🌟 新增：安全計時器 (Safety Timer)
+  // 如果在 'extracting' 畫面卡超過 6 秒，不管模型好沒好，強制進入 'create'
+  useEffect(() => {
+    if (step === "extracting") {
+      const timer = setTimeout(() => {
+        console.warn("⚠️ Model load timeout - Forcing transition...");
+        setStep("create");
+        setFlags(prev => ({ ...prev, isModelReady: true })); 
+      }, 6000); // 6秒後強制跳轉
+
+      return () => clearTimeout(timer);
+    }
+  }, [step]);
+
   const actions = {
     completeBoot: () => setStep("email"),
-    
     submitEmail: (inputEmail) => {
       setEmail(inputEmail);
       setStep("extracting");
     },
     
+    // 正常的模型載入成功回調
     modelReady: () => {
       if (step === "extracting") {
         setTimeout(() => setStep("create"), 1500);
@@ -48,20 +62,16 @@ export function useAppFlow() {
     
     finishCreation: () => {
       try {
-        // 🌟 修正點 2: 預設值改回 avatar_01
-        const configToSave = tempConfig || { model: "avatar_01", personality: "warm" };
+        const configToSave = tempConfig || { model: "core_main", personality: "warm" };
         const newCharacter = { 
           email, 
           name: "My AI Buddy", 
           ...configToSave, 
           createdAt: new Date().toISOString() 
         };
-        
         storage.save(newCharacter);
         setFinalCharacter(newCharacter);
-        
         setFlags(prev => ({ ...prev, isApproaching: true, isUnlocked: true }));
-
         setTimeout(() => {
           setStep("chat");
           setFlags(prev => ({ ...prev, isApproaching: false }));
@@ -84,21 +94,25 @@ export function useAppFlow() {
           isApproaching: false
         });
       }
-    }
+    },
+
+    // 🌟 計算當前 ID (預設 core_main)
+    currentModelId: step === 'create' 
+      ? (tempConfig?.model || "core_main") 
+      : (finalCharacter?.model || "core_main"),
+      
+    currentEmotion: (step === 'create' ? tempConfig?.personality : finalCharacter?.personality) === 'cool' ? 'neutral' : 'happy'
   };
 
-  // 🌟 修正點 3: 這裡也改回 avatar_01
-  const currentModelId = step === 'create' 
-    ? (tempConfig?.model || "avatar_01") 
-    : (finalCharacter?.model || "avatar_01");
-    
-  const currentEmotion = (step === 'create' ? tempConfig?.personality : finalCharacter?.personality) === 'cool' ? 'neutral' : 'happy';
-
+  // 整理回傳物件
   return {
     step,
     finalCharacter,
     flags,
-    modelData: { id: currentModelId, emotion: currentEmotion },
+    modelData: { 
+        id: actions.currentModelId, 
+        emotion: actions.currentEmotion 
+    },
     actions
   };
 }
