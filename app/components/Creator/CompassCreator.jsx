@@ -1,171 +1,124 @@
 "use client";
+import React, { useState, useRef, useEffect } from "react";
 
-import { useState, useEffect, useRef } from "react";
-
-// 選項資料
-const OPTIONS = {
-  model: [
-    { id: "avatar_01", label: "C1·原型" },
-    { id: "avatar_02", label: "C2·機動" },
-    { id: "avatar_03", label: "C3·重裝" }, // 測試用
-    { id: "avatar_04", label: "C4·特務" }, // 測試用
-  ],
-  color: [
-    { id: "blue", label: "天空藍", color: "#3b82f6" },
-    { id: "purple", label: "霓虹紫", color: "#a855f7" },
-    { id: "orange", label: "太陽橘", color: "#f97316" },
-    { id: "cyan", label: "駭客青", color: "#22d3ee" },
-  ],
-  type: [
-    { id: "warm", label: "熱情" },
-    { id: "cool", label: "冷靜" },
-    { id: "dark", label: "腹黑" },
-    { id: "shy", label: "害羞" },
-  ]
-};
-
-// --- 單一滾輪組件 ---
-function WheelColumn({ title, options, selectedId, onSelect }) {
+// --------------------------------------------------------
+// 🛠️ 單個輪盤元件 (樣式大升級)
+// --------------------------------------------------------
+const Reel = ({ title, options, onChange, delayIndex = 0 }) => {
   const scrollRef = useRef(null);
-  const itemHeight = 48; // 每個選項的高度 (px)
+  const [selectedIndex, setSelectedIndex] = useState(0);
 
-  // 1. 初始化：自動捲動到目前選中的項目
-  useEffect(() => {
+  const handleScroll = () => {
     if (scrollRef.current) {
-      const index = options.findIndex(opt => opt.id === selectedId);
-      if (index !== -1) {
-        scrollRef.current.scrollTop = index * itemHeight;
-      }
-    }
-  }, []); // 只在掛載時執行一次，避免循環捲動
-
-  // 2. 監聽捲動：計算目前停在哪一個選項
-  const handleScroll = (e) => {
-    const scrollTop = e.target.scrollTop;
-    // 計算目前最接近中心的索引 (四捨五入)
-    const index = Math.round(scrollTop / itemHeight);
-    
-    // 如果索引有效且改變了，就觸發選擇
-    if (index >= 0 && index < options.length) {
-      const newId = options[index].id;
-      if (newId !== selectedId) {
-        onSelect(newId);
+      const itemHeight = 48; 
+      const scrollTop = scrollRef.current.scrollTop;
+      const index = Math.round(scrollTop / itemHeight);
+      if (index !== selectedIndex && index >= 0 && index < options.length) {
+        setSelectedIndex(index);
+        onChange(options[index]);
       }
     }
   };
 
+  // 增加一個入場動畫延遲，讓輪盤依序出現
+  const animationDelay = `${delayIndex * 100}ms`;
+
   return (
-    <div className="flex flex-col items-center gap-2 min-w-[100px] flex-1 snap-center">
-      {/* 標題 */}
-      <div className="text-[10px] font-bold text-cyan-500 tracking-widest uppercase mb-1">
-        {title}
+    <div className="flex flex-col items-center gap-2 min-w-[100px] snap-center animate-fadeInUp" style={{ animationDelay }}>
+      {/* 標題增加科技感裝飾 */}
+      <div className="relative">
+        <div className="text-[8px] text-cyan-300/70 font-mono tracking-[0.2em] uppercase border-b border-cyan-500/30 pb-1 mb-1 relative z-10">
+          {title}
+        </div>
+        <div className="absolute -bottom-1 left-0 w-2 h-[1px] bg-cyan-500"></div>
       </div>
 
-      {/* 滾輪容器 */}
-      <div className="relative h-36 w-full max-w-[120px] bg-gray-900/50 rounded-xl border border-gray-700/50 backdrop-blur-md overflow-hidden shadow-inner group">
+      {/* 輪盤容器 - 增加科技感背景和邊框 */}
+      <div className="relative h-36 w-24 overflow-hidden rounded-lg bg-[#0a0a12]/80 backdrop-blur-md border border-cyan-500/30 shadow-[inset_0_0_20px_rgba(0,255,255,0.1)] group hover:border-cyan-400/60 transition-colors">
         
-        {/* 選中框 (Highlight Box) - 絕對定位在中間 */}
-        <div className="absolute top-1/2 left-0 w-full h-12 -translate-y-1/2 border-y-2 border-cyan-400 bg-cyan-400/10 pointer-events-none z-10 shadow-[0_0_15px_rgba(34,211,238,0.2)]"></div>
+        {/* 背景裝飾網格 */}
+        <div className="absolute inset-0 opacity-20 pointer-events-none" 
+             style={{ backgroundImage: 'linear-gradient(0deg, transparent 24%, rgba(0, 255, 255, 0.05) 25%, rgba(0, 255, 255, 0.05) 26%, transparent 27%, transparent 74%, rgba(0, 255, 255, 0.05) 75%, rgba(0, 255, 255, 0.05) 76%, transparent 77%, transparent), linear-gradient(90deg, transparent 24%, rgba(0, 255, 255, 0.05) 25%, rgba(0, 255, 255, 0.05) 26%, transparent 27%, transparent 74%, rgba(0, 255, 255, 0.05) 75%, rgba(0, 255, 255, 0.05) 76%, transparent 77%, transparent)', backgroundSize: '20px 20px' }}>
+        </div>
 
-        {/* 捲動區域 */}
+        {/* 中間選取框的發光效果 */}
+        <div className="absolute top-1/2 left-0 w-full h-12 -translate-y-1/2 z-10 pointer-events-none border-y-2 border-cyan-400/50 bg-cyan-400/10 shadow-[0_0_15px_rgba(0,255,255,0.2)]">
+             <div className="absolute top-0 left-0 w-1 h-full bg-cyan-400/80"></div>
+             <div className="absolute top-0 right-0 w-1 h-full bg-cyan-400/80"></div>
+        </div>
+
+        {/* 滾動區域 */}
         <div 
           ref={scrollRef}
           onScroll={handleScroll}
-          className="w-full h-full overflow-y-auto snap-y snap-mandatory no-scrollbar py-12" // py-12 讓第一個和最後一個能捲到中間
+          className="relative z-20 w-full h-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide py-[calc(50%-24px)]" 
+          style={{ scrollBehavior: 'smooth' }}
         >
-          {options.map((opt) => {
-            const isSelected = selectedId === opt.id;
+          {options.map((opt, i) => {
+            const distance = Math.abs(selectedIndex - i);
+            const isSelected = distance === 0;
+            const isLocked = opt.value === 'locked';
             return (
               <div 
-                key={opt.id}
-                onClick={() => {
-                  // 點擊也可直接選取
-                  onSelect(opt.id);
-                  const idx = options.findIndex(o => o.id === opt.id);
-                  if(scrollRef.current) scrollRef.current.scrollTo({ top: idx * itemHeight, behavior: 'smooth' });
-                }}
-                className={`
-                  h-12 w-full flex items-center justify-center snap-center transition-all duration-300 cursor-pointer
-                  ${isSelected ? "text-white scale-110 font-bold" : "text-gray-600 scale-90 opacity-50"}
-                `}
+                key={opt.label + i}
+                className={`h-12 flex items-center justify-center snap-center transition-all duration-300 ${isSelected ? 'scale-110' : 'scale-90 opacity-40 blur-[1px]'}`}
               >
-                {/* 如果有顏色屬性，顯示小圓點 */}
-                {opt.color && (
-                  <span className="w-2 h-2 rounded-full mr-2 shadow-[0_0_5px_currentColor]" style={{ backgroundColor: opt.color }} />
-                )}
-                <span className="text-sm">{opt.label}</span>
+                <span className={`font-mono text-[10px] tracking-wider whitespace-nowrap ${isSelected ? 'font-bold text-cyan-50 drop-shadow-[0_0_5px_rgba(0,255,255,0.8)]' : (isLocked ? 'text-gray-600' : 'text-cyan-700')}`}>
+                  {isLocked ? '🔒 ' + opt.label : opt.label}
+                </span>
               </div>
             );
           })}
         </div>
-
-        {/* 上下遮罩漸層 (讓滾動更有立體感) */}
-        <div className="absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-black/80 to-transparent pointer-events-none z-20"></div>
-        <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/80 to-transparent pointer-events-none z-20"></div>
       </div>
     </div>
   );
-}
+};
 
+// --------------------------------------------------------
+// 🚀 主介面：現在有 9 個輪盤
+// --------------------------------------------------------
 export default function CompassCreator({ onChange }) {
-  const [config, setConfig] = useState({
-    model: "avatar_01",
-    color: "blue",
-    personality: "warm"
-  });
+  const [config, setConfig] = useState({});
 
-  // 當設定改變時，通知父層
-  useEffect(() => {
-    if(onChange) onChange(config);
-  }, [config, onChange]);
+  // 🌟 擴充到 9 個輪盤的資料
+  const reelStructure = [
+    // 第一區：核心
+    { id: "model", title: "CORE MODEL", options: [{ label: "Avatar-C", value: "model_c" }, { label: "Avatar-Si", value: "model_si" }, { label: "Locked", value: "locked" }] },
+    { id: "os", title: "OPERATING SYS", options: [{ label: "NeuralOS v1", value: "v1" }, { label: "NeuralOS v2", value: "v2" }, { label: "Locked", value: "locked" }] },
+    { id: "cpu", title: "PROCESSOR", options: [{ label: "Quantum-X", value: "q-x" }, { label: "Optical-Z", value: "o-z" }] },
+    
+    // 第二區：人格與外觀
+    { id: "personality", title: "PERSONALITY", options: [{ label: "溫暖 WARM", value: "warm" }, { label: "冷靜 COOL", value: "cool" }] },
+    { id: "voice", title: "VOICE PACK", options: [{ label: "Type-A (F)", value: "vf" }, { label: "Type-B (M)", value: "vm" }] },
+    { id: "color", title: "THEME COLOR", options: [{ label: "科技藍", value: "cyan" }, { label: "以及紫", value: "purple" }, { label: "警告橘", value: "orange" }] },
 
-  const updateConfig = (key, value) => {
-    setConfig(prev => ({ ...prev, [key]: value }));
+    // 第三區：擴充模組
+    { id: "mod1", title: "MODULE [A]", options: [{ label: "語言包", value: "lang" }, { label: "戰術分析", value: "tactical" }, { label: "未安裝", value: "none" }] },
+    { id: "mod2", title: "MODULE [B]", options: [{ label: "情感引擎", value: "emotion" }, { label: "未安裝", value: "none" }] },
+    { id: "mod3", title: "MODULE [C]", options: [{ label: "加密通訊", value: "crypto" }, { label: "未安裝", value: "none" }] },
+  ];
+
+  const handleReelChange = (id, option) => {
+    const newConfig = { ...config, [id]: option.value };
+    setConfig(newConfig);
+    onChange(newConfig);
   };
 
   return (
-    <div className="w-full pb-safe-bottom px-4">
-      
-      {/* 外層容器：
-         1. flex-row: 讓滾輪由左到右並排
-         2. overflow-x-auto: 如果超過畫面寬度，可以左右滑動
-      */}
-      <div className="flex flex-row gap-2 overflow-x-auto snap-x snap-mandatory no-scrollbar pb-4 items-start justify-start md:justify-center">
-        
-        {/* 1. 模型滾輪 */}
-        <WheelColumn 
-          title="MODEL" 
-          options={OPTIONS.model} 
-          selectedId={config.model} 
-          onSelect={(val) => updateConfig("model", val)} 
+    // 使用 grid 佈局來排列 9 個輪盤 (3x3 雖然可能太擠，我們先用 flex wrap 讓它自動換行)
+    <div className="flex flex-wrap justify-center gap-x-4 gap-y-6 px-4 py-6 mask-gradient-sides overflow-x-auto scrollbar-hide snap-x">
+      {reelStructure.map((reel, index) => (
+        <Reel 
+          key={reel.id} 
+          title={reel.title} 
+          options={reel.options}
+          delayIndex={index} // 傳入索引以製造階梯式動畫
+          onChange={(opt) => handleReelChange(reel.id, opt)}
         />
-        
-        {/* 2. 顏色滾輪 */}
-        <WheelColumn 
-          title="COLOR" 
-          options={OPTIONS.color} 
-          selectedId={config.color} 
-          onSelect={(val) => updateConfig("color", val)} 
-        />
-        
-        {/* 3. 個性滾輪 */}
-        <WheelColumn 
-          title="TYPE" 
-          options={OPTIONS.type} 
-          selectedId={config.personality} 
-          onSelect={(val) => updateConfig("personality", val)} 
-        />
-        
-        {/* 4. 預留擴充 (這裡示範如果有第4個，會自動長在右邊) */}
-        {/* <WheelColumn 
-          title="VOICE" 
-          options={[{id:'v1', label:'甜美'}, {id:'v2', label:'成熟'}]} 
-          selectedId={'v1'} 
-          onSelect={()=>{}} 
-        /> 
-        */}
-
-      </div>
+      ))}
+      {/* 底部裝飾線 */}
+      <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-900/50 to-transparent mt-4"></div>
     </div>
   );
 }
