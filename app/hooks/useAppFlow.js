@@ -8,7 +8,6 @@ export function useAppFlow() {
   const [tempConfig, setTempConfig] = useState(null);
   const [finalCharacter, setFinalCharacter] = useState(null);
   
-  // 動畫與狀態控制旗標
   const [flags, setFlags] = useState({
     isClient: false,
     isUnlocked: false,
@@ -16,14 +15,13 @@ export function useAppFlow() {
     isApproaching: false,
   });
 
-  // 初始化：讀取存檔
   useEffect(() => {
     setFlags(prev => ({ ...prev, isClient: true }));
     const saved = storage.load();
     if (saved && saved.email) {
-      // 舊版資料相容性處理
-      if (saved.model === "C1") saved.model = "avatar_01";
-      if (saved.model === "C2") saved.model = "avatar_02";
+      // 🌟 修正點 1: 確保讀取舊存檔時，對應回 avatar_01
+      if (saved.model === "model_c" || saved.model === "C1") saved.model = "avatar_01";
+      if (saved.model === "model_si" || saved.model === "C2") saved.model = "avatar_02";
       
       setFinalCharacter(saved);
       setStep("chat");
@@ -31,7 +29,6 @@ export function useAppFlow() {
     }
   }, []);
 
-  // Actions (功能函數)
   const actions = {
     completeBoot: () => setStep("email"),
     
@@ -51,6 +48,7 @@ export function useAppFlow() {
     
     finishCreation: () => {
       try {
+        // 🌟 修正點 2: 預設值改回 avatar_01
         const configToSave = tempConfig || { model: "avatar_01", personality: "warm" };
         const newCharacter = { 
           email, 
@@ -89,7 +87,7 @@ export function useAppFlow() {
     }
   };
 
-  // 為了 3D 模型顯示計算出的衍生資料
+  // 🌟 修正點 3: 這裡也改回 avatar_01
   const currentModelId = step === 'create' 
     ? (tempConfig?.model || "avatar_01") 
     : (finalCharacter?.model || "avatar_01");
