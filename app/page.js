@@ -1,58 +1,84 @@
 "use client";
 
-import { Suspense } from "react";
-// 引入 Hook
+import React, { Suspense } from "react";
+import { Text } from "@react-three/drei";
 import { useAppFlow } from "./hooks/useAppFlow";
 
-// 引入元件
+// 引入拆分後的元件
+import StageEnvironment from "./components/World/StageEnvironment"; // 🌟 新元件
 import AvatarStage from "./components/AvatarVRM/AvatarStage"; 
+
 import ChatHUD from "./components/HUD/ChatHUD";
 import BootScreen from "./components/Intro/BootScreen";
 import SystemExtracting from "./components/Intro/SystemExtracting";
 import EmailLogin from "./components/Auth/EmailLogin";
 import CreatorHUD from "./components/HUD/CreatorHUD";
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error("3D Error:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <group position={[0, 1.5, -2]}>
+           <mesh>
+             <boxGeometry args={[0.5, 0.5, 0.5]} />
+             <meshStandardMaterial color="red" />
+           </mesh>
+           <Text position={[0, 0.6, 0]} fontSize={0.2} color="red">MODEL ERROR</Text>
+        </group>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function Home() {
-  // 呼叫邏輯掛鉤，取得所有狀態與動作
   const { step, finalCharacter, flags, modelData, actions } = useAppFlow();
 
-  // 防止 SSR 渲染錯誤
   if (!flags.isClient) return <div className="bg-black h-screen"></div>;
 
   return (
     <main className="relative w-full h-screen overflow-hidden bg-black text-white font-sans">
       
-      {/* 1. 開機畫面 */}
-      {step === "boot" && (
-        <BootScreen onComplete={actions.completeBoot} />
-      )}
+      {step === "boot" && <BootScreen onComplete={actions.completeBoot} />}
+      {step === "email" && <EmailLogin onSubmit={actions.submitEmail} />}
+      {step === "extracting" && <SystemExtracting />}
 
-      {/* 2. 登入畫面 */}
-      {step === "email" && (
-        <EmailLogin onSubmit={actions.submitEmail} />
-      )}
-
-      {/* 3. 系統提取過場 */}
-      {step === "extracting" && (
-        <SystemExtracting />
-      )}
-
-      {/* 4. 3D 舞台 (持續存在，根據狀態改變透明度) */}
+      {/* 3D 區域 */}
       {(step === 'extracting' || step === 'create' || step === 'chat') && (
         <div className={`absolute inset-0 z-0 transition-opacity duration-1000 ${(step === 'extracting' && !flags.isModelReady) ? 'opacity-0' : 'opacity-100'}`}>
           <Suspense fallback={null}>
-            <AvatarStage 
-              vrmId={modelData.id}
-              emotion={modelData.emotion}
-              unlocked={flags.isUnlocked} 
-              isApproaching={flags.isApproaching}
-              onModelReady={actions.modelReady} 
-            />
+            
+            {/* 🌟 1. 舞台環境 (放在最外層，不被 Suspense 影響，保證永遠有畫面) */}
+            <StageEnvironment />
+
+            {/* 🌟 2. 只有角色包在 ErrorBoundary 裡面 */}
+            <ErrorBoundary key={modelData.id}>
+               {/* 這裡可以再包一層 Suspense，如果想要角色載入時顯示轉圈圈，但目前 fallback=null 即可 */}
+               <Suspense fallback={null}>
+                  <AvatarStage 
+                    vrmId={modelData.id}
+                    emotion={modelData.emotion}
+                    unlocked={flags.isUnlocked} 
+                    isApproaching={flags.isApproaching}
+                    onModelReady={actions.modelReady} 
+                  />
+               </Suspense>
+            </ErrorBoundary>
+
           </Suspense>
         </div>
       )}
 
-      {/* 5. 角色創造介面 */}
       {step === "create" && (
         <CreatorHUD 
           isApproaching={flags.isApproaching}
@@ -61,12 +87,9 @@ export default function Home() {
         />
       )}
 
-      {/* 6. 聊天介面 (Chat) */}
       {step === "chat" && finalCharacter && (
         <div className="relative z-10 w-full h-full animate-fadeIn pointer-events-none">
            <ChatHUD />
-           
-           {/* 重置按鈕 */}
            <div className="absolute top-4 left-4 z-50 pointer-events-auto">
               <button 
                 onClick={actions.resetSystem} 
@@ -77,7 +100,6 @@ export default function Home() {
            </div>
         </div>
       )}
-
     </main>
   );
 }
