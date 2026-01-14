@@ -1,11 +1,12 @@
 "use client";
 
 import React, { Suspense } from "react";
+import { Canvas } from "@react-three/fiber"; // 🌟 補回這行，它是 3D 的心臟
 import { Text } from "@react-three/drei";
 import { useAppFlow } from "./hooks/useAppFlow";
 
 // 引入拆分後的元件
-import StageEnvironment from "./components/World/StageEnvironment"; // 🌟 新元件
+import StageEnvironment from "./components/World/StageEnvironment";
 import AvatarStage from "./components/AvatarVRM/AvatarStage"; 
 
 import ChatHUD from "./components/HUD/ChatHUD";
@@ -14,6 +15,7 @@ import SystemExtracting from "./components/Intro/SystemExtracting";
 import EmailLogin from "./components/Auth/EmailLogin";
 import CreatorHUD from "./components/HUD/CreatorHUD";
 
+// 錯誤邊界
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -53,29 +55,32 @@ export default function Home() {
       {step === "email" && <EmailLogin onSubmit={actions.submitEmail} />}
       {step === "extracting" && <SystemExtracting />}
 
-      {/* 3D 區域 */}
-      {(step === 'extracting' || step === 'create' || step === 'chat') && (
-        <div className={`absolute inset-0 z-0 transition-opacity duration-1000 ${(step === 'extracting' && !flags.isModelReady) ? 'opacity-0' : 'opacity-100'}`}>
-          <Suspense fallback={null}>
-            
-            {/* 🌟 1. 舞台環境 (放在最外層，不被 Suspense 影響，保證永遠有畫面) */}
-            <StageEnvironment />
+      {/* 4. 3D 舞台區域 */}
+      {/* 🌟 只要不是開機畫面，就顯示 3D (不要用 opacity 隱藏了，直接讓它顯示) */}
+      {step !== "boot" && (
+        <div className="absolute inset-0 z-0">
+          {/* 🌟 關鍵修正：加上 Canvas！沒有它什麼都跑不出來 */}
+          <Canvas>
+            <Suspense fallback={null}>
+              
+              {/* 1. 舞台環境 (地板/燈光) - 這個現在一定會出來！ */}
+              <StageEnvironment />
 
-            {/* 🌟 2. 只有角色包在 ErrorBoundary 裡面 */}
-            <ErrorBoundary key={modelData.id}>
-               {/* 這裡可以再包一層 Suspense，如果想要角色載入時顯示轉圈圈，但目前 fallback=null 即可 */}
-               <Suspense fallback={null}>
-                  <AvatarStage 
-                    vrmId={modelData.id}
-                    emotion={modelData.emotion}
-                    unlocked={flags.isUnlocked} 
-                    isApproaching={flags.isApproaching}
-                    onModelReady={actions.modelReady} 
-                  />
-               </Suspense>
-            </ErrorBoundary>
+              {/* 2. 角色 (只有這裡可能會出錯，所以包 ErrorBoundary) */}
+              {(step === 'extracting' || step === 'create' || step === 'chat') && (
+                <ErrorBoundary key={modelData.id}>
+                   <AvatarStage 
+                     vrmId={modelData.id}
+                     emotion={modelData.emotion}
+                     unlocked={flags.isUnlocked} 
+                     isApproaching={flags.isApproaching}
+                     onModelReady={actions.modelReady} 
+                   />
+                </ErrorBoundary>
+              )}
 
-          </Suspense>
+            </Suspense>
+          </Canvas>
         </div>
       )}
 
